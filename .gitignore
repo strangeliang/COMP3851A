@@ -143,6 +143,13 @@ vite.config.js.timestamp-*
 vite.config.ts.timestamp-*
 .vite/
 
+# SQLite runtime data
+backend/data/*.db
+backend/data/*.db-journal
+backend/data/*.db-wal
+backend/data/*.db-shm
+!backend/data/.gitkeep
+
 # Local archive-comparison workspace
 .compare/
 

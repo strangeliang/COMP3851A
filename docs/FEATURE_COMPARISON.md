@@ -1,45 +1,53 @@
-# 功能对比与整合说明
+# Feature Comparison and Integration Notes
 
-本项目由以下两个压缩包对比整合而成：
+This project was produced by comparing and integrating the following two
+archives:
 
-- `COMP3851A-Study-Companion-main.zip`：公开仓库版本
-- `COMP3851A.zip`：较新的本地开发版本
+- `COMP3851A-Study-Companion-main.zip`: the public repository version
+- `COMP3851A.zip`: the newer local development version
 
-## 对比结果
+## Comparison Results
 
-| 功能 | 公开仓库版本 | 本地开发版本 | 最终整合 |
+| Feature | Public repository version | Local development version | Final integration |
 | --- | --- | --- | --- |
-| 学生与管理员页面 | 有 | 有，主体页面相同 | 保留 |
-| 课程与材料管理 | 有 | 有，主体逻辑相同 | 保留 |
-| TXT / Markdown 上传 | 有 | 有 | 保留 |
-| PDF 文本提取 | 无真实解析 | PDF.js 真实解析 | 采用新版 |
-| 扫描 PDF OCR | 无 | 最多处理前 8 页 | 采用新版 |
-| DOCX / PPTX 文本提取 | 仅界面声明 | 读取 Office XML | 采用新版 |
-| 图片 OCR | 无 | PNG、JPG/JPEG、WEBP、BMP | 采用新版 |
-| 单文件大小 | 100 KB | 10 MB | 采用新版 |
-| Q&A 材料范围 | 聊天组件内部单独上传，未与工作区正确整合 | 使用当前课程中已选择的多个材料 | 采用新版 |
-| Gemini 调用 | 组件内直接调用 | 统一通过 `aiService`，无 Key 时使用 mock fallback | 采用新版 |
-| 上传解析警告 | 无 | 可显示 OCR/解析警告 | 采用新版 |
-| README 与 Git 忽略规则 | 较完整 | 较简略 | 采用公开版并更新 |
+| Student and administrator pages | Available | Available, with the same main pages | Retained |
+| Course and material management | Available | Available, with the same main logic | Retained |
+| TXT / Markdown upload | Available | Available | Retained |
+| PDF text extraction | No real parsing | Real parsing with PDF.js | Newer version adopted |
+| Scanned PDF OCR | Not available | Processes up to the first 8 pages | Newer version adopted |
+| DOCX / PPTX text extraction | Declared in the UI only | Reads Office XML | Newer version adopted |
+| Image OCR | Not available | PNG, JPG/JPEG, WEBP, and BMP | Newer version adopted |
+| Per-file size limit | 100 KB | 10 MB | Newer version adopted |
+| Q&A material scope | Separate upload inside the chat component, not correctly integrated with the workspace | Uses multiple selected materials from the current course | Newer version adopted |
+| Gemini invocation | Called directly inside the component | Centralised through `aiService`, with a mock fallback when no key is available | Newer version adopted |
+| Upload parsing warnings | Not available | Can display OCR and parsing warnings | Newer version adopted |
+| README and Git ignore rules | More complete | Less complete | Public version adopted and updated |
 
-## 主要整合决定
+## Main Integration Decisions
 
-最终版本以本地开发版本的源码和依赖为基础，因为它增加了真实的文件
-提取、OCR、较完整的材料选择流程和修复后的聊天组件。同时合并并更新了
-公开仓库版本中更完整的 README 和 Git 忽略规则，并补充：
+The final version uses the local development version's source code and
+dependencies as its foundation because that version adds real file extraction,
+OCR, a more complete material-selection workflow, and a corrected chat
+component. The more complete README and Git ignore rules from the public
+repository version were also merged and updated. The integration additionally
+introduced:
 
 - `.env.example`
 - `npm run check`
-- 本功能对比文档
-- `.compare`、本地备份和生成测试报告的忽略规则
+- This feature comparison document
+- Ignore rules for `.compare`, local backups, and generated test reports
 
-真实 `.env.local`、API Key、`node_modules`、`dist`、旧备份和大型 HTML
-测试报告均不进入 Git 仓库。
+Real `.env.local` files, API keys, `node_modules`, `dist`, old backups, and
+large HTML test reports are excluded from the Git repository.
 
-## 已知原型限制
+## Known Prototype Limitations
 
-- 登录和权限控制为前端演示逻辑，并非真实安全认证。
-- 数据保存在浏览器 `localStorage`，没有后端数据库。
-- Summary 和 Quiz 仍使用固定演示内容。
-- OCR 当前使用英文模型，效果取决于图片清晰度。
-- 前端 `VITE_*` 环境变量会进入浏览器构建，不适合生产密钥。
+- Login and permission control still use frontend demo logic rather than secure
+  backend authentication.
+- Frontend application data is still stored in browser `localStorage`; the
+  SQLite foundation is not yet connected to the full frontend workflow.
+- Summary and Quiz still use fixed demonstration content.
+- OCR currently uses an English model, and its quality depends on source image
+  clarity.
+- Frontend `VITE_*` environment variables are included in browser builds and
+  are not suitable for production secrets.
