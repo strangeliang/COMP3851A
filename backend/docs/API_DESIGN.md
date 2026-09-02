@@ -1,273 +1,97 @@
-# Backend API Design
+# Backend API — version 1.1.0
 
-## 1. Overview
+The implemented API uses `/api` and same-origin browser requests. Vite proxies `/api` to `http://127.0.0.1:8000` during development and preview. The Express server can also serve the built frontend.
 
-This document records both the implemented backend foundation and the planned
-API contracts for the AI-Powered Study Companion.
+## Implemented routes
 
-Base API path:
+| Method | Route | Access | Result |
+| --- | --- | --- | --- |
+| GET | `/api/health` | Public | Process health |
+| GET | `/api/database/status` | Public local diagnostic | Table availability and counts |
+| POST | `/api/auth/login` | Public, rate limited | HttpOnly session cookie and safe user fields |
+| POST | `/api/auth/logout` | Current browser session | Invalidate cookie and server session |
+| GET | `/api/auth/me` | Active session | Current user |
+| GET | `/api/ai/status` | Active session | Provider/model configuration status; does not probe Gemini |
+| POST | `/api/ai/summary` | Active Student session | Summary paragraph and concepts |
+| POST | `/api/ai/qa` | Active Student session | Answer |
+| POST | `/api/ai/quiz` | Active Student session | Three validated practice questions |
 
-```text
-/api
+## Authentication
+
+Login request:
+
+```json
+{"email":"student@example.com","password":"student123","remember":false}
 ```
 
-The current implementation provides system health, SQLite schema
-initialisation, idempotent demo data seeding, and database status reporting.
-Authentication, Course and Material CRUD, backend file processing, and backend
-AI workflows remain planned.
+The response contains `{ "user": { "id", "name", "email", "role", "status" } }`; no password, password hash, or bearer token is returned in JSON. An opaque random session identifier is sent in `study_session`, with `HttpOnly`, `SameSite=Strict`, and `Path=/`. `Secure` is enabled when `NODE_ENV=production`; that requires HTTPS. Session lifetimes are 8 hours or 7 days when remembered. Session state is in memory and expires on server restart.
 
-## 2. Implemented Endpoints
+SQLite supplies user identity, status and bcrypt hashes on every protected request. Browser cached users and request-supplied roles cannot grant authorization. Login attempts are limited to 20 per IP per 10 minutes. These limits are process-local and intended for the single-process local application.
 
-Only the endpoints in this section are currently implemented.
+The public demo accounts are development fixtures. Administrator account management and public deployment controls are outside this release.
 
-| Module | Method | Endpoint | Purpose | Access |
-| --- | --- | --- | --- | --- |
-| System | GET | `/api/health` | Check whether the Express server is running | Public |
-| System | GET | `/api/database/status` | Query SQLite table availability and record counts | Public during local development |
+## Study requests
 
-### Health Check
-
-```http
-GET /api/health
-```
-
-Example response:
+Summary and Quiz require `materials`. Q&A additionally requires `question` and accepts `history`:
 
 ```json
 {
-  "status": "ok",
-  "message": "Backend is running"
+  "materials": [{
+    "id": "material-id",
+    "name": "lecture.txt",
+    "content": "Page 1\nFull extracted source text...",
+    "readingNotes": "OCR was used; check equations against the original.",
+    "incomplete": false
+  }],
+  "question": "Explain the main idea.",
+  "history": [{"role":"user","text":"My earlier question"},{"role":"model","text":"Earlier answer"}]
 }
 ```
 
-### Database Status
+Limits are shared in `shared/studyLimits.json`: 1–3 materials, at most 100,000 source characters in total, a question of 1–4,000 characters, and at most 10 recent history messages totaling 32,000 characters. Each reading note is limited to 2,000 characters. Oversized or incomplete inputs fail before contacting Gemini. The JSON body limit is 1 MiB.
 
-```http
-GET /api/database/status
-```
+The frontend limits selection to the current student's current course. The server currently accepts inline material text; it does **not** claim to retrieve or enforce ownership of persisted course records. Server-side Course/Material CRUD and source lookup remain future work.
 
-The route performs live SQLite queries. It does not return passwords or
-password hashes.
+`studyContracts.js` contains fixed prompts and JSON response schemas. `geminiService.js` sends the full validated source text through the official `generateContent` endpoint. The API key exists only in the server environment and the `x-goog-api-key` request header. Source instructions cannot change the API URL, access application tools, or receive the key.
 
-Example response after the demo seed has been applied:
+## Responses
+
+Summary:
 
 ```json
-{
-  "status": "ok",
-  "database": "connected",
-  "tablesCreated": true,
-  "counts": {
-    "users": 4,
-    "courses": 3,
-    "materials": 3
-  }
-}
+{"paragraph":"Summary with source references [S1].","concepts":["Key idea [S1]."],"mode":"api"}
 ```
 
-## 3. Implemented Database Foundation
-
-SQLite foreign key enforcement is enabled when the backend starts. Schema
-creation uses `CREATE TABLE IF NOT EXISTS`, and seed insertion is idempotent.
-
-### `users`
-
-- Primary key: `id`
-- Case-insensitive unique email: `email`
-- Hashed password only: `password_hash`
-- Role values: `Student`, `Admin`
-- Status values: `Active`, `Disabled`
-- Audit timestamps: `created_at`, `updated_at`
-
-### `courses`
-
-- Primary key: `id`
-- Owner relationship: `owner_id` references `users.id`
-- Course identity: `code`, `name`
-- A course code is unique per owner
-- Audit timestamps: `created_at`, `updated_at`
-
-### `materials`
-
-- Primary key: `id`
-- Course relationship: `course_id` references `courses.id`
-- Owner relationship: `owner_id` references `users.id`
-- Material metadata: `name`, `type`, `size_bytes`, `status`
-- Extracted demo text: `content`
-- Audit timestamps: `created_at`, `updated_at`
-- Deleting a course cascades to its related materials
-
-## 4. Planned Endpoints
-
-The endpoints below are contracts for later phases. They are not implemented
-and must not be treated as available backend functionality.
-
-| Module | Method | Endpoint | Purpose | Planned access |
-| --- | --- | --- | --- | --- |
-| Authentication | POST | `/api/auth/login` | Log in and receive an access token | Public |
-| Authentication | GET | `/api/auth/me` | Get the current user | Logged-in user |
-| Courses | GET | `/api/courses` | Get the current user's courses | Student |
-| Courses | POST | `/api/courses` | Create a course | Student |
-| Courses | GET | `/api/courses/{course_id}` | Get one course | Owner or Admin |
-| Courses | PATCH | `/api/courses/{course_id}` | Update a course | Owner |
-| Courses | DELETE | `/api/courses/{course_id}` | Delete a course | Owner |
-| Materials | GET | `/api/courses/{course_id}/materials` | Get materials in a course | Owner or Admin |
-| Materials | POST | `/api/courses/{course_id}/materials` | Upload a material | Owner |
-| Materials | GET | `/api/materials/{material_id}` | Get material information and parsing status | Owner or Admin |
-| Materials | DELETE | `/api/materials/{material_id}` | Delete a material | Owner |
-| AI | POST | `/api/ai/requests` | Create a Summary, Q&A, or Quiz request | Student |
-| AI | GET | `/api/ai/requests/{request_id}` | Get an AI request result and status | Request owner |
-| Chat | POST | `/api/courses/{course_id}/chat-sessions` | Create a chat session | Student |
-| Chat | GET | `/api/chat-sessions/{session_id}/messages` | Get chat messages | Session owner |
-| Quiz | POST | `/api/quiz-attempts` | Submit quiz answers | Student |
-| Activity | GET | `/api/activity-logs` | Get personal learning activities | Student |
-| Admin | GET | `/api/admin/statistics` | Get system statistics | Admin |
-| Admin | GET | `/api/admin/activity-logs` | Get system activity records | Admin |
-
-## 5. Planned Login Contract
-
-This section is a planned contract, not an implemented route. The current
-frontend still performs demo login locally.
-
-### Request
-
-```http
-POST /api/auth/login
-Content-Type: application/json
-```
+Q&A:
 
 ```json
-{
-  "email": "student@example.com",
-  "password": "student123"
-}
+{"answer":"Answer supported by [S1], Page 1.","mode":"api"}
 ```
 
-### Planned Successful Response
+Quiz: `{ "questions": [...], "mode": "api" }`. There are exactly three questions. Each contains an `id`, `question`, four unique `options`, an integer `answerIndex` from 0 to 3, and an `explanation`. Duplicate questions, invalid options/indices and malformed JSON are rejected. Answers are returned to the browser for local self-assessment, not secure examinations.
 
-```json
-{
-  "access_token": "example-jwt-token",
-  "token_type": "bearer",
-  "user": {
-    "id": 1,
-    "name": "Alex Chen",
-    "email": "student@example.com",
-    "role": "Student",
-    "status": "Active"
-  }
-}
-```
+Only completed `STOP` responses are accepted. `MAX_TOKENS`, safety stops, missing content and invalid structure become errors. These checks establish format/completion, not factual correctness; source citation accuracy still requires evaluation.
 
-### Planned Failed Response
+## Errors and lifecycle
 
-```json
-{
-  "detail": "Invalid email or password"
-}
-```
+Errors have the shape `{ "code": "ERROR_CODE", "message": "Readable explanation" }`.
 
-When authentication is implemented, protected requests will include:
+| HTTP status | Examples |
+| --- | --- |
+| 400 | Invalid materials, over-budget sources, malformed JSON |
+| 401 | Missing/expired session or invalid login |
+| 403 | Disallowed origin or non-student AI request |
+| 409 | Another AI request is already running for this student |
+| 413 | Request body too large |
+| 429 | Local rate limit or Gemini rate/quota limit |
+| 502 | Truncated, blocked, empty or malformed Gemini output |
+| 503 | Missing key, provider configuration error or provider/network failure |
+| 504 | AI timeout |
 
-```http
-Authorization: Bearer example-jwt-token
-```
+At most one AI request runs per student, with 30 requests per student per 5 minutes. The provider timeout is 90 seconds, shared across at most two attempts. HTTP 429/500/502/503/504 can retry once with a short delay. Authentication/configuration failures do not retry. Provider error bodies and secrets are neither sent back to the browser nor logged.
 
-## 6. Planned Course Creation Contract
+Browser cancellation disconnects the request and aborts backend generation. Closing a request releases its per-student slot. Whether provider processing had already consumed quota is outside the app's control.
 
-```http
-POST /api/courses
-```
+## Persistence boundary
 
-```json
-{
-  "code": "COMP3851",
-  "name": "Industry Project"
-}
-```
-
-Planned response:
-
-```json
-{
-  "id": "comp3851",
-  "owner_id": 1,
-  "code": "COMP3851",
-  "name": "Industry Project",
-  "created_at": "2026-07-27T10:30:00Z"
-}
-```
-
-## 7. Planned Material and AI Contracts
-
-Material uploads will use `multipart/form-data`:
-
-```http
-POST /api/courses/inft3050/materials
-Content-Type: multipart/form-data
-```
-
-Planned material processing states are `Pending`, `Processing`, `Ready`, and
-`Failed`.
-
-Summary, Q&A, and Quiz are planned to use a shared request endpoint:
-
-```http
-POST /api/ai/requests
-```
-
-Example planned Q&A request:
-
-```json
-{
-  "course_id": "inft3050",
-  "request_type": "qa",
-  "material_ids": [1, 2],
-  "chat_session_id": 4,
-  "prompt_text": "What is the main topic of these materials?"
-}
-```
-
-The `material_ids` array allows one AI request to use multiple materials from
-the same course.
-
-## 8. HTTP Status Codes
-
-| Status | Meaning | Example |
-| --- | --- | --- |
-| `200 OK` | A request completed successfully | Health or database status |
-| `201 Created` | A resource was created | Planned course creation |
-| `202 Accepted` | A request was accepted for processing | Planned AI request |
-| `400 Bad Request` | Request data is invalid | Unsupported file type |
-| `401 Unauthorized` | Login is required or invalid | Invalid access token |
-| `403 Forbidden` | The user lacks permission | Student accesses an Admin API |
-| `404 Not Found` | The resource does not exist | Course not found |
-| `409 Conflict` | Data conflicts with an existing resource | Duplicate course code |
-| `500 Internal Server Error` | An unexpected server error occurred | Application failure |
-| `503 Service Unavailable` | A required service is unavailable | Database status query fails |
-
-## 9. Validation and Security Rules
-
-- User emails must be unique and matched case-insensitively.
-- Passwords must be stored only as password hashes.
-- Students must not access another student's courses or materials.
-- Every selected material must belong to the specified course.
-- Uploaded files must be checked for type and size.
-- A production Gemini key must be stored on the backend, not in browser code.
-- Quiz scores must be calculated by the backend when that workflow is
-  implemented.
-- Correct quiz answers must not be exposed before submission.
-
-## 10. Current Phase Boundary
-
-The completed backend scope is limited to:
-
-- Express server structure
-- SQLite connection and automatic database file creation
-- `users`, `courses`, and `materials` schema
-- Password-hashed, idempotent demo seed data
-- `GET /api/health`
-- `GET /api/database/status`
-
-JWT authentication, full frontend integration, backend uploads, Course and
-Material CRUD APIs, real Summary and Quiz AI, and the remaining planned
-endpoints belong to later phases.
+SQLite initialization, foreign keys and idempotent demo seeding remain implemented. Course/material changes and study records still use the browser cache. There are no production Course, Material, Chat, Quiz-attempt, password-reset, or Admin API routes in this release. The older planned JWT/asynchronous-job contracts are not active endpoints.

@@ -1,3 +1,5 @@
+> Historical integration note for the original uploaded archive. This document is retained as project history and does not describe version 1.1.0. The current implementation and limits are documented in `README.md` and `docs/FOUNDATION_FIXES.md`.
+
 # Feature Comparison and Integration Notes
 
 This project was produced by comparing and integrating the following two
