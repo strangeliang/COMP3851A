@@ -107,4 +107,47 @@ module.exports = {
   initializeDatabase,
   getUserByEmail: (email) => get("SELECT * FROM users WHERE email = ? COLLATE NOCASE;", [email]),
   getUserById: (id) => get("SELECT * FROM users WHERE id = ?;", [id]),
+  listCoursesByOwner: (ownerId) => all(
+    `SELECT id, code, name, created_at, updated_at
+     FROM courses WHERE owner_id = ? ORDER BY created_at DESC, code ASC;`,
+    [ownerId],
+  ),
+  createCourse: async ({ id, ownerId, code, name }) => {
+    await run(
+      `INSERT INTO courses (id, owner_id, code, name) VALUES (?, ?, ?, ?);`,
+      [id, ownerId, code, name],
+    );
+    return get(
+      `SELECT id, code, name, created_at, updated_at FROM courses WHERE id = ? AND owner_id = ?;`,
+      [id, ownerId],
+    );
+  },
+  deleteCourse: (id, ownerId) => run("DELETE FROM courses WHERE id = ? AND owner_id = ?;", [id, ownerId]),
+  listMaterialsByCourseOwner: (courseId, ownerId) => all(
+    `SELECT id, course_id, name, type, size_bytes, status, content, created_at, updated_at
+     FROM materials WHERE course_id = ? AND owner_id = ? ORDER BY created_at DESC, id DESC;`,
+    [courseId, ownerId],
+  ),
+  courseBelongsToOwner: (courseId, ownerId) => get(
+    "SELECT id FROM courses WHERE id = ? AND owner_id = ?;",
+    [courseId, ownerId],
+  ),
+  createMaterialForOwner: async ({ courseId, ownerId, name, type, sizeBytes, content }) => {
+    const result = await run(
+      `INSERT INTO materials (course_id, owner_id, name, type, size_bytes, status, content)
+       SELECT id, owner_id, ?, ?, ?, 'Ready', ? FROM courses
+       WHERE id = ? AND owner_id = ?;`,
+      [name, type, sizeBytes, content, courseId, ownerId],
+    );
+    if (result.changes !== 1) return null;
+    return get(
+      `SELECT id, course_id, name, type, size_bytes, status, content, created_at, updated_at
+       FROM materials WHERE id = ? AND owner_id = ?;`,
+      [result.id, ownerId],
+    );
+  },
+  deleteMaterialForOwner: (id, ownerId) => run(
+    "DELETE FROM materials WHERE id = ? AND owner_id = ?;",
+    [id, ownerId],
+  ),
 };
