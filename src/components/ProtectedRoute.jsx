@@ -2,8 +2,10 @@ import { Navigate, useLocation } from "react-router-dom";
 import { useAppData } from "../state/AppDataContext";
 
 export default function ProtectedRoute({ role, children }) {
-  const { currentUser } = useAppData();
+  const { currentUser, isAuthLoading } = useAppData();
   const location = useLocation();
+
+  if (isAuthLoading) return <div className="empty-state" role="status">Checking your session…</div>;
 
   if (!currentUser) {
     return <Navigate to="/" replace state={{ from: location.pathname }} />;

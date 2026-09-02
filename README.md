@@ -1,177 +1,130 @@
-# COMP3851A Study Companion
+# COMP3851A Study Companion 1.1.0
 
-An AI-assisted study workspace developed for the COMP3851A group project. The
-project contains a Vite + React frontend and an Express + SQLite backend
-foundation.
+本次版本重点修复学生端的 AI 调用、资料读取和状态管理。总结、问答和测验都使用 Gemini；不再把固定演示内容作为 AI 成功结果。管理员页面保留原样，尚未纳入本轮功能完善。
 
-## Features
+## 启动
 
-### Student workspace
+需要 Node.js **20.19 或更新版本**、npm，以及较新的 Chrome 或 Edge。前端和后端都需要启动；原先只启动前端的方式已不适用。
 
-- Demo login with role-based student and administrator routes
-- Course creation, selection, search, and confirmed deletion
-- Multi-file upload grouped by course
-- Text extraction from TXT, Markdown, PDF, DOCX, and PPTX files
-- OCR for PNG, JPG/JPEG, WEBP, BMP, and scanned PDF content
-- Multi-material selection for Summary, Q&A, and Quiz workflows
-- Gemini-powered frontend Q&A when an API key is configured
-- Safe mock Q&A fallback when Gemini is not configured
-- Quiz navigation, submission, scoring, and attempt history
-- Browser-local persistence for prototype data
+在项目根目录安装锁定的依赖：
 
-### Administrator workspace
-
-- Dashboard and recent activity overview
-- Student and course participation views
-- Uploaded-material management
-- Q&A activity and AI-output review
-- Demo account, status, and permission controls
-
-### Backend foundation
-
-- Express server on `http://localhost:8000`
-- SQLite database creation and foreign key enforcement
-- `users`, `courses`, and `materials` tables
-- Idempotent demo seed data with bcrypt password hashes
-- Live health and database status endpoints
-
-## Requirements
-
-- Node.js 20 or newer
-- npm
-- A recent Chromium-based browser for PDF, Office, and OCR processing
-
-## Frontend Setup
-
-Run all frontend commands from the project root.
-
-1. Install dependencies:
-
-   ```powershell
-   npm install
-   ```
-
-2. Optional: copy `.env.example` to `.env.local` and enter a temporary Gemini
-   API key for local Q&A testing:
-
-   ```text
-   VITE_GEMINI_API_KEY=replace_with_your_own_temporary_key
-   ```
-
-3. Start the frontend:
-
-   ```powershell
-   npm run dev
-   ```
-
-4. Open the local URL printed by Vite, normally
-   `http://localhost:5173`.
-
-On Windows, `start-demo.bat` performs the frontend install/start flow
-automatically.
-
-## Backend Setup
-
-Run all backend commands from the `backend` directory.
-
-```powershell
-cd backend
-npm install
-npm start
+```sh
+npm ci
+npm --prefix backend ci
 ```
 
-For development with automatic restart:
+把 `backend/.env.example` 复制为 `backend/.env`，在本机编辑：
 
-```powershell
+```dotenv
+PORT=8000
+HOST=127.0.0.1
+FRONTEND_URL=http://localhost:5173
+GEMINI_API_KEY=
+GEMINI_MODEL=gemini-2.5-flash
+```
+
+在 `GEMINI_API_KEY=` 后填写你自己的 Gemini 密钥。**密钥只放在 `backend/.env`。不要再使用 `VITE_GEMINI_API_KEY` 或浏览器保存的密钥。** 修改后端环境变量后需要重启后端。下载包不包含真实密钥；未配置时，登录和资料管理仍可使用，AI 页面会显示未配置状态。
+
+打开两个终端，都在项目根目录运行：
+
+```sh
+# 终端一：后端
+npm run backend
+```
+
+```sh
+# 终端二：前端
 npm run dev
 ```
 
-The backend listens on `http://localhost:8000` by default.
+浏览器打开 **http://localhost:5173**。保持两个终端运行。Windows 也可以双击 `start-demo.bat`，它会安装缺少的依赖、创建空的后端配置并启动两个服务。
 
-Implemented endpoints:
+如果是覆盖旧目录更新，先关闭旧服务，再重新执行两条 `npm ci`。改变后端端口时，还需要同步修改 `vite.config.js` 中的代理地址。
 
-```http
-GET http://localhost:8000/api/health
-GET http://localhost:8000/api/database/status
-```
+## 演示账号
 
-## SQLite Database
+| 身份 | 邮箱 | 密码 |
+| --- | --- | --- |
+| 学生 Alex | student@example.com | student123 |
+| 学生 Mia | mia@student.edu | student123 |
+| 管理员 | admin@example.com | admin123 |
 
-The backend automatically creates
-`backend/data/study_companion.db` when it starts. It enables SQLite foreign
-keys, creates the `users`, `courses`, and `materials` tables when missing, and
-seeds four demo users, three courses, and three materials without creating
-duplicates on later starts.
+登录现在由后端校验 SQLite 中的密码哈希，浏览器缓存不能自行授予登录权限。会话使用 HttpOnly Cookie；普通会话最长 8 小时，勾选 Remember me 最长 7 天。后端重启后需要重新登录。
 
-Passwords in SQLite are stored only as bcrypt hashes. The database and its
-journal, WAL, and SHM runtime files are ignored by Git.
+这些是公开的本地演示账号。本包默认只在本机监听，不应直接作为已完成账号管理和隐私隔离的公网服务发布。管理员的演示状态操作仍然只修改本地演示数据，尚未连接到服务器账号管理。自动找回密码尚未实现，页面会如实提示。
 
-## Demo Accounts
+## 学生端流程
 
-Authentication is still frontend-only in this phase.
+1. 登录，选择或创建课程，上传资料。
+2. 在 Study Workspace 选择最多 3 份资料。
+3. 点击 Generate Summary、发送问题，或点击 Generate Quiz。
+4. 后端使用已经写好的提示词和所选资料调用 Gemini，校验结果后显示在页面。
 
-- Administrator: `admin@example.com` / `admin123`
-- Student: `student@example.com` / `student123`
+三种模式共用 `backend/src/services/studyContracts.js` 中的提示词和输出约束。总结返回概述和关键概念；问答带上当前资料范围内最近的对话；测验返回 3 道四选一题、答案索引和解释。选择不同用户、课程或资料组合时，会话分开保存，正在进行的旧请求会被取消或丢弃。
 
-The same four demo identities are seeded into SQLite for later backend
-integration, but the current login form does not call the backend.
+问答消息按纯文本显示，模型返回的 HTML 不会作为网页执行。模型被截断、返回无效测验结构、被拦截、超时或配置错误时，都显示错误，不再降级为演示答案。正常请求最长等待后端 90 秒；对限流和临时服务故障最多自动重试一次，也可以手动停止生成。
 
-## Current Integration Status
+## 文件及输入限制
 
-The frontend continues to use browser `localStorage` and is not yet fully
-connected to the Express or SQLite backend.
+原代码的 **13,000 字符是自行设置的截断值，不是本版本采用的 Gemini 模型上限**。现在采用完整输入加明确限制，不再只截取每份资料开头。
 
-- Summary uses mock demonstration content.
-- Quiz questions and scoring use mock demonstration content.
-- Q&A currently calls Gemini directly from the frontend when a temporary key is
-  configured and uses a mock fallback without a key.
-- Course creation, material upload, authentication, and administrator actions
-  still update frontend prototype state rather than SQLite.
+| 项目 | 限制 |
+| --- | --- |
+| 每批上传 | 最多 3 份 |
+| 每次 AI 选择 | 最多 3 份 |
+| 每门课程 | 最多 5 份 |
+| 每位学生在当前浏览器中 | 最多 10 份 |
+| 单个原始文件 | 最大 10 MiB |
+| 单文件完整提取文本 | 最大 100,000 字符，超出时拒绝导入 |
+| 单次 AI 所选资料文本合计 | 最大 100,000 字符，超出时需要少选或拆分 |
+| PDF | 最大 100 页；其中需要 OCR 的页面最多 20 页 |
+| Office 包展开后 | 最大 20 MiB |
+| 图片 OCR | 最大 2,000 万像素 |
+| 单文件读取等待 | 最长 3 分钟 |
+| 问答问题 | 最多 4,000 字符 |
 
-JWT authentication, secure backend Gemini calls, backend file uploads, full
-Course and Material CRUD APIs, and complete frontend/backend integration are
-planned for later phases.
+共享限制集中在 `shared/studyLimits.json`。仅限制文件数量不能解决一个超长文件的问题，因此数量、文件大小和提取文本长度会同时检查。一次上传采用整批成功或整批失败；重复点击、退出登录、取消上传、存储空间不足不会造成超额或把文件写到另一个账号。
 
-## File-Processing Scope
+## 资料读取
 
-The prototype accepts up to five files per course, ten files in total, and
-10 MB per file.
+- TXT、Markdown：读取完整文本。
+- PDF：逐页读取文字；某页没有足够的可选中文字时，仅对该页做 OCR，避免一份混合 PDF 中的扫描页被跳过。文本保留 Page 标记。超过页数或 OCR 上限会拒绝整份文件，不会只读前几页。
+- DOCX、PPTX：提取正文或幻灯片中的文字，幻灯片保留 Slide 标记。不等同于理解嵌入图表、公式、图片或备注。
+- PNG、JPG/JPEG、WEBP、BMP：在浏览器中使用英语及简体中文 OCR。
 
-- TXT and Markdown are read directly.
-- PDF text is extracted with PDF.js. A scanned PDF falls back to OCR for up to
-  the first eight pages.
-- DOCX and PPTX text is read from their embedded XML content.
-- Supported images are processed with English OCR.
+首次 OCR 需要联网下载识别运行文件和语言模型。OCR 仍可能认错字、表格和公式；同一页中已经存在可选中文字的嵌入图片，也不保证被完整解读。上传列表提供文本预览和读取提示，读取提示也会传给 Gemini。空白扫描页不会使整份 PDF 导入失败；无法识别到文字的页会明确列出供核对。
 
-Text extraction runs entirely in the browser. OCR speed and accuracy depend on
-the device, source quality, and language. Large extracted documents can also
-reach browser storage limits, so stored extracted text is capped for this
-prototype.
+如果旧缓存中的文件带有“只读前 8 页”或“截断保存”的警告，新版本会要求重新上传。旧问答记录会标记为历史答案，不作为新的 Gemini 对话上下文；旧的演示总结不会冒充新生成结果。
 
-## Gemini Configuration and Security
+## 数据与验证边界
 
-The current Q&A prototype reads `VITE_GEMINI_API_KEY` from `.env.local`.
-Without a key, the application remains usable and clearly labels mock fallback
-answers.
+- 登录账号来自 SQLite；课程、提取文字、总结、聊天和练习记录仍保存在当前浏览器，不是跨设备云端同步。原始上传文件的二进制内容没有持久保存。
+- 同一个浏览器的本地缓存不能提供真正的多人隐私隔离，学生之间的页面与统计过滤也不等于数据库访问控制。正式多用户服务还需要服务端课程、资料和记录存储，以及完整账号管理。
+- 测验用于自测，评分在浏览器完成，答案会随题目返回；不适合用作有防作弊要求的正式考试。
+- 自动校验能发现格式错误、截断和越界索引，不能证明模型对知识内容的每一次解释都正确。部署前仍需要用真实课程资料检查准确率、引用、中文 OCR 和响应速度。
+- Vite 构建的大块体积提示和 react-test-renderer 的弃用提示不代表测试失败，后者只用于开发回归测试。
 
-Do not commit `.env.local` or a live API key. Variables prefixed with `VITE_`
-are embedded into frontend code and are visible to browser users. A production
-deployment must call Gemini through a secured backend.
+## 回归验证
 
-## Verification
-
-From the project root, run:
-
-```powershell
+```sh
 npm run check
 ```
 
-This runs ESLint and creates a production frontend build.
+该命令依次运行 ESLint、学生端回归测试、后端接口和 SQLite 测试，以及生产构建。测试使用固定的模拟 Gemini 返回和 OCR 边界，不需要密钥，不会消耗 Gemini 额度。真实模型质量和真实浏览器端 OCR 精度不在自动测试结论内。
 
-From `backend`, start the server and query both implemented endpoints. Restart
-the server to confirm that schema creation and demo seeding remain idempotent.
+生产构建预览仍需运行后端：
 
-See [`backend/docs/API_DESIGN.md`](backend/docs/API_DESIGN.md) for implemented
-and planned backend contracts, and
-[`docs/FEATURE_COMPARISON.md`](docs/FEATURE_COMPARISON.md) for the archive
-comparison and merge decisions used to produce this version.
+```sh
+npm run build
+npm run preview
+```
+
+预览和开发使用同一个 `http://localhost:5173` 地址，二者只能启动一个。构建后也可以只启动后端，通过 `http://localhost:8000` 查看打包页面。后者便于本机检查，不代表已经完成公网部署。
+
+具体接口见 [backend/docs/API_DESIGN.md](backend/docs/API_DESIGN.md)，本轮修复与验证范围见 [docs/FOUNDATION_FIXES.md](docs/FOUNDATION_FIXES.md)。
+
+## 分发
+
+压缩包包含代码、依赖锁文件和配置示例；不包含真实密钥、安装目录、运行数据库、生成的前端构建或过期的嵌套发布包。旧 `releases` 中的历史整合包没有重复附带，避免混用旧逻辑。
+
+相关官方说明：[Gemini 2.5 Flash](https://ai.google.dev/gemini-api/docs/models/gemini-2.5-flash)、[Gemini 结构化输出](https://ai.google.dev/gemini-api/docs/structured-output)、[Vite 环境变量](https://vite.dev/guide/env-and-mode)。

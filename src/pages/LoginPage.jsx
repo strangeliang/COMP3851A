@@ -17,11 +17,12 @@ export default function LoginPage() {
 
   const navigate = useNavigate();
   const location = useLocation();
-  const { currentUser, login } = useAppData();
+  const { currentUser, login, isAuthLoading } = useAppData();
 
   const [showPassword, setShowPassword] = useState(false);
   const [form, setForm] = useState({ email: "", password: "", remember: false });
   const [error, setError] = useState("");
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
   if (currentUser?.role === "Student") {
     return <Navigate to="/student/dashboard" replace />;
@@ -40,10 +41,14 @@ export default function LoginPage() {
     }));
   }
 
-  function submit(event) {
+  async function submit(event) {
     event.preventDefault();
 
-    const result = login(form.email, form.password);
+    if (isSubmitting || isAuthLoading) return;
+    setIsSubmitting(true);
+    setError("");
+    const result = await login(form.email, form.password, form.remember);
+    setIsSubmitting(false);
 
     if (!result.ok) {
       setError(result.message);
@@ -135,6 +140,9 @@ export default function LoginPage() {
               className="login-input"
               name="email"
               type="email"
+              required
+              maxLength={254}
+              autoComplete="username"
               value={form.email}
               onChange={updateField}
               placeholder="Enter your email"
@@ -150,6 +158,9 @@ export default function LoginPage() {
                 className="login-input"
                 name="password"
                 type={showPassword ? "text" : "password"}
+                required
+                maxLength={128}
+                autoComplete="current-password"
                 value={form.password}
                 onChange={updateField}
                 placeholder="Enter your password"
@@ -183,8 +194,8 @@ export default function LoginPage() {
 
             {error && <p className="form-error">{error}</p>}
 
-            <button className="login-submit-modern" type="submit">
-              Log In
+            <button className="login-submit-modern" type="submit" disabled={isSubmitting || isAuthLoading}>
+              {isAuthLoading ? "Checking session…" : isSubmitting ? "Signing in…" : "Log In"}
             </button>
 
             <p className="login-support-note">

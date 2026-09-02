@@ -52,4 +52,9 @@ export default [
       },
     },
   },
+  {
+    files: ["tests/**/*.mjs", "backend/test/**/*.cjs"],
+    languageOptions: { ecmaVersion: "latest", globals: globals.node },
+    rules: js.configs.recommended.rules,
+  },
 ];

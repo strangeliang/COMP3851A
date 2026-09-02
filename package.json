@@ -1,25 +1,28 @@
 {
   "name": "study-companion",
   "private": true,
-  "version": "1.0.0",
+  "version": "1.1.0",
   "type": "module",
   "engines": {
-    "node": ">=20"
+    "node": ">=20.19.0"
   },
   "scripts": {
     "dev": "vite",
     "build": "vite build",
     "preview": "vite preview",
     "lint": "eslint .",
-    "check": "npm run lint && npm run build"
+    "check": "npm run lint && npm test && npm run test:backend && npm run build",
+    "test": "node --test tests/components.test.mjs tests/parsing.test.mjs tests/storage-and-input.test.mjs",
+    "test:backend": "npm --prefix backend test",
+    "backend": "npm --prefix backend start"
   },
   "dependencies": {
     "@chatscope/chat-ui-kit-react": "^2.1.1",
     "@chatscope/chat-ui-kit-styles": "^1.4.0",
     "lucide-react": "^0.468.0",
     "pdfjs-dist": "^4.10.38",
-    "react": "^19.0.0",
-    "react-dom": "^19.0.0",
+    "react": "19.2.7",
+    "react-dom": "19.2.7",
     "react-router-dom": "^7.1.1",
     "tesseract.js": "^5.1.1"
   },
@@ -32,6 +35,8 @@
     "eslint-plugin-react-hooks": "^5.0.0",
     "eslint-plugin-react-refresh": "^0.4.16",
     "globals": "^15.14.0",
-    "vite": "^6.0.5"
+    "vite": "^6.0.5",
+    "react-test-renderer": "19.2.7",
+    "esbuild": "0.25.12"
   }
 }

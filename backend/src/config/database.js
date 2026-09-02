@@ -5,8 +5,8 @@ const sqlite3 = require("sqlite3").verbose();
 const { createSchema, REQUIRED_TABLES } = require("./schema");
 const { seedDatabase } = require("./seed");
 
-const databaseDirectory = path.join(__dirname, "../../data");
-const databasePath = path.join(databaseDirectory, "study_companion.db");
+const databasePath = process.env.STUDY_DATABASE_PATH || path.join(__dirname, "../../data/study_companion.db");
+const databaseDirectory = path.dirname(databasePath);
 
 fs.mkdirSync(databaseDirectory, { recursive: true });
 
@@ -105,4 +105,6 @@ module.exports = {
   databasePath,
   getDatabaseStatus,
   initializeDatabase,
+  getUserByEmail: (email) => get("SELECT * FROM users WHERE email = ? COLLATE NOCASE;", [email]),
+  getUserById: (id) => get("SELECT * FROM users WHERE id = ?;", [id]),
 };

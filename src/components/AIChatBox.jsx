@@ -1,110 +1,41 @@
-import React, { useEffect, useMemo, useState } from "react";
+import { useRef } from "react";
 import "@chatscope/chat-ui-kit-styles/dist/default/styles.min.css";
-import {
-  ChatContainer,
-  MainContainer,
-  Message,
-  MessageInput,
-  MessageList,
-  TypingIndicator,
-} from "@chatscope/chat-ui-kit-react";
+import { ChatContainer, MainContainer, Message, MessageInput, MessageList, TypingIndicator } from "@chatscope/chat-ui-kit-react";
 import { CheckCircle2, FileText, Sparkles, UploadCloud } from "lucide-react";
 import { generateAIAnswer } from "../services/aiService";
 import { useAppData } from "../state/AppDataContext";
+import useAIRequest from "../hooks/useAIRequest";
+import { limits, recentHistory, selectionError } from "../utils/studyScope";
 
 export default function AIChatBox({ selectedMaterials = [], currentCourse = null }) {
-  const { addChatRecord, recordQAUse } = useAppData();
-  const [isTyping, setIsTyping] = useState(false);
-  const [answerMode, setAnswerMode] = useState("");
-  const materialKey = selectedMaterials.map((material) => material.id).join("|");
+  const { addChatRecord, recordQAUse, currentChatRecords, scope, aiStatus, notify } = useAppData();
+  const request = useAIRequest(scope.scopeKey);
+  const sendLock = useRef(null);
+  const isTyping = request.pending;
   const materialNames = selectedMaterials.map((material) => material.name).join(", ");
-  const hasReadableMaterials = selectedMaterials.some((material) => material.content?.trim());
+  const inputError = selectionError(selectedMaterials);
+  const answerMode = currentChatRecords.some((record) => record.role === "AI" && record.mode === "api") ? "api" : "";
+  const messages = currentChatRecords.length ? currentChatRecords.map((record) => ({
+    id: record.id, message: record.mode !== "api" && record.role === "AI" ? `[Earlier saved answer; source not verified] ${record.text}` : record.text,
+    sender: record.role === "User" ? "Student" : "AI", direction: record.role === "User" ? "outgoing" : "incoming", type: "text",
+  })) : [{ id: "welcome", type: "text", sender: "AI", direction: "incoming",
+    message: selectedMaterials.length ? `Selected materials: ${materialNames}. Ask a question about these sources.` : "Select at least one course material first." }];
 
-  const initialMessage = useMemo(
-    () => ({
-      message: selectedMaterials.length
-        ? `Selected material loaded: ${materialNames}. Ask a question based on this source scope.`
-        : "Select at least one course material first, then ask me anything about it.",
-      sender: "AI",
-      direction: "incoming",
-    }),
-    [materialNames, selectedMaterials.length],
-  );
-
-  const [messages, setMessages] = useState([initialMessage]);
-
-  useEffect(() => {
-    setMessages([initialMessage]);
-    setAnswerMode("");
-  }, [initialMessage, materialKey]);
-
-  async function handleSend(userMessage) {
-    const question = userMessage.trim();
-    if (!question) return;
-
-    if (!selectedMaterials.length) {
-      setMessages((current) => [
-        ...current,
-        {
-          message: "Please select at least one Source File before asking a question.",
-          sender: "AI",
-          direction: "incoming",
-        },
-      ]);
-      return;
-    }
-
-    if (!hasReadableMaterials) {
-      setMessages((current) => [
-        ...current,
-        {
-          message:
-            "The selected material does not have readable text content yet. Please upload TXT, MD, PDF, DOCX, PPTX, or an image that contains readable text.",
-          sender: "AI",
-          direction: "incoming",
-        },
-      ]);
-      return;
-    }
-
-    setMessages((current) => [
-      ...current,
-      { message: question, sender: "Student", direction: "outgoing" },
-    ]);
-    addChatRecord("User", question);
-    recordQAUse();
-    setIsTyping(true);
-
+  async function handleSend(_html, textContent) {
+    const question = typeof textContent === "string" ? textContent.trim() : "";
+    if (!question || sendLock.current?.scopeKey === scope.scopeKey) return;
+    if (inputError || !aiStatus.configured) { notify(inputError || aiStatus.message); return; }
+    if (question.length > limits.maxQuestionCharacters) { notify(`Keep your question within ${limits.maxQuestionCharacters.toLocaleString()} characters.`); return; }
+    const token = { scopeKey: scope.scopeKey };
+    sendLock.current = token;
+    const capturedScope = scope;
+    const history = recentHistory(currentChatRecords);
+    addChatRecord("User", question, { scope: capturedScope, mode: "api" });
+    recordQAUse(capturedScope);
     try {
-      const result = await generateAIAnswer({
-        materials: selectedMaterials,
-        question,
-        fallbackIndex: messages.length,
-      });
-
-      setAnswerMode(result.mode);
-      setMessages((current) => [
-        ...current,
-        { message: result.answer, sender: "AI", direction: "incoming" },
-      ]);
-      addChatRecord("AI", result.answer);
-    } catch (error) {
-      const message =
-        error instanceof Error
-          ? error.message
-          : "Sorry, the AI service could not answer right now.";
-
-      setMessages((current) => [
-        ...current,
-        {
-          message: `AI request failed. Please check the Gemini API key or try again later. Details: ${message}`,
-          sender: "AI",
-          direction: "incoming",
-        },
-      ]);
-    } finally {
-      setIsTyping(false);
-    }
+      const result = await request.run((signal) => generateAIAnswer({ materials: selectedMaterials, question, history, signal }));
+      if (result) addChatRecord("AI", result.answer, { scope: capturedScope, mode: "api" });
+    } finally { if (sendLock.current === token) sendLock.current = null; }
   }
 
   return (
@@ -158,7 +89,7 @@ export default function AIChatBox({ selectedMaterials = [], currentCourse = null
             <CheckCircle2 size={36} color="#22c55e" />
             <div style={{ textAlign: "center" }}>
               <p style={{ margin: "0 0 4px 0", fontWeight: 600, color: "#166534", fontSize: "16px" }}>
-                Material Loaded Successfully
+                Selected source materials
               </p>
               <p
                 style={{
@@ -227,21 +158,24 @@ export default function AIChatBox({ selectedMaterials = [], currentCourse = null
                 marginLeft: "8px",
                 padding: "4px 8px",
                 borderRadius: "999px",
-                backgroundColor: answerMode === "api" ? "#dcfce7" : "#ffedd5",
-                color: answerMode === "api" ? "#166534" : "#9a3412",
+                backgroundColor: "#dcfce7",
+                color: "#166534",
                 fontSize: "12px",
                 fontWeight: 700,
               }}
             >
-              {answerMode === "api" ? "Gemini API" : "Mock Fallback"}
+              Gemini API
             </span>
           )}
           <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: "6px" }}>
-            <div style={{ width: "8px", height: "8px", borderRadius: "50%", backgroundColor: "#22c55e" }} />
-            <span style={{ fontSize: "12px", color: "#6b7280", fontWeight: 500 }}>Online</span>
+            <div style={{ width: "8px", height: "8px", borderRadius: "50%", backgroundColor: aiStatus.configured ? "#6366f1" : "#9ca3af" }} />
+            <span style={{ fontSize: "12px", color: "#6b7280", fontWeight: 500 }}>{isTyping ? "Reading…" : request.status === "error" ? "Request failed" : aiStatus.loading ? "Checking…" : aiStatus.configured ? "Configured" : "Unavailable"}</span>
           </div>
         </div>
 
+        {(inputError || !aiStatus.configured) && <p className="state-banner" role="status">{inputError || aiStatus.message}</p>}
+        {request.error && <p className="state-banner error" role="alert">{request.error} You can send the question again.</p>}
+        {isTyping && <button type="button" onClick={request.cancel}>Stop generating</button>}
         <div style={{ height: "450px", position: "relative" }}>
           <MainContainer style={{ border: "none", height: "100%" }}>
             <ChatContainer>
@@ -250,14 +184,14 @@ export default function AIChatBox({ selectedMaterials = [], currentCourse = null
                 style={{ backgroundColor: "#ffffff", padding: "16px" }}
               >
                 {messages.map((message, index) => (
-                  <Message key={`${message.sender}-${index}`} model={message} />
+                  <Message key={message.id || index} model={message} type="text" />
                 ))}
               </MessageList>
               <MessageInput
                 placeholder="Ask a question about your selected material..."
                 onSend={handleSend}
                 attachButton={false}
-                disabled={!selectedMaterials.length || isTyping}
+                disabled={Boolean(inputError) || !aiStatus.configured || isTyping}
               />
             </ChatContainer>
           </MainContainer>
