@@ -1,10 +1,25 @@
 const express = require("express");
 const bcrypt = require("bcryptjs");
+const { randomUUID } = require("crypto");
 const { createSessionService, createRateLimiter } = require("../services/sessionService");
 const { StudyError } = require("../services/studyContracts");
 
 function publicUser(user) {
   return { id: user.id, name: user.name, email: user.email, role: user.role, status: user.status };
+}
+
+function requiredText(value, field, maximum = 160) {
+  if (typeof value !== "string" || !value.trim() || value.trim().length > maximum) {
+    throw new StudyError(400, "INVALID_INPUT", `${field} is required and must be ${maximum} characters or fewer.`);
+  }
+  return value.trim();
+}
+
+function mapDatabaseError(error) {
+  if (error?.code === "SQLITE_CONSTRAINT") {
+    throw new StudyError(409, "DUPLICATE_RECORD", "A record with the same course code or file name already exists.");
+  }
+  throw error;
 }
 
 function createStudyRoutes({ database, gemini, sessions = createSessionService() }) {
@@ -39,6 +54,49 @@ function createStudyRoutes({ database, gemini, sessions = createSessionService()
     res.json({ ok: true });
   });
   router.get("/auth/me", authenticate, (req, res) => res.json({ user: req.user }));
+  router.get("/courses", authenticate, async (req, res) => {
+    res.json({ courses: await database.listCoursesByOwner(req.user.id) });
+  });
+  router.post("/courses", authenticate, async (req, res) => {
+    const code = requiredText(req.body?.code, "Course code", 32).toUpperCase();
+    const name = requiredText(req.body?.name, "Course name");
+    try {
+      const course = await database.createCourse({ id: randomUUID(), ownerId: req.user.id, code, name });
+      res.status(201).json({ course });
+    } catch (error) { mapDatabaseError(error); }
+  });
+  router.delete("/courses/:courseId", authenticate, async (req, res) => {
+    const result = await database.deleteCourse(req.params.courseId, req.user.id);
+    if (result.changes !== 1) throw new StudyError(404, "COURSE_NOT_FOUND", "This course does not exist or does not belong to you.");
+    res.json({ ok: true });
+  });
+  router.get("/courses/:courseId/materials", authenticate, async (req, res) => {
+    if (!await database.courseBelongsToOwner(req.params.courseId, req.user.id)) {
+      throw new StudyError(404, "COURSE_NOT_FOUND", "This course does not exist or does not belong to you.");
+    }
+    res.json({ materials: await database.listMaterialsByCourseOwner(req.params.courseId, req.user.id) });
+  });
+  router.post("/courses/:courseId/materials", authenticate, async (req, res) => {
+    const name = requiredText(req.body?.name, "File name", 255);
+    const type = requiredText(req.body?.type, "File type", 8).toUpperCase();
+    const sizeBytes = req.body?.sizeBytes;
+    const content = req.body?.content;
+    if (!Number.isInteger(sizeBytes) || sizeBytes < 0 || sizeBytes > 10 * 1024 * 1024 || (content !== null && typeof content !== "string")) {
+      throw new StudyError(400, "INVALID_MATERIAL", "Material size or content is invalid.");
+    }
+    try {
+      const material = await database.createMaterialForOwner({ courseId: req.params.courseId, ownerId: req.user.id, name, type, sizeBytes, content });
+      if (!material) throw new StudyError(404, "COURSE_NOT_FOUND", "This course does not exist or does not belong to you.");
+      res.status(201).json({ material });
+    } catch (error) { if (error instanceof StudyError) throw error; mapDatabaseError(error); }
+  });
+  router.delete("/materials/:materialId", authenticate, async (req, res) => {
+    const id = Number(req.params.materialId);
+    if (!Number.isSafeInteger(id) || id < 1) throw new StudyError(404, "MATERIAL_NOT_FOUND", "This material does not exist or does not belong to you.");
+    const result = await database.deleteMaterialForOwner(id, req.user.id);
+    if (result.changes !== 1) throw new StudyError(404, "MATERIAL_NOT_FOUND", "This material does not exist or does not belong to you.");
+    res.json({ ok: true });
+  });
   router.get("/ai/status", authenticate, (req, res) => res.json(gemini.status()));
   router.post("/ai/:mode", authenticate, async (req, res) => {
     if (req.user.role !== "Student") throw new StudyError(403, "STUDENT_REQUIRED", "This study action is available to student accounts.");
