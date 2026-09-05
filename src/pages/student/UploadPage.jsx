@@ -18,6 +18,10 @@ export default function UploadPage() {
     deleteMaterial,
     uploadState,
     cancelUpload,
+    courseState,
+    materialState,
+    retryCourses,
+    retryMaterials,
   } = useAppData();
   const [selectedFiles, setSelectedFiles] = useState([]);
   const [search, setSearch] = useState("");
@@ -59,8 +63,11 @@ export default function UploadPage() {
     }
   }
 
-  function removeMaterial(material) {
-    if (window.confirm(`Delete ${material.name} and the study records that use it?`)) deleteMaterial(material.id);
+  async function removeMaterial(material) {
+    if (!window.confirm(`Delete ${material.name} and the study records that use it?`)) return;
+    const result = await deleteMaterial(material.id);
+    if (pageScope.current !== currentCourseId) return;
+    setStatus(result);
   }
 
   const profileContent = (
@@ -95,6 +102,10 @@ export default function UploadPage() {
       profileContent={profileContent}
     >
       <Toolbar value={search} onChange={setSearch} placeholder="Search current course materials..." />
+      {courseState.loading && <div className="state-banner" role="status">Loading your courses…</div>}
+      {courseState.error && <div className="state-banner error" role="alert">{courseState.error} <button type="button" onClick={retryCourses}>Retry</button></div>}
+      {materialState.loading && <div className="state-banner" role="status">Loading course materials…</div>}
+      {materialState.error && <div className="state-banner error" role="alert">{materialState.error} <button type="button" onClick={retryMaterials}>Retry</button></div>}
       <header className="workspace-header">
         <h1>Upload Study Materials</h1>
         <p>Upload text, PDF, Office, or image files. Files are grouped by the selected course.</p>
@@ -103,7 +114,7 @@ export default function UploadPage() {
       <div className="control-grid">
         <label className="user-field">
           Current Course
-          <select value={currentCourseId} onChange={(event) => selectCourse(event.target.value)} disabled={uploadState.pending || !studentCourses.length}>
+          <select value={currentCourseId} onChange={(event) => selectCourse(event.target.value)} disabled={uploadState.pending || courseState.loading || !studentCourses.length}>
             {!studentCourses.length && <option value="">Create a course first</option>}
             {studentCourses.map((course) => (
               <option key={course.id} value={course.id}>{course.code} {course.name}</option>
@@ -129,7 +140,7 @@ export default function UploadPage() {
             multiple
             accept=".txt,.md,.pdf,.docx,.pptx,.png,.jpg,.jpeg,.webp,.bmp"
             onChange={selectFiles}
-            disabled={!currentCourse || uploadState.pending}
+            disabled={!currentCourse || uploadState.pending || materialState.loading}
           />
         </label>
         {!!selectedFiles.length && (
@@ -147,7 +158,7 @@ export default function UploadPage() {
           className="primary-button"
           type="button"
           onClick={uploadAll}
-          disabled={!currentCourse || !selectedFiles.length || uploadState.pending}
+          disabled={!currentCourse || !selectedFiles.length || uploadState.pending || materialState.loading}
         >
           {uploadState.pending ? "Reading files…" : "Upload All"}
         </button>
@@ -168,7 +179,7 @@ export default function UploadPage() {
             <button className="icon-danger" type="button" title={`Delete ${material.name}`} onClick={() => removeMaterial(material)}><Trash2 size={16} /></button>
           </div>
         ))}
-        {!visibleMaterials.length && (
+        {!visibleMaterials.length && !materialState.loading && (
           <div className="empty-state">
             No materials in this course yet. Upload study files before using AI modes.
           </div>

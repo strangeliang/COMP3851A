@@ -11,6 +11,10 @@ The implemented API uses `/api` and same-origin browser requests. Vite proxies `
 | POST | `/api/auth/login` | Public, rate limited | HttpOnly session cookie and safe user fields |
 | POST | `/api/auth/logout` | Current browser session | Invalidate cookie and server session |
 | GET | `/api/auth/me` | Active session | Current user |
+| GET | `/api/courses` | Test `x-user-id` header | Current user's courses |
+| GET | `/api/courses/:courseId/materials` | Test `x-user-id` header | Current user's materials in an owned course |
+| POST | `/api/courses/:courseId/materials` | Test `x-user-id` header | Create a material in an owned course |
+| DELETE | `/api/materials/:materialId` | Test `x-user-id` header | Delete the current user's material |
 | GET | `/api/ai/status` | Active session | Provider/model configuration status; does not probe Gemini |
 | POST | `/api/ai/summary` | Active Student session | Summary paragraph and concepts |
 | POST | `/api/ai/qa` | Active Student session | Answer |
@@ -29,6 +33,12 @@ The response contains `{ "user": { "id", "name", "email", "role", "status" } }`;
 SQLite supplies user identity, status and bcrypt hashes on every protected request. Browser cached users and request-supplied roles cannot grant authorization. Login attempts are limited to 20 per IP per 10 minutes. These limits are process-local and intended for the single-process local application.
 
 The public demo accounts are development fixtures. Administrator account management and public deployment controls are outside this release.
+
+### Course and material test identity
+
+The four Course/Material endpoints above temporarily identify a user from a single header, for example `x-user-id: 1`. The value must be a positive integer and must match a real row in `users`; otherwise the response is `401` with code `TEST_USER_REQUIRED`. A login cookie does not replace this header for these four endpoints, and the header is not applied to Health, Database Status, AI, or other routes.
+
+The middleware sets `req.currentUser = { id }`. A future production authentication layer should set the same request property after login/session validation. Course and material ownership is always supplied to parameterized SQLite queries from `req.currentUser.id`. Client-provided `owner_id` or `ownerId` is rejected, and a missing or differently owned Course/Material returns `404` rather than revealing whether another user owns it.
 
 ## Study requests
 
@@ -50,7 +60,7 @@ Summary and Quiz require `materials`. Q&A additionally requires `question` and a
 
 Limits are shared in `shared/studyLimits.json`: 1–3 materials, at most 100,000 source characters in total, a question of 1–4,000 characters, and at most 10 recent history messages totaling 32,000 characters. Each reading note is limited to 2,000 characters. Oversized or incomplete inputs fail before contacting Gemini. The JSON body limit is 1 MiB.
 
-The frontend limits selection to the current student's current course. The server currently accepts inline material text; it does **not** claim to retrieve or enforce ownership of persisted course records. Server-side Course/Material CRUD and source lookup remain future work.
+The frontend limits selection to the current student's current course. The AI endpoints still accept inline material text and do not retrieve it from SQLite. The separate Course/Material endpoints enforce ownership for persisted course records, but the current frontend has not yet switched its local course/material state to those endpoints.
 
 `studyContracts.js` contains fixed prompts and JSON response schemas. `geminiService.js` sends the full validated source text through the official `generateContent` endpoint. The API key exists only in the server environment and the `x-goog-api-key` request header. Source instructions cannot change the API URL, access application tools, or receive the key.
 
@@ -94,4 +104,4 @@ Browser cancellation disconnects the request and aborts backend generation. Clos
 
 ## Persistence boundary
 
-SQLite initialization, foreign keys and idempotent demo seeding remain implemented. Course/material changes and study records still use the browser cache. There are no production Course, Material, Chat, Quiz-attempt, password-reset, or Admin API routes in this release. The older planned JWT/asynchronous-job contracts are not active endpoints.
+SQLite initialization, foreign keys and idempotent demo seeding remain implemented. The four test-header Course/Material endpoints persist their records in SQLite; the current frontend still keeps its own course/material changes and study records in the browser cache. Material POST stores already-extracted text as JSON and does not provide multipart upload or server-side file storage. There are no production-authenticated Course, Material, Chat, Quiz-attempt, password-reset, or Admin API routes in this release. The older planned JWT/asynchronous-job contracts are not active endpoints.

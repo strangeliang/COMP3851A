@@ -3,6 +3,7 @@ const bcrypt = require("bcryptjs");
 const { randomUUID } = require("crypto");
 const { createSessionService, createRateLimiter } = require("../services/sessionService");
 const { StudyError } = require("../services/studyContracts");
+const { createTestCurrentUser } = require("../middleware/testCurrentUser");
 
 function publicUser(user) {
   return { id: user.id, name: user.name, email: user.email, role: user.role, status: user.status };
@@ -22,11 +23,30 @@ function mapDatabaseError(error) {
   throw error;
 }
 
+function courseIdFromPath(value) {
+  const hasControlCharacter = typeof value === "string" && [...value].some((character) => {
+    const code = character.charCodeAt(0);
+    return code <= 31 || code === 127;
+  });
+  if (typeof value !== "string" || !value || value.length > 160 || value.trim() !== value || hasControlCharacter) {
+    throw new StudyError(404, "COURSE_NOT_FOUND", "This course does not exist or does not belong to you.");
+  }
+  return value;
+}
+
+function rejectClientOwner(req) {
+  if (Object.hasOwn(req.body || {}, "owner_id") || Object.hasOwn(req.body || {}, "ownerId")
+    || Object.hasOwn(req.query || {}, "owner_id") || Object.hasOwn(req.query || {}, "ownerId")) {
+    throw new StudyError(400, "OWNER_NOT_ALLOWED", "Material ownership is assigned by the server.");
+  }
+}
+
 function createStudyRoutes({ database, gemini, sessions = createSessionService() }) {
   const router = express.Router();
   const loginLimit = createRateLimiter(20, 10 * 60 * 1000);
   const aiLimit = createRateLimiter(30, 5 * 60 * 1000);
   const inFlight = new Set();
+  const identifyTestUser = createTestCurrentUser({ database });
 
   async function authenticate(req, res, next) {
     const session = sessions.get(req.headers.cookie);
@@ -54,8 +74,8 @@ function createStudyRoutes({ database, gemini, sessions = createSessionService()
     res.json({ ok: true });
   });
   router.get("/auth/me", authenticate, (req, res) => res.json({ user: req.user }));
-  router.get("/courses", authenticate, async (req, res) => {
-    res.json({ courses: await database.listCoursesByOwner(req.user.id) });
+  router.get("/courses", identifyTestUser, async (req, res) => {
+    res.json({ courses: await database.listCoursesByOwner(req.currentUser.id) });
   });
   router.post("/courses", authenticate, async (req, res) => {
     const code = requiredText(req.body?.code, "Course code", 32).toUpperCase();
@@ -70,13 +90,19 @@ function createStudyRoutes({ database, gemini, sessions = createSessionService()
     if (result.changes !== 1) throw new StudyError(404, "COURSE_NOT_FOUND", "This course does not exist or does not belong to you.");
     res.json({ ok: true });
   });
-  router.get("/courses/:courseId/materials", authenticate, async (req, res) => {
-    if (!await database.courseBelongsToOwner(req.params.courseId, req.user.id)) {
+  router.get("/courses/:courseId/materials", identifyTestUser, async (req, res) => {
+    const courseId = courseIdFromPath(req.params.courseId);
+    if (!await database.courseBelongsToOwner(courseId, req.currentUser.id)) {
       throw new StudyError(404, "COURSE_NOT_FOUND", "This course does not exist or does not belong to you.");
     }
-    res.json({ materials: await database.listMaterialsByCourseOwner(req.params.courseId, req.user.id) });
+    res.json({ materials: await database.listMaterialsByCourseOwner(courseId, req.currentUser.id) });
   });
-  router.post("/courses/:courseId/materials", authenticate, async (req, res) => {
+  router.post("/courses/:courseId/materials", identifyTestUser, async (req, res) => {
+    const courseId = courseIdFromPath(req.params.courseId);
+    if (!await database.courseBelongsToOwner(courseId, req.currentUser.id)) {
+      throw new StudyError(404, "COURSE_NOT_FOUND", "This course does not exist or does not belong to you.");
+    }
+    rejectClientOwner(req);
     const name = requiredText(req.body?.name, "File name", 255);
     const type = requiredText(req.body?.type, "File type", 8).toUpperCase();
     const sizeBytes = req.body?.sizeBytes;
@@ -85,15 +111,15 @@ function createStudyRoutes({ database, gemini, sessions = createSessionService()
       throw new StudyError(400, "INVALID_MATERIAL", "Material size or content is invalid.");
     }
     try {
-      const material = await database.createMaterialForOwner({ courseId: req.params.courseId, ownerId: req.user.id, name, type, sizeBytes, content });
+      const material = await database.createMaterialForOwner({ courseId, ownerId: req.currentUser.id, name, type, sizeBytes, content });
       if (!material) throw new StudyError(404, "COURSE_NOT_FOUND", "This course does not exist or does not belong to you.");
       res.status(201).json({ material });
     } catch (error) { if (error instanceof StudyError) throw error; mapDatabaseError(error); }
   });
-  router.delete("/materials/:materialId", authenticate, async (req, res) => {
+  router.delete("/materials/:materialId", identifyTestUser, async (req, res) => {
     const id = Number(req.params.materialId);
     if (!Number.isSafeInteger(id) || id < 1) throw new StudyError(404, "MATERIAL_NOT_FOUND", "This material does not exist or does not belong to you.");
-    const result = await database.deleteMaterialForOwner(id, req.user.id);
+    const result = await database.deleteMaterialForOwner(id, req.currentUser.id);
     if (result.changes !== 1) throw new StudyError(404, "MATERIAL_NOT_FOUND", "This material does not exist or does not belong to you.");
     res.json({ ok: true });
   });

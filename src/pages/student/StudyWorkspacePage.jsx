@@ -107,7 +107,8 @@ export default function StudyWorkspacePage() {
   const [params, setParams] = useSearchParams();
   const mode = ["summary", "qa", "quiz"].includes(params.get("mode")) ? params.get("mode") : "summary";
   const { studentCourses, currentCourse, currentCourseId, selectCourse, courseMaterials, selectedMaterialIds,
-    selectedMaterials, setSelectedMaterialIds, summaryUses, qaUses, aiStatus, scope } = useAppData();
+    selectedMaterials, setSelectedMaterialIds, summaryUses, qaUses, aiStatus, scope,
+    courseState, materialState, retryCourses, retryMaterials } = useAppData();
   const [search, setSearch] = useState("");
   const error = selectionError(selectedMaterials);
   const canUseAI = Boolean(currentCourse && !error && aiStatus.configured);
@@ -128,9 +129,13 @@ export default function StudyWorkspacePage() {
   </>;
   return <StudentLayout profileProps={{ title: "Study Workspace", initials: "AI", name: currentCourse?.code || "Select Course", subtitle: "Summary, Q&A, and Quiz use selected course materials." }} profileContent={profileContent}>
     <Toolbar value={search} onChange={setSearch} placeholder="Search materials in current course..." />
+    {courseState.loading && <div className="state-banner" role="status">Loading your courses…</div>}
+    {courseState.error && <div className="state-banner error" role="alert">{courseState.error} <button type="button" onClick={retryCourses}>Retry</button></div>}
+    {materialState.loading && <div className="state-banner" role="status">Loading course materials…</div>}
+    {materialState.error && <div className="state-banner error" role="alert">{materialState.error} <button type="button" onClick={retryMaterials}>Retry</button></div>}
     <header className="workspace-header"><h1>Study Workspace</h1><p>Choose a course and up to {limits.maxFilesPerAIRequest} materials for Summary, Q&A, or Quiz.</p></header>
     <div className="control-grid"><label className="user-field">Current Course
-      <select value={currentCourseId} onChange={(event) => selectCourse(event.target.value)} disabled={!studentCourses.length}>
+      <select value={currentCourseId} onChange={(event) => selectCourse(event.target.value)} disabled={courseState.loading || !studentCourses.length}>
         {!studentCourses.length && <option value="">Create a course first</option>}
         {studentCourses.map((course) => <option key={course.id} value={course.id}>{course.code} {course.name}</option>)}
       </select>
@@ -153,7 +158,7 @@ export default function StudyWorkspacePage() {
         <p className="materials-selected-count">Selected: {selectedMaterials.length}/{limits.maxFilesPerAIRequest} files · {selectedCharacters.toLocaleString()}/{limits.maxAIContextCharacters.toLocaleString()} characters</p>
         <p className="summary-source">If the total is too large, select fewer files or split the original documents.</p>
         {selectedMaterials.filter((material) => material.parseWarning).map((material) => <details key={material.id} className="summary-source"><summary>Reading notes: {material.name}</summary><p>{material.parseWarning}</p></details>)}
-      </> : <div className="empty-state">No materials available. Please upload materials first.</div>}
+      </> : !materialState.loading && <div className="empty-state">No materials available. Please upload materials first.</div>}
     </section>
     {error && <div className="state-banner error" role="alert"><AlertCircle size={16} />{error}</div>}
     {!aiStatus.configured && <div className="state-banner" role="status">{aiStatus.message}</div>}

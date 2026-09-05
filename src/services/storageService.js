@@ -17,6 +17,11 @@ export function loadAppData(defaultData) {
       .map(({ id, name, email, role, status }) => ({ id, name, email, role, status }));
     data.courses = data.courses.filter((course) => isObject(course) && typeof course.id === "string" && hasId(course.ownerId) && typeof course.code === "string" && typeof course.name === "string");
     data.materials = data.materials.filter((material) => isObject(material) && hasId(material.id) && hasId(material.ownerId) && typeof material.name === "string" && typeof material.content === "string" && data.courses.some((course) => course.id === material.courseId && String(course.ownerId) === String(material.ownerId)));
+    const legacy = isObject(data.legacyCourseMaterialData) ? data.legacyCourseMaterialData : {};
+    data.legacyCourseMaterialData = {
+      courses: Array.isArray(legacy.courses) ? legacy.courses.filter((course) => isObject(course) && typeof course.id === "string" && hasId(course.ownerId)) : [],
+      materials: Array.isArray(legacy.materials) ? legacy.materials.filter((material) => isObject(material) && hasId(material.id) && hasId(material.ownerId)) : [],
+    };
     data.chatRecords = data.chatRecords.filter((record) => recordIsValid(record) && typeof record.text === "string" && ["User", "AI"].includes(record.role));
     data.summaryRecords = data.summaryRecords.filter((record) => recordIsValid(record) && isObject(record.summary) && typeof record.summary.paragraph === "string" && Array.isArray(record.summary.concepts) && record.summary.concepts.every((concept) => typeof concept === "string"));
     data.quizAttempts = data.quizAttempts.filter((record) => recordIsValid(record) && Number.isFinite(record.score) && record.score >= 0 && record.score <= 100);
@@ -35,7 +40,7 @@ export function loadAppData(defaultData) {
 export function saveAppData(data) {
   try {
     // A browser cache can never grant an authenticated session.
-    window.localStorage.setItem(STORAGE_KEY, JSON.stringify({ ...data, currentUser: null, schemaVersion: 2 }));
+    window.localStorage.setItem(STORAGE_KEY, JSON.stringify({ ...data, currentUser: null, schemaVersion: 3 }));
     window.localStorage.removeItem(LEGACY_USER_KEY);
     return true;
   } catch {

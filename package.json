@@ -12,7 +12,7 @@
     "preview": "vite preview",
     "lint": "eslint .",
     "check": "npm run lint && npm test && npm run test:backend && npm run build",
-    "test": "node --test tests/components.test.mjs tests/parsing.test.mjs tests/storage-and-input.test.mjs",
+    "test": "node --test tests/components.test.mjs tests/course-material-api.test.mjs tests/parsing.test.mjs tests/storage-and-input.test.mjs",
     "test:backend": "npm --prefix backend test",
     "backend": "npm --prefix backend start"
   },

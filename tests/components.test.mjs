@@ -12,10 +12,23 @@ const widgets = { ChatContainer: "test-chat", MainContainer: "test-main", Messag
 const student = { id: 1, name: "Alex Chen", email: "student@example.com", role: "Student", status: "Active" };
 const mia = { id: 3, name: "Mia Tan", email: "mia@student.edu", role: "Student", status: "Active" };
 
-async function harness(t, { ai = async () => jsonReply({ answer: "Grounded answer. [S1]", mode: "api" }), stored, workspace = false } = {}) {
+async function harness(t, { ai = async () => jsonReply({ answer: "Grounded answer. [S1]", mode: "api" }), courseApi, stored, workspace = false } = {}) {
   const window = memoryWindow(stored ? { "study-companion-app-data": JSON.stringify(stored) } : {});
   const requests = [];
   let sessionUser = null;
+  const server = {
+    courses: [
+      { id: "inft3050", owner_id: 1, code: "INFT3050", name: "Study Companion", created_at: "2026-01-01", updated_at: "2026-01-02" },
+      { id: "hci", owner_id: 1, code: "HCI", name: "Prototype Review", created_at: "2026-01-01", updated_at: "2026-01-02" },
+      { id: "inft3851a", owner_id: 1, code: "INFT3851A", name: "Study Project", created_at: "2026-01-01", updated_at: "2026-01-02" },
+    ],
+    materials: [
+      { id: 1, course_id: "inft3050", owner_id: 1, name: "lecture_notes.txt", type: "TXT", size_bytes: 1830, status: "Ready", content: "Machine learning is a method that allows computers to learn patterns from data.", created_at: "2026-01-01", updated_at: "2026-01-02" },
+      { id: 2, course_id: "inft3050", owner_id: 1, name: "tutorial_outline.md", type: "MD", size_bytes: 940, status: "Ready", content: "# Tutorial Outline\n- AI learning workflow\n- Source file selection\n- Quiz revision", created_at: "2026-01-01", updated_at: "2026-01-02" },
+      { id: 3, course_id: "inft3851a", owner_id: 1, name: "project_scope.md", type: "MD", size_bytes: 1500, status: "Ready", content: "# Project Scope\nThis file explains course requirements and prototype scope.", created_at: "2026-01-01", updated_at: "2026-01-02" },
+    ],
+    nextMaterialId: 4,
+  };
   const fetch = async (url, options = {}) => {
     const body = options.body ? JSON.parse(options.body) : null;
     requests.push({ url, body, options });
@@ -23,6 +36,43 @@ async function harness(t, { ai = async () => jsonReply({ answer: "Grounded answe
     if (url === "/api/auth/login") { sessionUser = body.email === mia.email ? mia : student; return jsonReply({ user: sessionUser }); }
     if (url === "/api/auth/logout") { sessionUser = null; return jsonReply({ ok: true }); }
     if (url === "/api/ai/status") return jsonReply({ configured: true, provider: "Gemini", model: "test-provider" });
+    const overridden = await courseApi?.({ url, body, options, server, sessionUser });
+    if (overridden) return overridden;
+    const method = options.method || "GET";
+    const userId = Number(options.headers?.["x-user-id"]);
+    if (url === "/api/courses" && method === "GET") {
+      return jsonReply({ courses: server.courses.filter((course) => course.owner_id === userId) });
+    }
+    if (url === "/api/courses" && method === "POST") {
+      const course = { id: `created-${server.courses.length + 1}`, owner_id: sessionUser.id, code: body.code, name: body.name, created_at: "2026-01-03", updated_at: "2026-01-03" };
+      server.courses.push(course); return jsonReply({ course }, 201);
+    }
+    const courseMaterials = url.match(/^\/api\/courses\/([^/]+)\/materials$/);
+    if (courseMaterials && method === "GET") {
+      const courseId = decodeURIComponent(courseMaterials[1]);
+      const ownsCourse = server.courses.some((course) => course.id === courseId && course.owner_id === userId);
+      return ownsCourse ? jsonReply({ materials: server.materials.filter((material) => material.course_id === courseId && material.owner_id === userId) })
+        : jsonReply({ code: "COURSE_NOT_FOUND", message: "This course does not exist or does not belong to you." }, 404);
+    }
+    if (courseMaterials && method === "POST") {
+      const courseId = decodeURIComponent(courseMaterials[1]);
+      const material = { id: server.nextMaterialId++, course_id: courseId, owner_id: userId, name: body.name, type: body.type,
+        size_bytes: body.sizeBytes, status: "Ready", content: body.content, created_at: "2026-01-03", updated_at: "2026-01-03" };
+      server.materials.push(material); return jsonReply({ material }, 201);
+    }
+    const materialDelete = url.match(/^\/api\/materials\/(\d+)$/);
+    if (materialDelete && method === "DELETE") {
+      const index = server.materials.findIndex((material) => material.id === Number(materialDelete[1]) && material.owner_id === userId);
+      if (index < 0) return jsonReply({ code: "MATERIAL_NOT_FOUND", message: "This material does not exist or does not belong to you." }, 404);
+      server.materials.splice(index, 1); return jsonReply({ ok: true });
+    }
+    const courseDelete = url.match(/^\/api\/courses\/([^/]+)$/);
+    if (courseDelete && method === "DELETE") {
+      const courseId = decodeURIComponent(courseDelete[1]);
+      server.courses = server.courses.filter((course) => !(course.id === courseId && course.owner_id === sessionUser.id));
+      server.materials = server.materials.filter((material) => material.course_id !== courseId);
+      return jsonReply({ ok: true });
+    }
     return ai(url, body, options);
   };
   const modules = await loadSource(`export { AppDataProvider, useAppData } from './src/state/AppDataContext.jsx';
@@ -44,8 +94,12 @@ async function harness(t, { ai = async () => jsonReply({ answer: "Grounded answe
   let renderer;
   await act(async () => { renderer = create(React.createElement(Root)); });
   t.after(async () => { await act(async () => renderer.unmount()); });
-  await act(async () => { assert.equal((await data.login(student.email, "test-password")).ok, true); });
+  await act(async () => {
+    assert.equal((await data.login(student.email, "test-password")).ok, true);
+    await new Promise((resolve) => setImmediate(resolve));
+  });
   return { get data() { return data; }, renderer, requests, window,
+    server,
     show: async (show) => { await act(async () => renderer.update(React.createElement(Root, { show }))); },
     send: (plain) => renderer.root.findByType("test-input").props.onSend(`<p>${plain}</p>`, plain),
     messages: () => renderer.root.findAllByType("test-message").map((node) => node.props.model),
@@ -181,4 +235,114 @@ test("summary and quiz buttons generate results from the API; scoring follows th
   await act(async () => app.data.setSelectedMaterialIds([2]));
   assert.ok(button(app.renderer, "Generate Quiz"));
   assert.equal(app.renderer.root.findAllByType("input").filter((node) => node.props.type === "radio").length, 0);
+});
+
+test("server courses are authoritative, retryable, and never reused across student accounts", async (t) => {
+  let failCourses = true;
+  const app = await harness(t, { courseApi: ({ url, options }) => {
+    if (url === "/api/courses" && (options.method || "GET") === "GET" && failCourses) {
+      return jsonReply({ code: "SERVICE_UNAVAILABLE", message: "Courses are temporarily unavailable." }, 503);
+    }
+    return null;
+  } });
+  assert.match(app.data.courseState.error, /temporarily unavailable/i);
+  assert.equal(app.data.studentCourses.length, 0);
+  failCourses = false;
+  await act(async () => { app.data.retryCourses(); await new Promise((resolve) => setImmediate(resolve)); });
+  assert.equal(app.data.studentCourses.length, 3);
+  app.window.localStorage.setItem("unrelated-ui-preference", "keep-me");
+  await act(async () => { await app.data.logout(); await app.data.login(mia.email, "test-password"); await new Promise((resolve) => setImmediate(resolve)); });
+  assert.equal(app.data.currentUser.id, 3);
+  assert.equal(app.data.studentCourses.length, 0);
+  assert.equal(app.data.studentMaterials.length, 0);
+  assert.equal(app.window.localStorage.getItem("unrelated-ui-preference"), "keep-me");
+  const courseRequests = app.requests.filter((request) => request.url === "/api/courses" && (request.options.method || "GET") === "GET");
+  assert.equal(courseRequests.at(-1).options.headers["x-user-id"], "3");
+});
+
+test("a slower materials response cannot overwrite the course selected afterwards", async (t) => {
+  const old = deferred();
+  const app = await harness(t, { courseApi: ({ url, options }) => {
+    if (url === "/api/courses/hci/materials" && (options.method || "GET") === "GET") return old.promise;
+    return null;
+  } });
+  await act(async () => app.data.selectCourse("hci"));
+  const oldRequest = app.requests.find((request) => request.url === "/api/courses/hci/materials");
+  await act(async () => { app.data.selectCourse("inft3851a"); await new Promise((resolve) => setImmediate(resolve)); });
+  assert.equal(oldRequest.options.signal.aborted, true);
+  await act(async () => { old.resolve(jsonReply({ materials: [{ id: 99, course_id: "hci", name: "late.txt", type: "TXT", size_bytes: 1, status: "Ready", content: "late", created_at: "x", updated_at: "x" }] })); await new Promise((resolve) => setImmediate(resolve)); });
+  assert.equal(app.data.currentCourseId, "inft3851a");
+  assert.deepEqual(app.data.courseMaterials.map((material) => material.id), [3]);
+  assert.equal(app.data.studentMaterials.some((material) => material.id === 99), false);
+});
+
+test("upload persists complete extracted text and a failed POST cannot create false UI success", async (t) => {
+  let failPost = false;
+  const app = await harness(t, { courseApi: ({ url, options }) => {
+    if (failPost && url === "/api/courses/inft3050/materials" && options.method === "POST") {
+      return jsonReply({ code: "SAVE_FAILED", message: "Material could not be saved." }, 500);
+    }
+    return null;
+  } });
+  const fullText = `${"complete ".repeat(3000)}END OF SOURCE`;
+  let result;
+  await act(async () => { result = await app.data.addMaterials([{ name: "complete.txt", size: 24013, text: async () => fullText }], "inft3050"); });
+  assert.equal(result.ok, true);
+  const post = app.requests.find((request) => request.url === "/api/courses/inft3050/materials" && request.options.method === "POST");
+  assert.equal(post.body.content, fullText);
+  assert.equal("owner_id" in post.body || "ownerId" in post.body, false);
+  assert.equal(app.data.courseMaterials.some((material) => material.content === fullText), true);
+  const before = app.data.courseMaterials.length;
+  failPost = true;
+  await act(async () => { result = await app.data.addMaterials([{ name: "failed.txt", size: 8, text: async () => "not saved" }], "inft3050"); });
+  assert.equal(result.ok, false);
+  assert.match(result.message, /could not be saved/i);
+  assert.equal(app.data.courseMaterials.length, before);
+  assert.equal(app.data.courseMaterials.some((material) => material.name === "failed.txt"), false);
+});
+
+test("failed deletion retains the material and selection; successful deletion cleans every dependent scope", async (t) => {
+  let failDelete = true;
+  const app = await harness(t, { courseApi: ({ url, options }) => {
+    if (failDelete && url === "/api/materials/1" && options.method === "DELETE") {
+      return jsonReply({ code: "DELETE_FAILED", message: "Material could not be deleted." }, 500);
+    }
+    return null;
+  } });
+  await act(async () => {
+    app.data.setSelectedMaterialIds([1, 2]);
+    app.data.recordSummaryUse({ paragraph: "Summary", concepts: [] });
+    app.data.addChatRecord("User", "Question");
+    app.data.saveQuizAttempt({ score: 100, correct: 1, total: 1, answers: {} });
+  });
+  let result;
+  await act(async () => { result = await app.data.deleteMaterial(1); });
+  assert.equal(result.ok, false);
+  assert.equal(app.data.courseMaterials.some((material) => material.id === 1), true);
+  assert.deepEqual(app.data.selectedMaterialIds, [1, 2]);
+  assert.equal(app.data.summaryRecords.length, 1);
+  failDelete = false;
+  await act(async () => { result = await app.data.deleteMaterial(1); });
+  assert.equal(result.ok, true);
+  assert.equal(app.data.courseMaterials.some((material) => material.id === 1), false);
+  assert.deepEqual(app.data.selectedMaterialIds, [2]);
+  assert.equal(app.data.summaryRecords.length, 0);
+  assert.equal(app.data.currentChatRecords.length, 0);
+  assert.equal(app.data.quizAttempts.length, 0);
+});
+
+test("logout aborts resource loads and a late response cannot repopulate the signed-out UI", async (t) => {
+  const slow = deferred();
+  const app = await harness(t, { courseApi: ({ url, options }) => {
+    if (url === "/api/courses/hci/materials" && (options.method || "GET") === "GET") return slow.promise;
+    return null;
+  } });
+  await act(async () => app.data.selectCourse("hci"));
+  const request = app.requests.find((item) => item.url === "/api/courses/hci/materials");
+  await act(async () => app.data.logout());
+  assert.equal(request.options.signal.aborted, true);
+  await act(async () => { slow.resolve(jsonReply({ materials: [{ id: 101, course_id: "hci", name: "late.txt", type: "TXT", size_bytes: 1, status: "Ready", content: "late", created_at: "x", updated_at: "x" }] })); await new Promise((resolve) => setImmediate(resolve)); });
+  assert.equal(app.data.currentUser, null);
+  assert.equal(app.data.studentCourses.length, 0);
+  assert.equal(app.data.studentMaterials.length, 0);
 });
