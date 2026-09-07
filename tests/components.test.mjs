@@ -182,3 +182,33 @@ test("summary and quiz buttons generate results from the API; scoring follows th
   assert.ok(button(app.renderer, "Generate Quiz"));
   assert.equal(app.renderer.root.findAllByType("input").filter((node) => node.props.type === "radio").length, 0);
 });
+
+test("Q&A answer style, quiz difficulty, and flashcards reach the existing AI workflow", async (t) => {
+  const questions = [0, 1, 2].map((answerIndex, index) => ({ id: index + 1, question: `Question ${index + 1}?`, options: ["A", "B", "C", "D"], answerIndex, explanation: "Explanation [S1]." }));
+  const cards = Array.from({ length: 5 }, (_, index) => ({ id: index + 1, front: `Card front ${index + 1}`, back: `Card back ${index + 1}`, source: "[S1]" }));
+  const app = await harness(t, { workspace: true, ai: async (url) => {
+    if (url.endsWith("/qa")) return jsonReply({ answer: "Styled answer [S1].", mode: "api" });
+    if (url.endsWith("/quiz")) return jsonReply({ questions, mode: "api" });
+    if (url.endsWith("/flashcards")) return jsonReply({ cards, mode: "api" });
+    return jsonReply({ paragraph: "Summary", concepts: ["Concept [S1]"], mode: "api" });
+  } });
+
+  await act(async () => button(app.renderer, "Q&A").props.onClick());
+  const answerStyle = app.renderer.root.findAllByType("select").find((node) => node.props.value === "simple");
+  await act(async () => answerStyle.props.onChange({ target: { value: "example" } }));
+  await act(async () => { await app.send("Explain this topic."); });
+  assert.equal(app.requests.filter((request) => request.url === "/api/ai/qa").at(-1).body.answerStyle, "example");
+
+  await act(async () => button(app.renderer, "Quiz").props.onClick());
+  const difficulty = app.renderer.root.findAllByType("select").find((node) => node.props.value === "medium");
+  await act(async () => difficulty.props.onChange({ target: { value: "hard" } }));
+  await act(async () => { await button(app.renderer, "Generate Quiz").props.onClick(); });
+  assert.equal(app.requests.filter((request) => request.url === "/api/ai/quiz").at(-1).body.difficulty, "hard");
+
+  await act(async () => button(app.renderer, "Flashcards").props.onClick());
+  await act(async () => { await button(app.renderer, "Generate Flashcards").props.onClick(); });
+  assert.ok(JSON.stringify(app.renderer.toJSON()).includes("Card front 1"));
+  const firstCard = app.renderer.root.findAllByType("button").find((node) => node.props["aria-pressed"] === false);
+  await act(async () => firstCard.props.onClick());
+  assert.ok(JSON.stringify(app.renderer.toJSON()).includes("Card back 1"));
+});

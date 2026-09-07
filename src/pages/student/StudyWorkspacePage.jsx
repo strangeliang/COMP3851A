@@ -1,15 +1,15 @@
 import AIChatBox from "../../components/AIChatBox";
-import { AlertCircle, BookOpenText, CheckCircle2, MessageCircleQuestion, RotateCcw, Sparkles } from "lucide-react";
+import { AlertCircle, BookOpenText, CheckCircle2, Layers, MessageCircleQuestion, RotateCcw, Sparkles } from "lucide-react";
 import { useMemo, useRef, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import Toolbar from "../../components/Toolbar";
 import StudentLayout from "../../layouts/StudentLayout";
 import { useAppData } from "../../state/AppDataContext";
 import useAIRequest from "../../hooks/useAIRequest";
-import { generateAISummary, generateAIQuiz } from "../../services/aiService";
+import { generateAISummary, generateAIQuiz, generateAIFlashcards } from "../../services/aiService";
 import { limits, materialIsIncomplete, sameId, selectionError } from "../../utils/studyScope";
 
-const modeLabels = [["summary", "Summary", BookOpenText], ["qa", "Q&A", MessageCircleQuestion], ["quiz", "Quiz", Sparkles]];
+const modeLabels = [["summary", "Summary", BookOpenText], ["qa", "Q&A", MessageCircleQuestion], ["quiz", "Quiz", Sparkles], ["flashcards", "Flashcards", Layers]];
 
 function SummaryPanel({ canUseAI, materialSourceLabel }) {
   const { selectedMaterials, recordSummaryUse, currentSummaryRecord, scope } = useAppData();
@@ -47,6 +47,7 @@ function QuizPanel({ canUseAI, materialSourceLabel }) {
   const [answers, setAnswers] = useState({});
   const [submitted, setSubmitted] = useState(false);
   const [warning, setWarning] = useState("");
+  const [difficulty, setDifficulty] = useState("medium");
   const submittedRef = useRef(false);
   const complete = questions.length > 0 && questions.every((question) => Number.isInteger(answers[question.id]));
   const correct = questions.reduce((sum, question) => sum + (answers[question.id] === question.answerIndex ? 1 : 0), 0);
@@ -58,7 +59,7 @@ function QuizPanel({ canUseAI, materialSourceLabel }) {
   async function generate() {
     if (!canUseAI || request.pending) return;
     resetAnswers();
-    await request.run((signal) => generateAIQuiz({ materials: selectedMaterials, signal }));
+    await request.run((signal) => generateAIQuiz({ materials: selectedMaterials, difficulty, signal }));
   }
   function submit() {
     if (submittedRef.current) return;
@@ -71,6 +72,13 @@ function QuizPanel({ canUseAI, materialSourceLabel }) {
     <div className="panel-title-row">
       <div><p className="summary-source">{materialSourceLabel}</p><h2>Quiz</h2></div>
       {submitted && <div className="score-card"><CheckCircle2 size={18} />{score}% ({correct}/{questions.length})</div>}
+      <label className="user-field" style={{ minWidth: 140 }}>Difficulty
+        <select value={difficulty} onChange={(event) => setDifficulty(event.target.value)} disabled={request.pending}>
+          <option value="easy">Easy</option>
+          <option value="medium">Medium</option>
+          <option value="hard">Hard</option>
+        </select>
+      </label>
       <button className="primary-button" type="button" onClick={generate} disabled={!canUseAI || request.pending}>
         {request.pending ? "Generating…" : questions.length ? "Generate New Quiz" : "Generate Quiz"}
       </button>
@@ -103,9 +111,45 @@ function QuizPanel({ canUseAI, materialSourceLabel }) {
   </section>;
 }
 
+function FlashcardsPanel({ canUseAI, materialSourceLabel }) {
+  const { selectedMaterials, scope } = useAppData();
+  const request = useAIRequest(scope.scopeKey);
+  const cards = request.data?.cards || [];
+  const [flipped, setFlipped] = useState({});
+  async function generate() {
+    if (!canUseAI || request.pending) return;
+    setFlipped({});
+    await request.run((signal) => generateAIFlashcards({ materials: selectedMaterials, signal }));
+  }
+  return <section className="user-card workspace-panel">
+    <div className="panel-title-row">
+      <div><p className="summary-source">{materialSourceLabel}</p><h2>AI Flashcards</h2></div>
+      <button className="primary-button" type="button" onClick={generate} disabled={!canUseAI || request.pending}>
+        {request.pending ? "Generating…" : cards.length ? "Generate New Cards" : "Generate Flashcards"}
+      </button>
+    </div>
+    <p className="demo-warning">Generate five revision cards from the selected materials. Click a card to reveal its answer.</p>
+    {request.pending && <div className="state-banner" role="status">Generating flashcards… <button type="button" onClick={request.cancel}>Stop generating</button></div>}
+    {request.error && <div className="state-banner error" role="alert">{request.error}</div>}
+    {!cards.length && !request.pending && !request.error && <div className="empty-state">Generate flashcards to start revising.</div>}
+    {!!cards.length && <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: "14px" }}>
+      {cards.map((card) => {
+        const isFlipped = Boolean(flipped[card.id]);
+        return <button key={card.id} type="button" aria-pressed={isFlipped} onClick={() => setFlipped((current) => ({ ...current, [card.id]: !current[card.id] }))}
+          style={{ minHeight: 180, padding: "20px", textAlign: "left", border: "1px solid #d8dcf8", borderRadius: "16px", background: isFlipped ? "#eef2ff" : "#ffffff", color: "#1f2937", cursor: "pointer" }}>
+          <span className="summary-source">{card.source}</span>
+          <h3 style={{ margin: "12px 0 8px" }}>{isFlipped ? "Back" : "Front"}</h3>
+          <p style={{ whiteSpace: "pre-wrap", margin: 0 }}>{isFlipped ? card.back : card.front}</p>
+          <small style={{ display: "block", marginTop: "18px", color: "#6366f1" }}>{isFlipped ? "Click to show the front" : "Click to reveal the answer"}</small>
+        </button>;
+      })}
+    </div>}
+  </section>;
+}
+
 export default function StudyWorkspacePage() {
   const [params, setParams] = useSearchParams();
-  const mode = ["summary", "qa", "quiz"].includes(params.get("mode")) ? params.get("mode") : "summary";
+  const mode = ["summary", "qa", "quiz", "flashcards"].includes(params.get("mode")) ? params.get("mode") : "summary";
   const { studentCourses, currentCourse, currentCourseId, selectCourse, courseMaterials, selectedMaterialIds,
     selectedMaterials, setSelectedMaterialIds, summaryUses, qaUses, aiStatus, scope } = useAppData();
   const [search, setSearch] = useState("");
@@ -126,9 +170,9 @@ export default function StudyWorkspacePage() {
       <div className="side-item"><strong>Q&A Uses</strong><span>{qaUses}</span></div>
     </div>
   </>;
-  return <StudentLayout profileProps={{ title: "Study Workspace", initials: "AI", name: currentCourse?.code || "Select Course", subtitle: "Summary, Q&A, and Quiz use selected course materials." }} profileContent={profileContent}>
+  return <StudentLayout profileProps={{ title: "Study Workspace", initials: "AI", name: currentCourse?.code || "Select Course", subtitle: "Summary, Q&A, Quiz, and Flashcards use selected course materials." }} profileContent={profileContent}>
     <Toolbar value={search} onChange={setSearch} placeholder="Search materials in current course..." />
-    <header className="workspace-header"><h1>Study Workspace</h1><p>Choose a course and up to {limits.maxFilesPerAIRequest} materials for Summary, Q&A, or Quiz.</p></header>
+    <header className="workspace-header"><h1>Study Workspace</h1><p>Choose a course and up to {limits.maxFilesPerAIRequest} materials for Summary, Q&A, Quiz, or Flashcards.</p></header>
     <div className="control-grid"><label className="user-field">Current Course
       <select value={currentCourseId} onChange={(event) => selectCourse(event.target.value)} disabled={!studentCourses.length}>
         {!studentCourses.length && <option value="">Create a course first</option>}
@@ -164,5 +208,6 @@ export default function StudyWorkspacePage() {
       <AIChatBox key={scope.scopeKey} selectedMaterials={selectedMaterials} currentCourse={currentCourse} />
     </section>}
     {mode === "quiz" && <QuizPanel key={scope.scopeKey} canUseAI={canUseAI} materialSourceLabel={materialSourceLabel} />}
+    {mode === "flashcards" && <FlashcardsPanel key={scope.scopeKey} canUseAI={canUseAI} materialSourceLabel={materialSourceLabel} />}
   </StudentLayout>;
 }
