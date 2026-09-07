@@ -2,6 +2,7 @@ import {
   BookOpenText,
   LayoutDashboard,
   ListChecks,
+  Layers,
   LogOut,
   MessageCircleQuestion,
   Settings,
@@ -17,6 +18,7 @@ const links = [
   { to: "/student/workspace?mode=summary", label: "Summary", icon: BookOpenText },
   { to: "/student/workspace?mode=qa", label: "Q&A", icon: MessageCircleQuestion },
   { to: "/student/workspace?mode=quiz", label: "Quiz", icon: ListChecks },
+  { to: "/student/workspace?mode=flashcards", label: "Flashcards", icon: Layers },
 ];
 
 export default function StudentSidebar() {

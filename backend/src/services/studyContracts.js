@@ -11,8 +11,21 @@ class StudyError extends Error {
 
 function invalid(message) { throw new StudyError(400, "INVALID_INPUT", message); }
 
+const answerStylePrompts = {
+  simple: "Explain the answer in simple, clear language.",
+  detailed: "Give a detailed explanation while staying focused on the selected sources.",
+  example: "Explain the answer and include a clear example based on the selected sources.",
+  hint: "Give hints that guide the student without directly revealing the complete answer.",
+};
+
+const quizDifficultyPrompts = {
+  easy: "Use straightforward recall and basic understanding questions.",
+  medium: "Use questions that require both understanding and simple application.",
+  hard: "Use challenging application and comparison questions, while keeping every answer supported by the sources.",
+};
+
 function validateRequest(mode, body = {}) {
-  if (!["qa", "summary", "quiz"].includes(mode)) invalid("Unknown study mode.");
+  if (!["qa", "summary", "quiz", "flashcards"].includes(mode)) invalid("Unknown study mode.");
   if (!body || typeof body !== "object") invalid("The request is invalid.");
   const materials = body.materials;
   if (!Array.isArray(materials) || !materials.length || materials.length > limits.maxFilesPerAIRequest) {
@@ -44,7 +57,11 @@ function validateRequest(mode, body = {}) {
     return { role: message.role, parts: [{ text: message.text }] };
   });
   if (historyCharacters > limits.maxHistoryCharacters) invalid("The conversation history is too long.");
-  return { materials: sources, question, history: messages };
+  const answerStyle = body.answerStyle === undefined ? "simple" : body.answerStyle;
+  if (mode === "qa" && (typeof answerStyle !== "string" || !answerStylePrompts[answerStyle])) invalid("Select a valid answer style.");
+  const difficulty = body.difficulty === undefined ? "medium" : body.difficulty;
+  if (mode === "quiz" && (typeof difficulty !== "string" || !quizDifficultyPrompts[difficulty])) invalid("Select a valid quiz difficulty.");
+  return { materials: sources, question, history: messages, answerStyle, difficulty };
 }
 
 const systemInstruction = [
@@ -61,6 +78,7 @@ const modePrompts = {
   qa: "Answer the student's current question. Use relevant recent conversation for follow-up questions, but verify claims against the selected sources.",
   summary: "Summarise the selected sources together. Return one clear paragraph and 3 to 8 key concepts. Cover substantive course content, highlight important differences, and cite source labels in the paragraph or concepts. Return only the requested JSON object.",
   quiz: "Create exactly 3 multiple-choice revision questions grounded in the selected sources. Each question must have exactly 4 distinct options and exactly 1 unambiguously correct option. Provide its zero-based answerIndex and an explanation with a source label. Avoid questions about the app itself unless that is actually the source topic. Return only the requested JSON object.",
+  flashcards: "Create exactly 5 revision flashcards grounded in the selected sources. Each card must have a concise front question or key term, a clear back explanation, and a source label such as [S1]. Return only the requested JSON object.",
 };
 
 const responseSchemas = {
@@ -88,6 +106,24 @@ const responseSchemas = {
     },
     required: ["questions"],
   },
+  flashcards: {
+    type: "OBJECT",
+    properties: {
+      cards: {
+        type: "ARRAY", minItems: 5, maxItems: 5,
+        items: {
+          type: "OBJECT",
+          properties: {
+            front: { type: "STRING" },
+            back: { type: "STRING" },
+            source: { type: "STRING" },
+          },
+          required: ["front", "back", "source"],
+        },
+      },
+    },
+    required: ["cards"],
+  },
 };
 
 function buildGeminiRequest(mode, request) {
@@ -98,9 +134,14 @@ function buildGeminiRequest(mode, request) {
     generationConfig.responseMimeType = "application/json";
     generationConfig.responseSchema = responseSchemas[mode];
   }
+  const taskPrompt = mode === "qa"
+    ? `${modePrompts.qa} ${answerStylePrompts[request.answerStyle]}`
+    : mode === "quiz"
+      ? `${modePrompts.quiz} Difficulty: ${request.difficulty}. ${quizDifficultyPrompts[request.difficulty]}`
+      : modePrompts[mode];
   return {
     systemInstruction: { parts: [{ text: systemInstruction }] },
-    contents: [...request.history, { role: "user", parts: [{ text: `${modePrompts[mode]}\n\nSOURCE MATERIALS:\n${sources}\n\nCURRENT QUESTION:\n${request.question || "Use the study task above."}` }] }],
+    contents: [...request.history, { role: "user", parts: [{ text: `${taskPrompt}\n\nSOURCE MATERIALS:\n${sources}\n\nCURRENT QUESTION:\n${request.question || "Use the study task above."}` }] }],
     generationConfig,
   };
 }
@@ -126,6 +167,17 @@ function parseOutput(mode, data) {
   if (mode === "summary") {
     if (!checkedText(output?.paragraph, 12000) || !Array.isArray(output.concepts) || !output.concepts.length || output.concepts.length > 8 || !output.concepts.every((concept) => checkedText(concept, 2000))) badOutput();
     return { paragraph: output.paragraph, concepts: output.concepts, mode: "api" };
+  }
+  if (mode === "flashcards") {
+    if (!Array.isArray(output?.cards) || output.cards.length !== 5) badOutput();
+    const fronts = new Set();
+    const cards = output.cards.map((card, index) => {
+      const front = card?.front?.trim().toLowerCase();
+      if (!checkedText(card?.front, 1000) || fronts.has(front) || !checkedText(card?.back, 3000) || !checkedText(card?.source, 500) || !/\[S[1-3]\]/i.test(card.source)) badOutput();
+      fronts.add(front);
+      return { id: index + 1, front: card.front, back: card.back, source: card.source };
+    });
+    return { cards, mode: "api" };
   }
   if (!Array.isArray(output?.questions) || output.questions.length !== 3) badOutput();
   const questionTexts = new Set();
