@@ -1,4 +1,4 @@
-import { useRef } from "react";
+import { useRef, useState } from "react";
 import "@chatscope/chat-ui-kit-styles/dist/default/styles.min.css";
 import { ChatContainer, MainContainer, Message, MessageInput, MessageList, TypingIndicator } from "@chatscope/chat-ui-kit-react";
 import { CheckCircle2, FileText, Sparkles, UploadCloud } from "lucide-react";
@@ -11,6 +11,7 @@ export default function AIChatBox({ selectedMaterials = [], currentCourse = null
   const { addChatRecord, recordQAUse, currentChatRecords, scope, aiStatus, notify } = useAppData();
   const request = useAIRequest(scope.scopeKey);
   const sendLock = useRef(null);
+  const [answerStyle, setAnswerStyle] = useState("simple");
   const isTyping = request.pending;
   const materialNames = selectedMaterials.map((material) => material.name).join(", ");
   const inputError = selectionError(selectedMaterials);
@@ -33,7 +34,7 @@ export default function AIChatBox({ selectedMaterials = [], currentCourse = null
     addChatRecord("User", question, { scope: capturedScope, mode: "api" });
     recordQAUse(capturedScope);
     try {
-      const result = await request.run((signal) => generateAIAnswer({ materials: selectedMaterials, question, history, signal }));
+      const result = await request.run((signal) => generateAIAnswer({ materials: selectedMaterials, question, history, answerStyle, signal }));
       if (result) addChatRecord("AI", result.answer, { scope: capturedScope, mode: "api" });
     } finally { if (sendLock.current === token) sendLock.current = null; }
   }
@@ -176,6 +177,15 @@ export default function AIChatBox({ selectedMaterials = [], currentCourse = null
         {(inputError || !aiStatus.configured) && <p className="state-banner" role="status">{inputError || aiStatus.message}</p>}
         {request.error && <p className="state-banner error" role="alert">{request.error} You can send the question again.</p>}
         {isTyping && <button type="button" onClick={request.cancel}>Stop generating</button>}
+        <label style={{ display: "flex", alignItems: "center", gap: "10px", padding: "12px 20px", borderBottom: "1px solid #e5e7eb", fontSize: "13px", fontWeight: 600, color: "#374151" }}>
+          Answer style
+          <select value={answerStyle} onChange={(event) => setAnswerStyle(event.target.value)} disabled={isTyping} style={{ marginLeft: "auto", padding: "7px 10px", border: "1px solid #d1d5db", borderRadius: "8px", background: "#ffffff" }}>
+            <option value="simple">Simple</option>
+            <option value="detailed">Detailed</option>
+            <option value="example">Example</option>
+            <option value="hint">Hint Only</option>
+          </select>
+        </label>
         <div style={{ height: "450px", position: "relative" }}>
           <MainContainer style={{ border: "none", height: "100%" }}>
             <ChatContainer>
