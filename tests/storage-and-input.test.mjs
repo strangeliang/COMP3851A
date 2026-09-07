@@ -1,6 +1,15 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import { readFile } from "node:fs/promises";
 import { loadSource, memoryWindow, jsonReply } from "./helpers.mjs";
+
+test("the committed backend environment example never contains a Gemini credential", async () => {
+  const example = await readFile(new URL("../backend/.env.example", import.meta.url), "utf8");
+  const keyLine = example.match(/^GEMINI_API_KEY=(.*)$/m);
+  assert.ok(keyLine, "backend/.env.example must document GEMINI_API_KEY");
+  assert.equal(keyLine[1].trim(), "");
+  assert.doesNotMatch(example, /AQ\.[A-Za-z0-9_-]{20,}/);
+});
 
 test("invalid browser cache data cannot grant login or break array-dependent pages", async () => {
   const window = memoryWindow({ "study-companion-app-data": JSON.stringify({ currentUser: { id: 99, role: "Admin" }, courses: null, materials: [null], users: "bad", summaryRecords: [{ id: 1, userId: 1, courseId: "test", summary: {} }], quizAttempts: [null] }) });

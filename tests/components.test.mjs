@@ -1938,3 +1938,229 @@ test(
     );
   }
 );
+
+test(
+  "workspace blocks Summary, Q&A, and Quiz when no material is selected",
+  async (t) => {
+    const app = await harness(t, {
+      workspace: true,
+    });
+
+    await act(async () =>
+      app.data.setSelectedMaterialIds([])
+    );
+
+    const summary = button(
+      app.renderer,
+      "Generate Summary"
+    );
+    assert.equal(summary.props.disabled, true);
+
+    await act(async () =>
+      summary.props.onClick()
+    );
+
+    assert.equal(
+      app.requests.some((request) =>
+        /^\/api\/ai\/(summary|qa|quiz)$/.test(
+          request.url
+        )
+      ),
+      false
+    );
+    assert.match(
+      JSON.stringify(app.renderer.toJSON()),
+      /Select at least one material/i
+    );
+
+    await act(async () =>
+      button(app.renderer, "Q&A").props.onClick()
+    );
+    assert.equal(
+      app.renderer.root.findByType("test-input")
+        .props.disabled,
+      true
+    );
+
+    await act(async () =>
+      button(app.renderer, "Quiz").props.onClick()
+    );
+    assert.equal(
+      button(app.renderer, "Generate Quiz").props
+        .disabled,
+      true
+    );
+  }
+);
+
+test(
+  "repeated Summary clicks send one request and store one result",
+  async (t) => {
+    const response = deferred();
+    const app = await harness(t, {
+      workspace: true,
+      ai: () => response.promise,
+    });
+    const generate = button(
+      app.renderer,
+      "Generate Summary"
+    ).props.onClick;
+    let first;
+    let second;
+
+    await act(async () => {
+      first = generate();
+      second = generate();
+      await new Promise((resolve) =>
+        setImmediate(resolve)
+      );
+    });
+
+    assert.equal(
+      app.requests.filter(
+        (request) =>
+          request.url === "/api/ai/summary"
+      ).length,
+      1
+    );
+    assert.equal(
+      button(app.renderer, "Generating…").props
+        .disabled,
+      true
+    );
+
+    await act(async () => {
+      response.resolve(
+        jsonReply({
+          paragraph: "One accepted summary. [S1]",
+          concepts: ["One concept [S1]"],
+          mode: "api",
+        })
+      );
+      await Promise.all([first, second]);
+    });
+
+    assert.equal(app.data.summaryRecords.length, 1);
+    assert.equal(
+      app.data.summaryRecords[0].summary.paragraph,
+      "One accepted summary. [S1]"
+    );
+  }
+);
+
+test(
+  "switching course during Summary generation aborts and discards the old result",
+  async (t) => {
+    const response = deferred();
+    const app = await harness(t, {
+      workspace: true,
+      ai: () => response.promise,
+    });
+    let generation;
+
+    await act(async () => {
+      generation = button(
+        app.renderer,
+        "Generate Summary"
+      ).props.onClick();
+      await new Promise((resolve) =>
+        setImmediate(resolve)
+      );
+    });
+
+    const oldRequest = app.requests.find(
+      (request) =>
+        request.url === "/api/ai/summary"
+    );
+
+    await act(async () => {
+      app.data.selectCourse("inft3851a");
+      await new Promise((resolve) =>
+        setImmediate(resolve)
+      );
+    });
+
+    assert.equal(
+      oldRequest.options.signal.aborted,
+      true
+    );
+
+    await act(async () => {
+      response.resolve(
+        jsonReply({
+          paragraph: "STALE COURSE SUMMARY",
+          concepts: ["Stale"],
+          mode: "api",
+        })
+      );
+      await generation;
+    });
+
+    assert.equal(
+      app.data.currentCourseId,
+      "inft3851a"
+    );
+    assert.equal(
+      app.data.summaryRecords.some(
+        (record) =>
+          record.summary.paragraph ===
+          "STALE COURSE SUMMARY"
+      ),
+      false
+    );
+  }
+);
+
+test(
+  "Summary failure is visible, records no success, and allows a retry",
+  async (t) => {
+    let fail = true;
+    const app = await harness(t, {
+      workspace: true,
+      ai: async () =>
+        fail
+          ? jsonReply(
+              {
+                code: "AI_UNAVAILABLE",
+                message:
+                  "AI service is temporarily unavailable.",
+              },
+              503
+            )
+          : jsonReply({
+              paragraph: "Recovered summary. [S1]",
+              concepts: ["Recovery [S1]"],
+              mode: "api",
+            }),
+    });
+
+    await act(async () => {
+      await button(
+        app.renderer,
+        "Generate Summary"
+      ).props.onClick();
+    });
+
+    assert.match(
+      JSON.stringify(app.renderer.toJSON()),
+      /AI service is temporarily unavailable/i
+    );
+    assert.equal(app.data.summaryRecords.length, 0);
+    assert.ok(button(app.renderer, "Generate Summary"));
+
+    fail = false;
+
+    await act(async () => {
+      await button(
+        app.renderer,
+        "Generate Summary"
+      ).props.onClick();
+    });
+
+    assert.equal(app.data.summaryRecords.length, 1);
+    assert.equal(
+      app.data.summaryRecords[0].summary.paragraph,
+      "Recovered summary. [S1]"
+    );
+  }
+);
