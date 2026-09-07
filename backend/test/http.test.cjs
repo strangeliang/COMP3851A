@@ -12,11 +12,11 @@ const users = [
 ];
 const courses = [
   { id: "course-a", owner_id: 1, code: "A101", name: "Student A Course" },
-  { id: "course-b", owner_id: 4, code: "B101", name: "Student B Course" },
+  { id: "course-b", owner_id: 2, code: "B101", name: "User 2 Course" },
 ];
 const materials = [
   { id: 1, course_id: "course-a", owner_id: 1, name: "a.txt", type: "TXT", size_bytes: 1, status: "Ready", content: "A" },
-  { id: 2, course_id: "course-b", owner_id: 4, name: "b.txt", type: "TXT", size_bytes: 1, status: "Ready", content: "B" },
+  { id: 2, course_id: "course-b", owner_id: 2, name: "b.txt", type: "TXT", size_bytes: 1, status: "Ready", content: "B" },
 ];
 const database = {
   getUserByEmail: async (email) => users.find((user) => user.email === email),
@@ -37,8 +37,9 @@ async function setup(t, gemini = createGeminiService({ apiKey: "" })) {
   await new Promise((resolve) => server.once("listening", resolve));
   t.after(() => new Promise((resolve) => { server.closeAllConnections(); server.close(resolve); }));
   const base = `http://127.0.0.1:${server.address().port}/api`;
-  const request = (path, { cookie, origin, method = "GET", data } = {}) => fetch(`${base}${path}`, { method,
-    headers: { ...(data ? { "Content-Type": "application/json" } : {}), ...(cookie ? { Cookie: cookie } : {}), ...(origin ? { Origin: origin } : {}) },
+  const request = (path, { cookie, userId, origin, method = "GET", data } = {}) => fetch(`${base}${path}`, { method,
+    headers: { ...(data ? { "Content-Type": "application/json" } : {}), ...(cookie ? { Cookie: cookie } : {}),
+      ...(userId !== undefined ? { "x-user-id": String(userId) } : {}), ...(origin ? { Origin: origin } : {}) },
     ...(data ? { body: JSON.stringify(data) } : {}),
   });
   async function login(email = "a@test.invalid") {
@@ -96,22 +97,55 @@ test("cross-site mutations and administrator study requests are rejected", async
   assert.equal((await request("/ai/qa", { cookie: admin, method: "POST", data: body })).status, 403);
 });
 
-test("course and material APIs isolate every record by the authenticated owner", async (t) => {
+test("course and material test identity requires an existing positive-integer x-user-id", async (t) => {
   const { request, login } = await setup(t);
-  const studentA = await login("a@test.invalid");
-  const studentB = await login("b@test.invalid");
+  const cookie = await login();
+  for (const userId of [undefined, "abc", 0, -1, "1.5", Number.MAX_SAFE_INTEGER + 1, 999]) {
+    const response = await request("/courses", { userId, ...(userId === undefined ? { cookie } : {}) });
+    assert.equal(response.status, 401);
+    assert.deepEqual(await response.json(), {
+      code: "TEST_USER_REQUIRED",
+      message: "Provide a valid x-user-id header for an existing user.",
+    });
+  }
+  assert.equal((await request("/courses", { userId: 1 })).status, 200);
+  assert.equal((await request("/ai/status", { userId: 1 })).status, 401);
+  assert.equal((await request("/health")).status, 200);
+  assert.equal((await request("/database/status")).status, 200);
+});
 
-  const aCourses = await (await request("/courses", { cookie: studentA })).json();
-  const bCourses = await (await request("/courses", { cookie: studentB })).json();
+test("course and material APIs isolate user 1 and user 2 by req.currentUser", async (t) => {
+  const { request, login } = await setup(t);
+
+  const aCourses = await (await request("/courses", { userId: 1 })).json();
+  const bCourses = await (await request("/courses", { userId: 2 })).json();
   assert.deepEqual(aCourses.courses.map((course) => course.id), ["course-a"]);
   assert.deepEqual(bCourses.courses.map((course) => course.id), ["course-b"]);
 
-  assert.equal((await request("/courses/course-b/materials", { cookie: studentA })).status, 404);
-  assert.equal((await request("/courses/course-b/materials", { cookie: studentA, method: "POST", data: { name: "stolen.txt", type: "TXT", sizeBytes: 1, content: "x" } })).status, 404);
-  assert.equal((await request("/materials/2", { cookie: studentA, method: "DELETE" })).status, 404);
+  assert.equal((await request("/courses/course-b/materials", { userId: 1 })).status, 404);
+  assert.equal((await request("/courses/course-b/materials", { userId: 1, method: "POST", data: { name: "stolen.txt", type: "TXT", sizeBytes: 1, content: "x" } })).status, 404);
+  assert.equal((await request("/materials/2", { userId: 1, method: "DELETE" })).status, 404);
+  assert.equal((await request(`/courses/${"x".repeat(161)}/materials`, { userId: 1 })).status, 404);
+  assert.equal((await request("/materials/not-an-integer", { userId: 1, method: "DELETE" })).status, 404);
+
+  const spoofedOwner = await request("/courses/course-a/materials", { userId: 1, method: "POST",
+    data: { owner_id: 2, name: "spoofed.txt", type: "TXT", sizeBytes: 1, content: "x" } });
+  assert.equal(spoofedOwner.status, 400);
+  assert.equal((await spoofedOwner.json()).code, "OWNER_NOT_ALLOWED");
+  assert.equal((await request("/courses/course-a/materials?owner_id=2", { userId: 1, method: "POST",
+    data: { name: "query-spoof.txt", type: "TXT", sizeBytes: 1, content: "x" } })).status, 400);
+
+  const createdResponse = await request("/courses/course-a/materials", { userId: 1, method: "POST",
+    data: { name: "created.txt", type: "TXT", sizeBytes: 7, content: "created" } });
+  assert.equal(createdResponse.status, 201);
+  const created = (await createdResponse.json()).material;
+  assert.equal(created.course_id, "course-a");
+  assert.equal(created.owner_id, 1);
+
+  const studentA = await login("a@test.invalid");
   assert.equal((await request("/courses/course-b", { cookie: studentA, method: "DELETE" })).status, 404);
 
-  const ownMaterials = await (await request("/courses/course-a/materials", { cookie: studentA })).json();
+  const ownMaterials = await (await request("/courses/course-a/materials", { userId: 1 })).json();
   assert.deepEqual(ownMaterials.materials.map((material) => material.id), [1]);
 });
 

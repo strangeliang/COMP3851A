@@ -27,11 +27,14 @@ export default function DashboardPage() {
     selectCourse,
     createCourse,
     deleteCourse,
+    courseState,
+    retryCourses,
     notify,
   } = useAppData();
   const [search, setSearch] = useState("");
   const [form, setForm] = useState({ code: "", name: "" });
   const [formError, setFormError] = useState("");
+  const [courseActionPending, setCourseActionPending] = useState(false);
 
   const filteredCourses = useMemo(() => {
     const query = search.trim().toLowerCase();
@@ -52,9 +55,12 @@ export default function DashboardPage() {
     ["Average Score", `${averageQuizScore}%`, BookOpenText],
   ];
 
-  function submitCourse(event) {
+  async function submitCourse(event) {
     event.preventDefault();
-    const result = createCourse(form);
+    if (courseActionPending) return;
+    setCourseActionPending(true);
+    const result = await createCourse(form);
+    setCourseActionPending(false);
     if (!result.ok) {
       setFormError(result.message);
       return;
@@ -63,11 +69,15 @@ export default function DashboardPage() {
     setFormError("");
   }
 
-  function removeCourse(course) {
+  async function removeCourse(course) {
     const confirmed = window.confirm(
-      `Delete ${course.code} ${course.name}? Its materials will be removed from the demo.`,
+      `Delete ${course.code} ${course.name}? Its materials and dependent study records will be removed.`,
     );
-    if (confirmed) deleteCourse(course.id);
+    if (!confirmed || courseActionPending) return;
+    setCourseActionPending(true);
+    const result = await deleteCourse(course.id);
+    setCourseActionPending(false);
+    if (!result.ok) setFormError(result.message);
   }
 
   const profileContent = (
@@ -105,6 +115,8 @@ export default function DashboardPage() {
       profileContent={profileContent}
     >
       <Toolbar value={search} onChange={setSearch} placeholder="Search your course here..." />
+      {courseState.loading && <div className="state-banner" role="status">Loading your courses…</div>}
+      {courseState.error && <div className="state-banner error" role="alert">{courseState.error} <button type="button" onClick={retryCourses}>Retry</button></div>}
 
       <section className="purple-hero">
         <p className="hero-kicker">Student Dashboard</p>
@@ -141,6 +153,7 @@ export default function DashboardPage() {
             Course Code
             <input
               value={form.code}
+              disabled={courseActionPending || courseState.loading}
               onChange={(event) => setForm({ ...form, code: event.target.value })}
               placeholder="INFT3050"
             />
@@ -149,12 +162,13 @@ export default function DashboardPage() {
             Course Name
             <input
               value={form.name}
+              disabled={courseActionPending || courseState.loading}
               onChange={(event) => setForm({ ...form, name: event.target.value })}
               placeholder="Study Companion"
             />
           </label>
-          <button className="primary-button" type="submit">
-            <FolderPlus size={16} /> Create Course
+          <button className="primary-button" type="submit" disabled={courseActionPending || courseState.loading}>
+            <FolderPlus size={16} /> {courseActionPending ? "Saving…" : "Create Course"}
           </button>
         </form>
         {formError && <p className="form-error">{formError}</p>}
@@ -175,6 +189,7 @@ export default function DashboardPage() {
                 <button
                   className="icon-danger"
                   type="button"
+                  disabled={courseActionPending}
                   title="Delete course"
                   onClick={() => removeCourse(course)}
                 >

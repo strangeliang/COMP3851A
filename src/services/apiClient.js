@@ -7,7 +7,7 @@ export class APIError extends Error {
   }
 }
 
-export async function apiRequest(path, { method = "GET", body, signal, timeoutMs = 95000 } = {}) {
+export async function apiRequest(path, { method = "GET", body, headers = {}, signal, timeoutMs = 95000 } = {}) {
   const controller = new AbortController();
   let timedOut = false;
   const abort = () => controller.abort();
@@ -18,7 +18,7 @@ export async function apiRequest(path, { method = "GET", body, signal, timeoutMs
     const response = await fetch(`/api${path}`, {
       method,
       credentials: "same-origin",
-      headers: { "Content-Type": "application/json" },
+      headers: { "Content-Type": "application/json", ...headers },
       ...(body === undefined ? {} : { body: JSON.stringify(body) }),
       signal: controller.signal,
     });
