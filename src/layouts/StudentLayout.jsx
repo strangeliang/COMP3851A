@@ -1,6 +1,7 @@
 import StudentProfilePanel from "../components/StudentProfilePanel";
 import StudentSidebar from "../components/StudentSidebar";
 import useBodyClass from "../hooks/useBodyClass";
+import HelpAssistant from "../components/HelpAssistant";
 
 export default function StudentLayout({ children, profileProps, profileContent }) {
   useBodyClass("user-app");
@@ -10,6 +11,7 @@ export default function StudentLayout({ children, profileProps, profileContent }
       <StudentSidebar />
       <section className="user-main">{children}</section>
       <StudentProfilePanel {...profileProps}>{profileContent}</StudentProfilePanel>
+      <HelpAssistant />
     </main>
   );
 }

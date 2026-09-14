@@ -43,4 +43,18 @@ export default [
       ],
     },
   },
+  {
+    files: ["backend/**/*.js"],
+    languageOptions: {
+      globals: globals.node,
+      parserOptions: {
+        sourceType: "commonjs",
+      },
+    },
+  },
+  {
+    files: ["tests/**/*.mjs", "backend/test/**/*.cjs"],
+    languageOptions: { ecmaVersion: "latest", globals: globals.node },
+    rules: js.configs.recommended.rules,
+  },
 ];

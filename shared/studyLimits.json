@@ -1,0 +1,17 @@
+{
+  "maxFilesPerCourse": 5,
+  "maxTotalFilesPerUser": 10,
+  "maxFilesPerUpload": 3,
+  "maxFilesPerAIRequest": 3,
+  "maxFileBytes": 10485760,
+  "maxStoredTextCharacters": 100000,
+  "maxAIContextCharacters": 100000,
+  "maxQuestionCharacters": 4000,
+  "maxHistoryMessages": 10,
+  "maxHistoryCharacters": 32000,
+  "maxPDFPages": 100,
+  "maxPDFOCRPages": 20,
+  "maxOfficeExpandedBytes": 20971520,
+  "maxImagePixels": 20000000,
+  "uploadTimeoutMilliseconds": 180000
+}

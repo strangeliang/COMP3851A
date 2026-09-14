@@ -1301,3 +1301,27 @@ body.admin-shell select {
     text-align: left;
   }
 }
+.global-language-toggle {
+  position: fixed;
+  top: 18px;
+  right: 22px;
+  z-index: 120;
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  min-width: 74px;
+  justify-content: center;
+  padding: 9px 13px;
+  border: 1px solid rgba(111, 50, 255, .18);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, .78);
+  color: #5b24de;
+  font: 700 13px/1 Arial, sans-serif;
+  box-shadow: 0 8px 28px rgba(46, 24, 92, .13), inset 0 1px rgba(255,255,255,.8);
+  backdrop-filter: blur(18px) saturate(150%);
+  cursor: pointer;
+  transition: transform .18s ease, box-shadow .18s ease, background .18s ease;
+}
+.global-language-toggle:hover { transform: translateY(-2px); background: rgba(255,255,255,.94); box-shadow: 0 12px 32px rgba(46,24,92,.18); }
+.global-language-toggle:focus-visible { outline: 3px solid rgba(111,50,255,.35); outline-offset: 3px; }
+@media (max-width: 720px) { .global-language-toggle { top: 10px; right: 10px; } }
