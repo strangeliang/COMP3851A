@@ -172,6 +172,10 @@ export default function UploadPage() {
             <span className="file-type"><FileText size={16} /></span>
             <div style={{ minWidth: 0 }}><strong>{material.name}</strong><small>{currentCourse?.code} · {material.type} · {material.content.length.toLocaleString()} characters</small>
               {material.parseWarning && <p className="summary-source">{material.parseWarning}</p>}
+              {material.hasOriginal ? <p style={{ display: "flex", gap: 16, flexWrap: "wrap" }}>
+                {["PDF", "PNG", "JPG", "JPEG", "WEBP", "BMP"].includes(material.type) && <a href={`/api/materials/${material.id}/original?preview=1`} target="_blank" rel="noopener noreferrer">Preview original</a>}
+                <a href={`/api/materials/${material.id}/original`}>Download original</a>
+              </p> : <small>Original not saved — upload this file again to enable preview/download.</small>}
               <details><summary>Review extracted text (first 2,000 characters)</summary><pre style={{ whiteSpace: "pre-wrap", overflowWrap: "anywhere", maxHeight: 240, overflow: "auto" }}>{material.content.slice(0, 2000)}</pre></details>
             </div>
             <small>{material.updatedAt}</small>

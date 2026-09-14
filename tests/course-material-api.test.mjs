@@ -2,7 +2,41 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { jsonReply, loadSource, memoryWindow } from "./helpers.mjs";
 
-test("the four Course and Material APIs carry the signed-in user ID and adapt server fields once", async () => {
+test("help classifies common questions and refuses credential-like content", async () => {
+  const { containsSecret, helpReply } = await loadSource("src/services/helpChat.js");
+  assert.equal(helpReply("upload failed").category, "upload");
+  assert.equal(helpReply("Quiz questions").category, "quiz");
+  assert.equal(helpReply("study history").category, "review");
+  assert.match(helpReply("login failed").answer, /administrator/);
+  for (const text of ["password: secret", "OTP is 123456", "sk-abcdefghijklmnop", "验证码：654321"]) assert.equal(containsSecret(text), true);
+  assert.equal(containsSecret("How do I reset my password?"), false);
+  assert.equal(containsSecret(helpReply("upload failed").answer), false);
+});
+
+test("original uploads send raw bytes and failed originals roll back the material", async () => {
+  const calls = [];
+  let fail = false;
+  const originalFile = new Blob(["original source"]);
+  const service = await loadSource("src/services/courseMaterialService.js", {}, {
+    window: memoryWindow(), fetch: async (url, options) => {
+      calls.push({ url, options });
+      if (options.method === "POST") return jsonReply({ material: { id: 80, course_id: "c", name: "a.txt", type: "TXT", size_bytes: originalFile.size, content: "source" } }, 201);
+      if (options.method === "PUT" && fail) return jsonReply({ message: "Storage full", code: "STORAGE_ERROR" }, 500);
+      return jsonReply({ ok: true });
+    },
+  });
+  const material = { name: "a.txt", type: "TXT", size: originalFile.size, content: "source", originalFile };
+  assert.equal((await service.createMaterial("c", material, 1)).hasOriginal, true);
+  assert.equal(calls[1].options.body, originalFile);
+  assert.equal(calls[1].options.headers["Content-Type"], "application/octet-stream");
+  assert.equal(calls[1].options.credentials, "same-origin");
+  fail = true;
+  await assert.rejects(service.createMaterial("c", material, 1), /Storage full/);
+  assert.equal(calls.at(-1).options.method, "DELETE");
+  assert.equal(calls.at(-1).url, "/api/materials/80");
+});
+
+test("the four Course and Material APIs use the session cookie and adapt server fields once", async () => {
   const calls = [];
   const fetch = async (url, options = {}) => {
     calls.push({ url, options, body: options.body ? JSON.parse(options.body) : undefined });
@@ -28,7 +62,7 @@ test("the four Course and Material APIs carry the signed-in user ID and adapt se
   assert.equal(materials[0].size, 11);
   assert.equal(materials[0].content, "all source text");
   assert.equal(created.id, 72);
-  assert.deepEqual(calls.map((call) => call.options.headers["x-user-id"]), ["7", "7", "7", "7"]);
+  assert.ok(calls.every((call) => call.options.headers["x-user-id"] === undefined && call.options.credentials === "same-origin"));
   assert.deepEqual(calls[2].body, { name: "complete.txt", type: "TXT", sizeBytes: 12, content: "complete source text" });
   assert.equal("ownerId" in calls[2].body || "owner_id" in calls[2].body, false);
 });

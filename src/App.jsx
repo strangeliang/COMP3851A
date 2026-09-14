@@ -1,5 +1,8 @@
 import { Navigate, Route, Routes } from "react-router-dom";
 import LoginPage from "./pages/LoginPage";
+import RegisterPage from "./pages/RegisterPage";
+import HistoryPage from "./pages/student/HistoryPage";
+import ProfilePage from "./pages/student/ProfilePage";
 import ForgotPasswordPage from "./pages/ForgotPasswordPage";
 import DashboardPage from "./pages/student/DashboardPage";
 import UploadPage from "./pages/student/UploadPage";
@@ -12,10 +15,16 @@ import AdminAIOutputsPage from "./pages/admin/AdminAIOutputsPage";
 import AdminAccountsPage from "./pages/admin/AdminAccountsPage";
 import ProtectedRoute from "./components/ProtectedRoute";
 import StudyWorkspacePage from "./pages/student/StudyWorkspacePage";
+import LanguageToggle from "./components/LanguageToggle";
 
 export default function App() {
-  return (
+  return (<>
+    <LanguageToggle />
     <Routes>
+      <Route path="/register" element={<RegisterPage />} />
+      <Route path="/student/history" element={<ProtectedRoute role="Student"><HistoryPage key="history" /></ProtectedRoute>} />
+      <Route path="/student/review" element={<ProtectedRoute role="Student"><HistoryPage key="review" review /></ProtectedRoute>} />
+      <Route path="/student/profile" element={<ProtectedRoute role="Student"><ProfilePage /></ProtectedRoute>} />
       <Route path="/" element={<LoginPage />} />
       <Route path="/forgot-password" element={<ForgotPasswordPage />} />
 
@@ -116,5 +125,5 @@ export default function App() {
 
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>
-  );
+  </>);
 }

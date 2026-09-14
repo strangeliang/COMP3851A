@@ -1,0 +1,19 @@
+.sidebar-ai-group { min-width: 0; }
+.sidebar-ai-group summary {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 14px;
+  border-radius: 12px;
+  cursor: pointer;
+  list-style: none;
+  color: #585260;
+  font-size: 14px;
+  font-weight: 700;
+}
+.sidebar-ai-group summary::-webkit-details-marker { display: none; }
+.sidebar-ai-group.active > summary, .sidebar-ai-group summary:hover { color: #6f32ff; background: #f7f3ff; }
+.sidebar-ai-group summary:focus-visible { outline: 2px solid #6f32ff; outline-offset: 2px; }
+.sidebar-ai-chevron { margin-left: auto; flex-shrink: 0; }
+.sidebar-ai-group[open] .sidebar-ai-chevron { transform: rotate(180deg); }
+.sidebar-ai-links { display: grid; gap: 4px; margin: 5px 0 5px 16px; padding-left: 8px; border-left: 2px solid #eee7ff; }

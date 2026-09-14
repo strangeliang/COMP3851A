@@ -50,6 +50,12 @@ test("a fresh SQLite database initializes twice safely and stores usable passwor
     await database.initializeDatabase();
     assert.deepEqual((await database.getDatabaseStatus()).counts, { users: 4, courses: 4, materials: 4 });
     assert.equal((await database.deleteMaterialForOwner(material.id, 2)).changes, 1);
+    await database.deleteCourse("hci", 1);
+    await database.deleteCourse("inft3050", 1);
+    await database.initializeDatabase();
+    assert.equal(await database.courseBelongsToOwner("hci", 1), undefined);
+    assert.equal(await database.courseBelongsToOwner("inft3050", 1), undefined);
+    assert.deepEqual(await database.listMaterialsByCourseOwner("inft3050", 1), []);
   } finally {
     await new Promise((resolve, reject) => database.db.close((error) => error ? reject(error) : resolve()));
     fs.rmSync(directory, { recursive: true, force: true });

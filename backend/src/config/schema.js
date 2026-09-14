@@ -1,6 +1,23 @@
 const REQUIRED_TABLES = ["users", "courses", "materials"];
 
 const SCHEMA_SQL = `
+  CREATE TABLE IF NOT EXISTS study_history (
+    id TEXT PRIMARY KEY, owner_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    kind TEXT NOT NULL, course_id TEXT NOT NULL, payload TEXT NOT NULL,
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+  );
+  CREATE TABLE IF NOT EXISTS review_attempts (
+    id TEXT PRIMARY KEY, owner_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    record_id TEXT NOT NULL REFERENCES study_history(id) ON DELETE CASCADE,
+    payload TEXT NOT NULL, created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+  );
+  CREATE TABLE IF NOT EXISTS user_profiles (
+    user_id INTEGER PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+    display_name TEXT NOT NULL,
+    bio TEXT NOT NULL DEFAULT '',
+    learning_goal TEXT NOT NULL DEFAULT '',
+    avatar TEXT NOT NULL DEFAULT ''
+  );
   CREATE TABLE IF NOT EXISTS users (
     id INTEGER PRIMARY KEY,
     name TEXT NOT NULL CHECK (length(trim(name)) > 0),
@@ -46,6 +63,18 @@ const SCHEMA_SQL = `
 
   CREATE INDEX IF NOT EXISTS idx_courses_owner_id
     ON courses(owner_id);
+
+  CREATE TABLE IF NOT EXISTS material_originals (
+    material_id INTEGER PRIMARY KEY REFERENCES materials(id) ON DELETE CASCADE,
+    storage_key TEXT NOT NULL UNIQUE,
+    sha256 TEXT NOT NULL,
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+  );
+
+  CREATE TABLE IF NOT EXISTS google_accounts (
+    subject TEXT PRIMARY KEY,
+    user_id INTEGER NOT NULL UNIQUE REFERENCES users(id) ON DELETE CASCADE
+  );
 
   CREATE INDEX IF NOT EXISTS idx_materials_course_id
     ON materials(course_id);

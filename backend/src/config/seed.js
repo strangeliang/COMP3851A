@@ -138,8 +138,17 @@ async function seedDatabase({ exec, get, run }) {
   await exec("BEGIN IMMEDIATE TRANSACTION;");
 
   try {
-    await insertAccounts({ get, run });
-    await insertCoursesAndMaterials({ get, run });
+    await exec("CREATE TABLE IF NOT EXISTS app_initialization (name TEXT PRIMARY KEY);");
+    const initialized = await get("SELECT name FROM app_initialization WHERE name='demo_seed';");
+    if (!initialized) {
+      const existing = await get("SELECT COUNT(*) AS count FROM users;");
+      // Existing installations already had demo data: never resurrect deleted rows.
+      if (existing.count === 0) {
+        await insertAccounts({ get, run });
+        await insertCoursesAndMaterials({ get, run });
+      }
+      await run("INSERT INTO app_initialization(name) VALUES('demo_seed');");
+    }
     await exec("COMMIT;");
   } catch (error) {
     await exec("ROLLBACK;");

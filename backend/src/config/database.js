@@ -101,12 +101,32 @@ async function getDatabaseStatus() {
 }
 
 module.exports = {
+  registerStudent: async (name, email, passwordHash) => {
+    const result = await run("INSERT INTO users(name,email,password_hash,role,status) VALUES(?,?,?,'Student','Active')", [name, email, passwordHash]);
+    return get("SELECT id,name,email,role,status FROM users WHERE id=?", [result.id]);
+  },
+  getGoogleUser: (subject) => get("SELECT u.* FROM users u JOIN google_accounts g ON g.user_id=u.id WHERE g.subject=?", [subject]),
+  createGoogleUser: async ({ subject, email, name, passwordHash }) => {
+    const result = await run("INSERT INTO users(name,email,password_hash,role,status) VALUES(?,?,?,'Student','Active')", [name, email, passwordHash]);
+    try { await run("INSERT INTO google_accounts(subject,user_id) VALUES(?,?)", [subject, result.id]); }
+    catch (error) { await run("DELETE FROM users WHERE id=?", [result.id]); throw error; }
+    return get("SELECT * FROM users WHERE id=?", [result.id]);
+  },
+  getMaterialForOwner: (id, owner) => get("SELECT m.*, o.storage_key FROM materials m LEFT JOIN material_originals o ON o.material_id=m.id WHERE m.id=? AND m.owner_id=?", [id, owner]),
+  saveOriginal: (id, owner, key, hash) => run("INSERT INTO material_originals(material_id,storage_key,sha256) SELECT id,?,? FROM materials WHERE id=? AND owner_id=?", [key, hash, id, owner]),
+  listOriginalsForCourse: (course, owner) => all("SELECT o.storage_key FROM material_originals o JOIN materials m ON m.id=o.material_id WHERE m.course_id=? AND m.owner_id=?", [course, owner]),
+  saveHistory: (id, owner, kind, course, payload) => run("INSERT OR IGNORE INTO study_history(id,owner_id,kind,course_id,payload) VALUES(?,?,?,?,?)", [id, owner, kind, course, JSON.stringify(payload)]),
+  listHistory: (owner) => all("SELECT * FROM study_history WHERE owner_id=? ORDER BY created_at DESC,rowid DESC", [owner]),
+  getHistory: (id, owner) => get("SELECT * FROM study_history WHERE id=? AND owner_id=?", [id, owner]),
+  saveReview: (id, owner, record, payload) => run("INSERT INTO review_attempts(id,owner_id,record_id,payload) VALUES(?,?,?,?)", [id, owner, record, JSON.stringify(payload)]),
+  listReviews: (owner) => all("SELECT * FROM review_attempts WHERE owner_id=? ORDER BY created_at DESC,rowid DESC", [owner]),
   db,
   databasePath,
   getDatabaseStatus,
   initializeDatabase,
-  getUserByEmail: (email) => get("SELECT * FROM users WHERE email = ? COLLATE NOCASE;", [email]),
-  getUserById: (id) => get("SELECT * FROM users WHERE id = ?;", [id]),
+  getUserByEmail: (email) => get("SELECT u.*, COALESCE(p.display_name,u.name) AS name, p.bio, p.learning_goal, p.avatar FROM users u LEFT JOIN user_profiles p ON p.user_id=u.id WHERE u.email = ? COLLATE NOCASE;", [email]),
+  getUserById: (id) => get("SELECT u.*, COALESCE(p.display_name,u.name) AS name, p.bio, p.learning_goal, p.avatar FROM users u LEFT JOIN user_profiles p ON p.user_id=u.id WHERE u.id = ?;", [id]),
+  saveProfile: (id, profile) => run("INSERT INTO user_profiles (user_id,display_name,bio,learning_goal,avatar) VALUES (?,?,?,?,?) ON CONFLICT(user_id) DO UPDATE SET display_name=excluded.display_name,bio=excluded.bio,learning_goal=excluded.learning_goal,avatar=excluded.avatar;", [id, profile.name, profile.bio, profile.learningGoal, profile.avatar]),
   listCoursesByOwner: (ownerId) => all(
     `SELECT id, code, name, created_at, updated_at
      FROM courses WHERE owner_id = ? ORDER BY created_at DESC, code ASC;`,
@@ -124,7 +144,8 @@ module.exports = {
   },
   deleteCourse: (id, ownerId) => run("DELETE FROM courses WHERE id = ? AND owner_id = ?;", [id, ownerId]),
   listMaterialsByCourseOwner: (courseId, ownerId) => all(
-    `SELECT id, course_id, name, type, size_bytes, status, content, created_at, updated_at
+    `SELECT id, course_id, name, type, size_bytes, status, content, created_at, updated_at,
+     EXISTS(SELECT 1 FROM material_originals o WHERE o.material_id=materials.id) AS has_original
      FROM materials WHERE course_id = ? AND owner_id = ? ORDER BY created_at DESC, id DESC;`,
     [courseId, ownerId],
   ),

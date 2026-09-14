@@ -198,9 +198,7 @@ async function harness(
     }
 
     const method = options.method || "GET";
-    const userId = Number(
-      options.headers?.["x-user-id"]
-    );
+    const userId = sessionUser?.id;
 
     if (
       url === "/api/courses" &&
@@ -1254,9 +1252,8 @@ test(
       );
 
     assert.equal(
-      courseRequests.at(-1).options
-        .headers["x-user-id"],
-      "3"
+      courseRequests.at(-1).options.credentials,
+      "same-origin"
     );
   }
 );

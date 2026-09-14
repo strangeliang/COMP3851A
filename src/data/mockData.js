@@ -91,4 +91,3 @@ export const initialMaterials = [
     content: "# Project Scope\nThis file explains course requirements and prototype scope.",
   },
 ];
-

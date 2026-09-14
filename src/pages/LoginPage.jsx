@@ -10,6 +10,7 @@ import {
 import { useState } from "react";
 import { Link, Navigate, useLocation, useNavigate } from "react-router-dom";
 import useBodyClass from "../hooks/useBodyClass";
+import GoogleLogin from "../components/GoogleLogin";
 import { useAppData } from "../state/AppDataContext";
 
 export default function LoginPage() {
@@ -199,9 +200,10 @@ export default function LoginPage() {
             </button>
 
             <p className="login-support-note">
-              Need access to an account? Please contact your course administrator.
+              New here? <Link to="/register">Register a student account</Link>
             </p>
           </form>
+          <GoogleLogin />
         </section>
       </section>
     </main>

@@ -400,7 +400,7 @@ function FlashcardsPanel({
   canUseAI,
   materialSourceLabel,
 }) {
-  const { selectedMaterials, scope } =
+  const { selectedMaterials, scope, persistStudy } =
     useAppData();
 
   const request = useAIRequest(scope.scopeKey);
@@ -415,12 +415,13 @@ function FlashcardsPanel({
 
     setFlipped({});
 
-    await request.run((signal) =>
+    const result = await request.run((signal) =>
       generateAIFlashcards({
         materials: selectedMaterials,
         signal,
       })
     );
+    if (result) persistStudy("flashcards", result, scope);
   }
 
   return (

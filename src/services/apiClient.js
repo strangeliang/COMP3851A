@@ -19,7 +19,7 @@ export async function apiRequest(path, { method = "GET", body, headers = {}, sig
       method,
       credentials: "same-origin",
       headers: { "Content-Type": "application/json", ...headers },
-      ...(body === undefined ? {} : { body: JSON.stringify(body) }),
+      ...(body === undefined ? {} : { body: body instanceof Blob ? body : JSON.stringify(body) }),
       signal: controller.signal,
     });
     let data;

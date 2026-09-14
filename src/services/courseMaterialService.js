@@ -1,12 +1,5 @@
 import { apiRequest, APIError } from "./apiClient";
 
-function userHeaders(userId) {
-  if (!Number.isSafeInteger(userId) || userId < 1) {
-    throw new APIError("Your user identity is unavailable. Please sign in again.", "INVALID_CURRENT_USER", 401);
-  }
-  return { "x-user-id": String(userId) };
-}
-
 function invalidResponse(resource) {
   throw new APIError(`The service returned an invalid ${resource} response. Please retry.`, "INVALID_SERVER_RESPONSE", 502);
 }
@@ -38,6 +31,7 @@ export function adaptMaterial(row, userId, expectedCourseId = "") {
     name: row.name,
     type: row.type,
     size: row.size_bytes,
+    hasOriginal: Boolean(row.has_original),
     status: typeof row.status === "string" ? row.status : "Ready",
     content: row.content || "",
     parseWarning: "",
@@ -49,14 +43,14 @@ export function adaptMaterial(row, userId, expectedCourseId = "") {
 }
 
 export async function getCourses(userId, { signal } = {}) {
-  const result = await apiRequest("/courses", { headers: userHeaders(userId), signal, timeoutMs: 15000 });
+  const result = await apiRequest("/courses", { signal, timeoutMs: 15000 });
   if (!Array.isArray(result?.courses)) invalidResponse("course list");
   return result.courses.map((course) => adaptCourse(course, userId));
 }
 
 export async function getCourseMaterials(courseId, userId, { signal } = {}) {
   const result = await apiRequest(`/courses/${encodeURIComponent(courseId)}/materials`, {
-    headers: userHeaders(userId), signal, timeoutMs: 30000,
+    signal, timeoutMs: 30000,
   });
   if (!Array.isArray(result?.materials)) invalidResponse("material list");
   return result.materials.map((material) => adaptMaterial(material, userId, courseId));
@@ -76,16 +70,30 @@ export async function deleteCourse(courseId, { signal } = {}) {
 export async function createMaterial(courseId, material, userId, { signal } = {}) {
   const result = await apiRequest(`/courses/${encodeURIComponent(courseId)}/materials`, {
     method: "POST",
-    headers: userHeaders(userId),
     body: { name: material.name, type: material.type, sizeBytes: material.size, content: material.content },
     signal,
     timeoutMs: 95000,
   });
-  return adaptMaterial(result?.material, userId, courseId);
+  const saved = adaptMaterial(result?.material, userId, courseId);
+  if (material.originalFile) {
+    try {
+      await apiRequest(`/materials/${saved.id}/original`, {
+        method: "PUT", body: material.originalFile,
+        headers: { "Content-Type": "application/octet-stream" }, signal,
+      });
+      saved.hasOriginal = true;
+    } catch (error) {
+      // Use a fresh request even if the upload was cancelled, to remove partial records.
+      try { await deleteMaterial(saved.id, userId); }
+      catch { throw new APIError("Original upload failed and cleanup could not be confirmed. Refresh Upload before retrying.", "UPLOAD_CLEANUP_FAILED"); }
+      throw error;
+    }
+  }
+  return saved;
 }
 
-export async function deleteMaterial(materialId, userId, { signal } = {}) {
+export async function deleteMaterial(materialId, _userId, { signal } = {}) {
   return apiRequest(`/materials/${encodeURIComponent(materialId)}`, {
-    method: "DELETE", headers: userHeaders(userId), signal, timeoutMs: 15000,
+    method: "DELETE", signal, timeoutMs: 15000,
   });
 }

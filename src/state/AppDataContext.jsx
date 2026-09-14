@@ -430,7 +430,7 @@ export function AppDataProvider({ children }) {
         request.controller.signal.throwIfAborted();
         if (!extracted.text?.trim()) throw new Error(`${file.name} has no readable text.`);
         if (extracted.text.length > limits.maxStoredTextCharacters) throw new Error(`${file.name} exceeds 100,000 extracted characters. Split it into smaller documents and upload again.`);
-        prepared.push({ courseId, ownerId: user.id, name: file.name, type: getFileExtension(file.name).toUpperCase(),
+        prepared.push({ originalFile: file, courseId, ownerId: user.id, name: file.name, type: getFileExtension(file.name).toUpperCase(),
           size: file.size, content: extracted.text, parseWarning: extracted.warning || "", incomplete: false,
           status: extracted.warning ? "Ready with warning" : "Ready", uploadedAt: "Just now", updatedAt: "Just now" });
       }
@@ -456,7 +456,7 @@ export function AppDataProvider({ children }) {
       return { ok: true, message: `${persisted.length} file(s) uploaded.${persisted.some((item) => item.parseWarning) ? " Review the reading notes below." : ""}` };
     } catch (failure) {
       const rollback = await Promise.allSettled(persisted.map((material) => deleteMaterialRequest(material.id, user.id)));
-      const rollbackFailed = rollback.some((result) => result.status === "rejected");
+      const rollbackFailed = failure?.code === "UPLOAD_CLEANUP_FAILED" || rollback.some((result) => result.status === "rejected");
       if (rollbackFailed && sameId(userRef.current?.id, user.id) && sameId(dataRef.current.currentCourseId, courseId)) {
         await loadMaterialsForCourse(courseId, user, sessionEpoch.current);
       }
@@ -500,6 +500,7 @@ export function AppDataProvider({ children }) {
 
   function recordSummaryUse(summary, scope = scopeNow()) {
     if (!scopeIsCurrent(scope)) return;
+    persistStudy("summary", { summary }, scope);
     updateData((current) => ({ ...current, summaryUses: current.summaryUses + 1,
       summaryRecords: [{ id: newId(), ...scope, summary, mode: "api", createdAt: now() }, ...current.summaryRecords],
       activities: activity(current, "summary", "Generated a Gemini summary") }));
@@ -513,12 +514,14 @@ export function AppDataProvider({ children }) {
   function addChatRecord(role, text, details = {}) {
     const scope = details.scope || scopeNow();
     if (!scopeIsCurrent(scope) || !["User", "AI"].includes(role) || typeof text !== "string") return;
+    persistStudy("qa", { role, text }, scope);
     updateData((current) => ({ ...current, chatRecords: [...current.chatRecords,
       { id: newId(), ...scope, role, text, mode: details.mode || "api", createdAt: now() }] }));
   }
 
   function saveQuizAttempt(attempt, scope = scopeNow()) {
     if (!scopeIsCurrent(scope) || !Number.isFinite(attempt.score) || attempt.score < 0 || attempt.score > 100) return;
+    persistStudy("quiz", attempt, scope);
     updateData((current) => ({ ...current, quizAttempts: [{ ...attempt, id: newId(), ...scope, completedAt: now() }, ...current.quizAttempts],
       activities: activity(current, "quiz", `Completed a quiz with score ${attempt.score}%`) }));
   }
@@ -528,6 +531,12 @@ export function AppDataProvider({ children }) {
     updateData((current) => ({ ...current, users: current.users.map((user) => sameId(user.id, userId)
       ? { ...user, status: user.status === "Active" ? "Disabled" : "Active" } : user) }));
     notify("Demo user status updated locally; server accounts are managed separately.");
+  }
+  function persistStudy(kind, payload, scope = scopeNow()) {
+    if (!scopeIsCurrent(scope)) return;
+    const epoch = sessionEpoch.current;
+    apiRequest("/history", { method: "POST", body: { id: newId(), kind, courseId: scope.courseId, payload } })
+      .catch(() => { if (epoch === sessionEpoch.current) notify("Study record was not saved to the server. Please check the backend and retry from Study History."); });
   }
 
   const studentDataReady = currentUser?.role !== "Student" || courseState.ready;
@@ -547,6 +556,15 @@ export function AppDataProvider({ children }) {
   const currentChatRecords = useMemo(() => data.chatRecords.filter((record) => recordScopeKey(record) === scope.scopeKey), [data.chatRecords, scope.scopeKey]);
   const averageQuizScore = quizAttempts.length ? Math.round(quizAttempts.reduce((sum, attempt) => sum + attempt.score, 0) / quizAttempts.length) : 0;
   const value = {
+    persistStudy,
+    saveProfile: async (profile) => {
+      const epoch = sessionEpoch.current;
+      const { user } = await apiRequest("/auth/profile", { method: "PATCH", body: profile });
+      if (epoch !== sessionEpoch.current || !sameId(userRef.current?.id, user.id)) throw new Error("Session changed. Please sign in again.");
+      userRef.current = user;
+      setCurrentUser(user);
+      return user;
+    },
     currentUser, isAuthLoading, aiStatus, users: data.users,
     courses: currentUser?.role === "Admin" ? data.courses : studentCourses,
     materials: currentUser?.role === "Admin" ? data.materials : studentMaterials,

@@ -144,6 +144,7 @@ vite.config.ts.timestamp-*
 .vite/
 
 # SQLite runtime data
+backend/data/originals/
 backend/data/*.db
 backend/data/*.db-journal
 backend/data/*.db-wal
@@ -156,3 +157,12 @@ backend/data/*.db-shm
 # Local backups and generated test reports
 _backup*/
 *_test_report*.html
+
+# Private documents, local outputs and archived releases
+/.meeting-minutes-work/
+/.tmp/
+/output/
+/releases/
+*.docx
+*.pptx
+*.zip
