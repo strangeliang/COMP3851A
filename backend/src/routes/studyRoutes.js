@@ -5,6 +5,7 @@ const { createSessionService, createRateLimiter } = require("../services/session
 const { StudyError } = require("../services/studyContracts");
 const { createOriginalStorage, validateOriginal } = require("../services/originalStorage");
 const path = require("node:path");
+const { startLogin } = require('../services/startLogin');
 
 function publicUser(user) {
   return { id: user.id, name: user.name, email: user.email, role: user.role, status: user.status,
@@ -56,8 +57,11 @@ function createStudyRoutes({ database, gemini, sessions = createSessionService()
     const user = session ? await database.getUserById(session.userId) : null;
     if (!user || user.status !== "Active") throw new StudyError(401, "AUTH_REQUIRED", "Please log in again.");
     req.user = publicUser(user);
+    req.session = session;
     next();
   }
+
+  router.use(require('./ticketRoutes').createTicketRoutes({database,authenticate,gemini}));
 
   router.post("/auth/login", async (req, res) => {
     loginLimit(req.ip);
@@ -67,8 +71,7 @@ function createStudyRoutes({ database, gemini, sessions = createSessionService()
     }
     const user = await database.getUserByEmail(email.trim().toLowerCase());
     if (!user || user.status !== "Active" || !(await bcrypt.compare(password, user.password_hash))) throw new StudyError(401, "INVALID_LOGIN", "Invalid email or password, or the account is disabled.");
-    sessions.clear(req.headers.cookie);
-    res.setHeader("Set-Cookie", sessions.create(user.id, remember));
+    res.setHeader("Set-Cookie", await startLogin(database, sessions, user, remember, req.headers.cookie));
     res.json({ user: publicUser(user) });
   });
 

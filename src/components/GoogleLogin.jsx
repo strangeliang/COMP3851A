@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { apiRequest } from "../services/apiClient";
+import { resetWorkspaceSession } from "../services/workspaceSession";
 
 let sdk;
 function loadGoogle() {
@@ -30,6 +31,7 @@ export default function GoogleLogin() {
         setMessage("Signing in with Google…");
         try {
           await apiRequest("/auth/google", { method: "POST", body: { credential } });
+          resetWorkspaceSession();
           if (active) window.location.assign("/");
         } catch (error) { if (active) setMessage(`${error.message} Refresh this page before retrying.`); }
       } });

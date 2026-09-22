@@ -1,17 +1,18 @@
-import { useRef, useState } from "react";
+import { useRef } from "react";
 import "@chatscope/chat-ui-kit-styles/dist/default/styles.min.css";
 import { ChatContainer, MainContainer, Message, MessageInput, MessageList, TypingIndicator } from "@chatscope/chat-ui-kit-react";
 import { CheckCircle2, FileText, Sparkles, UploadCloud } from "lucide-react";
 import { generateAIAnswer } from "../services/aiService";
 import { useAppData } from "../state/AppDataContext";
 import useAIRequest from "../hooks/useAIRequest";
+import useWorkspaceState from "../hooks/useWorkspaceState";
 import { limits, recentHistory, selectionError } from "../utils/studyScope";
 
 export default function AIChatBox({ selectedMaterials = [], currentCourse = null }) {
   const { addChatRecord, recordQAUse, currentChatRecords, scope, aiStatus, notify } = useAppData();
   const request = useAIRequest(scope.scopeKey);
   const sendLock = useRef(null);
-  const [answerStyle, setAnswerStyle] = useState("simple");
+  const [answerStyle, setAnswerStyle] = useWorkspaceState(`qa-style:${scope.scopeKey}`, "simple");
   const isTyping = request.pending;
   const materialNames = selectedMaterials.map((material) => material.name).join(", ");
   const inputError = selectionError(selectedMaterials);

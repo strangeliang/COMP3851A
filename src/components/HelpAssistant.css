@@ -69,3 +69,7 @@
   .help-assistant-panel { width: calc(100vw - 24px); height: min(560px, calc(100dvh - 96px)); }
   .help-assistant-launcher { padding: 12px 16px; }
 }
+.help-session-notice { margin: 0; padding: 10px 16px; font-size: 12px; line-height: 1.5; background: #f3edff; color: #534467; }
+.help-session-meta { margin: 0; padding: 4px 16px; font-size: 11px; color: #756889; }
+.help-saved-message small, .help-saved-message time { display: block; font-size: 11px; color: #756889; margin: 6px 2px; }
+.help-saved-message p { white-space: pre-wrap; overflow-wrap: anywhere; }

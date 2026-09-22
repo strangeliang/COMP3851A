@@ -30,7 +30,7 @@ export default function LoginPage() {
   }
 
   if (currentUser?.role === "Admin") {
-    return <Navigate to="/admin/dashboard" replace />;
+    return <Navigate to="/admin/support" replace />;
   }
 
   function updateField(event) {
@@ -57,7 +57,7 @@ export default function LoginPage() {
     }
 
     const fallback =
-      result.user.role === "Admin" ? "/admin/dashboard" : "/student/dashboard";
+      result.user.role === "Admin" ? "/admin/support" : "/student/dashboard";
 
     navigate(location.state?.from || fallback, { replace: true });
   }

@@ -14,11 +14,11 @@ function createSessionService({ secure = process.env.NODE_ENV === "production", 
   const sessions = new Map();
   const cookie = (token, lifetime) => `${COOKIE_NAME}=${token}; HttpOnly; SameSite=Strict; Path=/; Max-Age=${lifetime}${secure ? "; Secure" : ""}`;
   return {
-    create(userId, remember) {
+    create(userId, remember, conversationId = null) {
       for (const [key, value] of sessions) if (value.expires <= now()) sessions.delete(key);
       const token = randomBytes(32).toString("hex");
       const lifetime = remember ? 7 * 24 * 60 * 60 : 8 * 60 * 60;
-      sessions.set(hash(token), { userId, expires: now() + lifetime * 1000 });
+      sessions.set(hash(token), { userId, conversationId, expires: now() + lifetime * 1000 });
       return cookie(token, lifetime);
     },
     get(header) {

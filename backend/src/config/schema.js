@@ -1,6 +1,93 @@
 const REQUIRED_TABLES = ["users", "courses", "materials"];
 
 const SCHEMA_SQL = `
+  CREATE TABLE IF NOT EXISTS account_recovery_requests (
+    id TEXT PRIMARY KEY,
+    client_id TEXT NOT NULL UNIQUE,
+    account_name TEXT NOT NULL,
+    email TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'Open' CHECK(status IN ('Open','In progress','Resolved')),
+    version INTEGER NOT NULL DEFAULT 1,
+    updated_by INTEGER REFERENCES users(id),
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    resolved_at TEXT
+  );
+  CREATE INDEX IF NOT EXISTS idx_recovery_email_time ON account_recovery_requests(email,created_at);
+  CREATE TABLE IF NOT EXISTS account_recovery_events (
+    id TEXT PRIMARY KEY,
+    ticket_id TEXT NOT NULL REFERENCES account_recovery_requests(id) ON DELETE CASCADE,
+    author_id INTEGER NOT NULL REFERENCES users(id),
+    client_id TEXT,
+    kind TEXT NOT NULL CHECK(kind IN ('reply','status')),
+    body TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    UNIQUE(ticket_id,author_id,client_id)
+  );
+  CREATE TRIGGER IF NOT EXISTS recovery_note_update AFTER INSERT ON account_recovery_events
+  WHEN NEW.kind='reply'
+  BEGIN
+    UPDATE account_recovery_requests SET updated_at=NEW.created_at,version=version+1 WHERE id=NEW.ticket_id;
+  END;
+  CREATE TRIGGER IF NOT EXISTS recovery_status_event AFTER UPDATE OF status ON account_recovery_requests
+  WHEN NEW.status<>OLD.status
+  BEGIN
+    INSERT INTO account_recovery_events(id,ticket_id,author_id,kind,body,created_at)
+      VALUES(lower(hex(randomblob(16))),NEW.id,NEW.updated_by,'status',NEW.status,NEW.updated_at);
+  END;
+  CREATE TABLE IF NOT EXISTS support_tickets (
+    id TEXT PRIMARY KEY,
+    client_id TEXT NOT NULL,
+    owner_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    category TEXT NOT NULL CHECK(category IN ('account','upload','quiz','review','other')),
+    title TEXT NOT NULL,
+    description TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'Open' CHECK(status IN ('Open','In progress','Resolved')),
+    version INTEGER NOT NULL DEFAULT 1,
+    updated_by INTEGER REFERENCES users(id),
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    resolved_at TEXT,
+    UNIQUE(owner_id,client_id)
+  );
+  CREATE TABLE IF NOT EXISTS support_events (
+    id TEXT PRIMARY KEY,
+    ticket_id TEXT NOT NULL REFERENCES support_tickets(id) ON DELETE CASCADE,
+    author_id INTEGER NOT NULL REFERENCES users(id),
+    client_id TEXT,
+    kind TEXT NOT NULL CHECK(kind IN ('reply','status')),
+    body TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    UNIQUE(ticket_id,author_id,client_id)
+  );
+  CREATE INDEX IF NOT EXISTS idx_support_owner ON support_tickets(owner_id,updated_at);
+  CREATE TABLE IF NOT EXISTS support_faq_replies (
+    event_id TEXT PRIMARY KEY REFERENCES support_events(id) ON DELETE CASCADE,
+    body TEXT NOT NULL
+  );
+  CREATE TABLE IF NOT EXISTS support_ai_replies (
+    event_id TEXT PRIMARY KEY REFERENCES support_events(id) ON DELETE CASCADE,
+    body TEXT NOT NULL,
+    model TEXT NOT NULL,
+    created_at TEXT NOT NULL
+  );
+  CREATE TRIGGER IF NOT EXISTS support_ai_update AFTER INSERT ON support_ai_replies
+  BEGIN
+    UPDATE support_tickets SET updated_at=NEW.created_at,version=version+1
+      WHERE id=(SELECT ticket_id FROM support_events WHERE id=NEW.event_id);
+  END;
+  CREATE INDEX IF NOT EXISTS idx_support_events ON support_events(ticket_id,created_at);
+  CREATE TRIGGER IF NOT EXISTS support_reply_update AFTER INSERT ON support_events
+  WHEN NEW.kind='reply'
+  BEGIN
+    UPDATE support_tickets SET updated_at=NEW.created_at,version=version+1 WHERE id=NEW.ticket_id;
+  END;
+  CREATE TRIGGER IF NOT EXISTS support_status_event AFTER UPDATE OF status ON support_tickets
+  WHEN NEW.status<>OLD.status
+  BEGIN
+    INSERT INTO support_events(id,ticket_id,author_id,kind,body,created_at)
+      VALUES(lower(hex(randomblob(16))),NEW.id,NEW.updated_by,'status',NEW.status,NEW.updated_at);
+  END;
   CREATE TABLE IF NOT EXISTS study_history (
     id TEXT PRIMARY KEY, owner_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
     kind TEXT NOT NULL, course_id TEXT NOT NULL, payload TEXT NOT NULL,

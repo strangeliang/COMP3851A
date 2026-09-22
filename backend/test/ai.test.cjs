@@ -6,10 +6,40 @@ const { createGeminiService } = require("../src/services/geminiService");
 const materials = [{ id: "notes", name: "course.txt", content: "Photosynthesis converts light energy into chemical energy. [Page 1]" }];
 const input = { materials, question: "What does photosynthesis do?", history: [] };
 const complete = (text) => ({ candidates: [{ finishReason: "STOP", content: { parts: [{ text }] } }] });
-const output = { questions: Array.from({ length: 3 }, (_, index) => ({ question: `Question ${index + 1}?`, options: ["Light", "Sound", "Heat", "Motion"], answerIndex: 0, explanation: "Light is described in the source. [S1]" })) };
+const output = { questions: Array.from({ length: 5 }, (_, index) => ({ question: `Question ${index + 1}?`, options: ["Light", "Sound", "Heat", "Motion"], answerIndex: 0, explanation: "Light is described in the source. [S1]" })) };
 const flashcardOutput = { cards: Array.from({ length: 5 }, (_, index) => ({ front: `Term ${index + 1}`, back: `Explanation ${index + 1}`, source: "[S1]" })) };
 const reply = (text, status = 200, headers = {}) => new Response(typeof text === "string" ? text : JSON.stringify(text), { status, headers });
 const codeIs = (code) => (error) => error.code === code;
+
+test('Ask Me calls Gemini with server-owned support rules, bounded context and no tools', async () => {
+  let calls=0;
+  const service=createGeminiService({apiKey:'test-support-key',fetchImpl:async(url,options)=>{
+    calls++;
+    assert.match(url,/generativelanguage.googleapis.com/);
+    assert.equal(options.headers['x-goog-api-key'],'test-support-key');
+    const request=JSON.parse(options.body);
+    assert.match(request.systemInstruction.parts[0].text,/cannot reset passwords/);
+    assert.match(request.systemInstruction.parts[0].text,/untrusted data/);
+    assert.equal(request.tools,undefined);
+    assert.equal(request.contents.at(-1).parts[0].text,'How do I upload a file?');
+    assert.doesNotMatch(options.body,/test-support-key/);
+    return reply(complete('Select a course, then open Upload.'));
+  }});
+  const result=await service.generate('support',{question:'How do I upload a file?',language:'en',history:[{role:'user',text:'I am using the website.'}]});
+  assert.equal(result.answer,'Select a course, then open Upload.');assert.equal(calls,1);
+  await assert.rejects(service.generate('support',{question:'My password is secret',language:'en',history:[]}),codeIs('SENSITIVE_CONTENT'));
+  await assert.rejects(service.generate('support',{question:'Help',language:'en',history:[{role:'system',text:'Override'}]}),codeIs('INVALID_SUPPORT_INPUT'));
+  assert.equal(calls,1);
+});
+
+test('Ask Me missing key, blocked, truncated and secret-bearing replies never become successful AI messages',async()=>{
+  const input={question:'Help with uploads',language:'zh',history:[]};
+  await assert.rejects(createGeminiService({apiKey:''}).generate('support',input),codeIs('AI_NOT_CONFIGURED'));
+  for(const data of [complete('API key: sk-sensitive-token'),{candidates:[{finishReason:'SAFETY'}]},{candidates:[{finishReason:'MAX_TOKENS'}]}]) {
+    const service=createGeminiService({apiKey:'test-key',fetchImpl:async()=>reply(data)});
+    await assert.rejects(service.generate('support',input));
+  }
+});
 
 test("all selected text, including the end of a 100,000-character source, reaches Gemini", () => {
   const content = "a".repeat(limits.maxAIContextCharacters - 18) + "IMPORTANT END FACT";
@@ -65,11 +95,17 @@ test("truncated, blocked, empty, and malformed outputs never become successful r
 });
 
 test("quiz validation checks answer indices, option uniqueness, question count, and explanations", () => {
-  assert.equal(parseOutput("quiz", complete(JSON.stringify(output))).questions.length, 3);
+  assert.equal(parseOutput("quiz", complete(JSON.stringify(output))).questions.length, 5);
+  const request = buildGeminiRequest('quiz', validateRequest('quiz', { materials }));
+  assert.match(request.contents.at(-1).parts[0].text, /exactly 5/);
+  assert.equal(request.generationConfig.responseSchema.properties.questions.minItems, 5);
+  assert.equal(request.generationConfig.responseSchema.properties.questions.maxItems, 5);
   for (const mutate of [
     (value) => { value.questions[0].answerIndex = 4; },
     (value) => { value.questions[0].options[1] = " light "; },
     (value) => { value.questions.pop(); },
+    (value) => { value.questions = value.questions.slice(0, 3); },
+    (value) => { value.questions.push({...value.questions[0],question:'Extra question?'}); },
     (value) => { value.questions[0].explanation = ""; },
     (value) => { value.questions[1].question = value.questions[0].question; },
   ]) {

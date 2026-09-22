@@ -2,6 +2,7 @@ import { createContext, useContext, useEffect, useMemo, useRef, useState } from 
 import { fixedAccounts, initialCourses, initialMaterials } from "../data/mockData";
 import { loadAppData, saveAppData } from "../services/storageService";
 import { apiRequest } from "../services/apiClient";
+import { resetWorkspaceSession, workspaceSessionId } from "../services/workspaceSession";
 import {
   createCourse as createCourseRequest,
   createMaterial as createMaterialRequest,
@@ -93,6 +94,7 @@ export function AppDataProvider({ children }) {
     userRef.current = user;
     setCurrentUser(user);
     if (!user) {
+      resetWorkspaceSession();
       setCourseState(resourceState());
       setMaterialState(resourceState({ courseId: "" }));
       updateData((current) => ({ ...current, currentCourseId: "", selectedMaterialIds: [], sourceFileId: "" }));
@@ -277,6 +279,7 @@ export function AppDataProvider({ children }) {
     try {
       const { user } = await apiRequest("/auth/login", { method: "POST", body: { email, password, remember }, timeoutMs: 15000 });
       if (epoch !== sessionEpoch.current) return { ok: false, message: "Sign-in was cancelled." };
+      resetWorkspaceSession();
       acceptUser(user);
       setIsAuthLoading(false);
       return { ok: true, user };
@@ -516,7 +519,7 @@ export function AppDataProvider({ children }) {
     if (!scopeIsCurrent(scope) || !["User", "AI"].includes(role) || typeof text !== "string") return;
     persistStudy("qa", { role, text }, scope);
     updateData((current) => ({ ...current, chatRecords: [...current.chatRecords,
-      { id: newId(), ...scope, role, text, mode: details.mode || "api", createdAt: now() }] }));
+      { id: newId(), ...scope, workspaceSession: workspaceSessionId(), role, text, mode: details.mode || "api", createdAt: now() }] }));
   }
 
   function saveQuizAttempt(attempt, scope = scopeNow()) {
@@ -553,7 +556,8 @@ export function AppDataProvider({ children }) {
   const summaryRecords = visibleRecords(data.summaryRecords);
   const quizAttempts = visibleRecords(data.quizAttempts);
   const chatRecords = visibleRecords(data.chatRecords);
-  const currentChatRecords = useMemo(() => data.chatRecords.filter((record) => recordScopeKey(record) === scope.scopeKey), [data.chatRecords, scope.scopeKey]);
+  const activeWorkspaceSession = workspaceSessionId();
+  const currentChatRecords = useMemo(() => data.chatRecords.filter((record) => recordScopeKey(record) === scope.scopeKey && record.workspaceSession === activeWorkspaceSession), [data.chatRecords, scope.scopeKey, activeWorkspaceSession]);
   const averageQuizScore = quizAttempts.length ? Math.round(quizAttempts.reduce((sum, attempt) => sum + attempt.score, 0) / quizAttempts.length) : 0;
   const value = {
     persistStudy,
