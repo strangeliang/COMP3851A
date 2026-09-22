@@ -1,65 +1,101 @@
-import { useEffect, useRef, useState } from "react";
-import { MessageCircleQuestion, X } from "lucide-react";
-import { useAppData } from "../state/AppDataContext";
-import { changeTickets } from "../services/ticketService";
-import { containsSecret, helpReply } from "../services/helpChat";
-import SupportTickets from "./SupportTickets";
-import "./HelpAssistant.css";
-import { useLanguage } from "../state/LanguageContext";
+import { useEffect, useRef, useState } from 'react';
+import { MessageCircleQuestion, X } from 'lucide-react';
+import { useAppData } from '../state/AppDataContext';
+import { getLoginConversation, sendLoginMessage } from '../services/ticketApiService';
+import { containsSecret } from '../services/helpChat';
+import SupportTickets from './SupportTickets';
+import './HelpAssistant.css';
+import { useLanguage } from '../state/LanguageContext';
 
 export default function HelpAssistant() {
   const { currentUser } = useAppData();
+  return currentUser?.role === 'Student' ? <LoginChat key={currentUser.id} /> : null;
+}
+function LoginChat() {
   const { language, toggleLanguage } = useLanguage();
+  const t = (en, zh) => language === 'zh' ? zh : en;
   const [open, setOpen] = useState(false);
-  const [messages, setMessages] = useState([]);
-  const [draft, setDraft] = useState("");
-  const [view, setView] = useState("chat");
-  const [notice, setNotice] = useState("");
-  const [confirm, setConfirm] = useState(false);
-  const [saved, setSaved] = useState(false);
+  const [view, setView] = useState('chat');
+  const [ticket, setTicket] = useState(null);
+  const [draft, setDraft] = useState('');
+  const [notice, setNotice] = useState('');
+  const [saving, setSaving] = useState(false);
+  const [aiFailure, setAiFailure] = useState(null);
+  const [retry, setRetry] = useState(0);
+  const attempt = useRef(null);
+  const lock = useRef(false);
+  const mounted = useRef(false);
+  const epoch = useRef(0);
   const log = useRef(null);
+  const nearBottom = useRef(true);
   const launcher = useRef(null);
   const closeButton = useRef(null);
-  function clear() { setMessages([]); setDraft(""); setConfirm(false); setSaved(false); setNotice(""); }
-  useEffect(() => { clear(); setView("chat"); }, [currentUser?.id]);
+  useEffect(() => { mounted.current = true; return () => { mounted.current = false; }; }, []);
+  useEffect(() => {
+    if (!open || view !== 'chat') return;
+    let cancelled = false, running = false, controller;
+    async function refresh() {
+      if (running || lock.current || (typeof document !== 'undefined' && document.hidden)) return;
+      running = true; controller = new AbortController();
+      const version = epoch.current;
+      try {
+        const result = await getLoginConversation(controller.signal);
+        if (!cancelled && version === epoch.current && !lock.current) {
+          setTicket(old => !old || old.id !== result.ticket.id || result.ticket.version >= old.version ? result.ticket : old);
+          setNotice('');
+        }
+      } catch (e) { if (!cancelled) setNotice(e.message); }
+      finally { running = false; }
+    }
+    refresh();
+    const timer = setInterval(refresh, 8000);
+    return () => { cancelled = true; controller?.abort(); clearInterval(timer); };
+  }, [open, view, retry]);
+  useEffect(() => { setDraft(''); setAiFailure(null); attempt.current = null; }, [ticket?.id]);
   useEffect(() => { if (open) closeButton.current?.focus(); }, [open]);
-  useEffect(() => { if (log.current) log.current.scrollTop = log.current.scrollHeight; }, [messages, open]);
+  useEffect(() => { if (nearBottom.current && log.current) log.current.scrollTop = log.current.scrollHeight; }, [ticket, open]);
   function close() { setOpen(false); launcher.current?.focus(); }
-  function send(text) {
-    text = text.trim();
-    if (!text) return;
-    if (containsSecret(text)) { setDraft(""); setNotice(language === "zh" ? "检测到可能的密码、验证码或 API Key。消息没有发送或保存，请去除凭据和数字验证码后再描述问题。" : "Possible password, verification code or API key detected. Message not added or saved. Describe the problem without credentials or numeric codes."); return; }
-    setMessages((items) => [...items.slice(-7), { question: text, ...helpReply(text, language) }]);
-    setDraft(""); setConfirm(false); setSaved(false); setNotice("");
-  }
-  const description = messages.map((m) => "You: " + m.question + "\nHelp: " + m.answer).join("\n\n");
-  function save() {
-    if (saved) return;
-    if (description.length > 2000) { setNotice("Conversation too long. Clear chat and briefly describe the unresolved issue."); setConfirm(false); return; }
+  async function send(value) {
+    const text = value.trim();
+    if (!text || !ticket || lock.current) return;
+    if (containsSecret(text)) {
+      setDraft(''); setNotice(t('Possible credentials detected. Nothing was sent. Remove passwords, codes and API keys.', '检测到可能的凭据，消息没有发送。请移除密码、验证码和 API Key。')); return;
+    }
+    lock.current = true; epoch.current++; setSaving(true); setNotice(''); setAiFailure(null);
     try {
-      changeTickets(window.localStorage, currentUser, { type: "create", category: messages.at(-1).category, title: messages.at(-1).question.slice(0, 100), description });
-      setSaved(true); setConfirm(false); setNotice("Saved in this browser only. Not emailed or sent to support.");
-    } catch (error) { setNotice(error.message); }
+      if (!attempt.current || attempt.current.text !== text || attempt.current.id !== ticket.id)
+        attempt.current = { text, id: ticket.id, clientId: crypto.randomUUID() };
+      const result = await sendLoginMessage(ticket.id, text, language, attempt.current.clientId);
+      if (!mounted.current) return;
+      nearBottom.current = true; setTicket(result.ticket); setDraft('');
+      if(result.aiError) setAiFailure({text,message:result.aiError.message});
+      else attempt.current = null;
+    } catch (e) { if (mounted.current) { setDraft(text); setNotice(e.message); } }
+    finally { lock.current = false; if (mounted.current) setSaving(false); }
   }
-  return <aside className="help-assistant" aria-label="Application help">
-    {open && <section className="help-assistant-panel" id="help-assistant-panel" role="dialog" aria-labelledby="help-assistant-title" onKeyDown={(e) => { if (e.key === "Escape") close(); }}>
-      <header className="help-assistant-header"><div><h2 id="help-assistant-title">Ask Me</h2><p>{language === "zh" ? "网站帮助 · 预设回复，非人工智能" : "Website help · Preset answers, not AI"}</p></div><div className="help-assistant-header-actions"><button className="help-language" onClick={toggleLanguage} aria-label="Switch language">{language === "en" ? "中文" : "EN"}</button><button ref={closeButton} onClick={close} aria-label="Close help"><X size={20} /></button></div></header>
-      <nav className="help-assistant-categories help-assistant-view-nav"><button aria-pressed={view === "chat"} onClick={() => setView("chat")}>{language === "zh" ? "聊天" : "Chat"}</button><button aria-pressed={view === "tickets"} onClick={() => setView("tickets")}>{language === "zh" ? "我的本地工单" : "My local tickets"}</button></nav>
-      {view === "tickets" ? <div style={{ overflowY: "auto", padding: 12 }}><SupportTickets onNewTicket={() => { setView("chat"); setNotice("Describe your issue below, then select Not solved after the reply."); }} /></div> : <>
-        <div className="help-assistant-log" ref={log} role="log" aria-live="polite"><p className="help-assistant-answer">{language === "zh" ? "需要什么帮助？你可以询问登录、上传、Quiz 或学习历史。请勿输入密码、验证码或 API Key。" : "How can I help? Ask about login, uploads, Quiz or Study History. Never enter passwords, verification codes or API keys."}</p>
-          {messages.map((m, i) => <div key={i}><p className="help-assistant-question">{m.question}</p><p className="help-assistant-answer">{m.answer}</p></div>)}
+  const messages = ticket?.replies.filter(e => e.kind === 'reply') || [];
+  return <aside className="help-assistant" data-react-i18n aria-label={t('Application help', '网站帮助')}>
+    {open && <section className="help-assistant-panel" id="help-assistant-panel" role="dialog" aria-labelledby="help-assistant-title" onKeyDown={e => { if (e.key === 'Escape') close(); }}>
+      <header className="help-assistant-header"><div><h2 id="help-assistant-title">Ask Me</h2><p>{t('Powered by Gemini · Website support', 'Gemini AI · 网站使用帮助')}</p></div><div className="help-assistant-header-actions"><button className="help-language" onClick={toggleLanguage} aria-label="Switch language">{language === 'en' ? '中文' : 'EN'}</button><button ref={closeButton} onClick={close} aria-label="Close help"><X size={20}/></button></div></header>
+      <nav className="help-assistant-categories help-assistant-view-nav"><button aria-pressed={view === 'chat'} onClick={() => setView('chat')}>{t('This login', '本次会话')}</button><button aria-pressed={view === 'history'} onClick={() => setView('history')}>{t('Conversation history', '历史会话')}</button></nav>
+      {view === 'history' ? <div style={{overflowY:'auto',padding:12}}><SupportTickets onNewTicket={() => setView('chat')}/></div> : <>
+        <p className="help-session-notice">{t('Messages and recent support context are sent to Google Gemini for replies, saved, and visible to support administrators. Each login has its own record. Private study chats and files are not included.', '消息及近期客服上下文会发送给 Google Gemini 生成回复，并保存供管理员查看。每次登录一条记录，不包含私人学习问答及文件。')}</p>
+        {ticket && <p className="help-session-meta">{t('Started: ', '开始时间：')}{new Date(ticket.createdAt).toLocaleString(language === 'zh' ? 'zh-CN' : 'en-GB')} · {language === 'zh' ? ({Open:'待处理','In progress':'处理中',Resolved:'已解决'})[ticket.status] : ticket.status}</p>}
+        <div className="help-assistant-log" ref={log} role="log" aria-live="polite" onScroll={() => { if (log.current) nearBottom.current = log.current.scrollHeight-log.current.scrollTop-log.current.clientHeight < 60; }}>
+          <p className="help-assistant-answer">{t('Ask about login, uploads, Quiz or Study History. Never send passwords, verification codes or API keys. AI can make mistakes and cannot change your account. Administrators can also reply here; updates are checked every 8 seconds.', '可以询问登录、上传、Quiz 或学习历史。请勿发送密码、验证码或 API Key。AI 可能出错，不能修改账号；管理员也可在此回复，每 8 秒检查更新。')}</p>
+          {messages.map(m => <div key={m.id} className="help-saved-message"><small>{m.role === 'AI' ? t('Gemini · AI reply', 'Gemini · AI 回复') : m.role === 'FAQ' ? t('Ask Me · Preset FAQ', 'Ask Me · 预设 FAQ') : m.role === 'Admin' ? t('Support · ', '管理员 · ')+m.name : t('You', '你')}</small><p className={m.role === 'Student' ? 'help-assistant-question' : 'help-assistant-answer'}>{m.text}</p><time dateTime={m.createdAt}>{new Date(m.createdAt).toLocaleTimeString(language === 'zh' ? 'zh-CN' : 'en-GB')}</time></div>)}
+          {saving && <p role="status" className="help-assistant-answer">{t('Gemini is replying…', 'Gemini 正在回复…')}</p>}
         </div>
         <div className="help-assistant-options">
-          <div className="help-assistant-categories">{(language === "zh" ? ["登录帮助", "上传帮助", "Quiz 帮助", "学习历史"] : ["Login help", "Upload help", "Quiz help", "Study history"]).map((q) => <button key={q} onClick={() => send(q)}>{q}</button>)}</div>
-          {notice && <p role="status">{notice}</p>}
-          {confirm ? <div><p>Save the conversation above as a local ticket? Review it and remove private information first. No server or email delivery.</p><button onClick={save}>Confirm save</button> <button onClick={() => setConfirm(false)}>Cancel</button></div> : messages.length > 0 && !saved && <div><button onClick={() => { setNotice("Glad that helped. No ticket created."); setSaved(true); }}>Solved</button> <button onClick={() => setConfirm(true)}>Not solved — save ticket</button></div>}
-          <form onSubmit={(e) => { e.preventDefault(); send(draft); }} style={{ display: "flex", gap: 6, marginTop: 10 }}>
-            <input aria-label="Describe your problem without credentials" value={draft} onChange={(e) => setDraft(e.target.value)} maxLength={500} autoComplete="off" placeholder={language === "zh" ? "请描述你的问题…" : "Describe your problem…"} style={{ minWidth: 0, flex: 1, padding: 10 }} /><button disabled={!draft.trim()}>{language === "zh" ? "发送" : "Send"}</button>
-          </form>
-          <button style={{ marginTop: 8 }} onClick={clear}>{language === "zh" ? "清空聊天" : "Clear chat"}</button>
+          <div className="help-assistant-categories">{(language === 'zh' ? ['登录帮助','上传帮助','Quiz 帮助','学习历史'] : ['Login help','Upload help','Quiz help','Study history']).map(q => <button key={q} disabled={saving || !ticket} onClick={() => send(q)}>{q}</button>)}</div>
+          {notice && <p role="status">{notice} <button onClick={() => setRetry(n => n+1)}>{t('Refresh', '刷新')}</button></p>}
+          {aiFailure && <p role="alert">{t('Your message is saved, but Gemini could not reply. You can retry or wait for an administrator. ', '消息已保存，但 Gemini 暂时无法回复。可重试或等待管理员处理。')}{aiFailure.message} <button disabled={saving} onClick={()=>send(aiFailure.text)}>{t('Retry AI reply','重试 AI 回复')}</button></p>}
+          {!ticket && !notice && <p role="status">{t('Loading your conversation…', '正在加载本次会话…')}</p>}
+          <form onSubmit={e => { e.preventDefault(); send(draft); }} style={{display:'flex',gap:6,marginTop:10}}><input disabled={saving || !ticket} aria-label="Describe your problem without credentials" value={draft} onChange={e => setDraft(e.target.value)} maxLength={2000} autoComplete="off" placeholder={t('Describe your problem…', '请描述你的问题…')} style={{minWidth:0,flex:1,padding:10}}/><button disabled={saving || !ticket || !draft.trim()}>{saving ? t('Sending…','发送中…') : t('Send','发送')}</button></form>
+          <small>{t('Saved automatically when sent. No separate ticket submission.', '发送后自动保存，无需另外提交工单。')}</small>
         </div>
       </>}
     </section>}
-    <button className="help-assistant-launcher" ref={launcher} onClick={() => open ? close() : setOpen(true)} aria-expanded={open} aria-controls={open ? "help-assistant-panel" : undefined}><MessageCircleQuestion size={24} /><span>Ask Me</span></button>
+    <button className="help-assistant-launcher" ref={launcher} onClick={() => open ? close() : setOpen(true)} aria-expanded={open} aria-controls={open ? 'help-assistant-panel' : undefined}><MessageCircleQuestion size={24}/><span>Ask Me</span></button>
   </aside>;
 }

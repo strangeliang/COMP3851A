@@ -1,25 +1,20 @@
 import {
-  BarChart3,
-  FileText,
-  GraduationCap,
-  KeyRound,
   LogOut,
-  MessageCircleQuestion,
   ShieldCheck,
+  LifeBuoy,
 } from "lucide-react";
 import { NavLink, useNavigate } from "react-router-dom";
 import { useAppData } from "../state/AppDataContext";
+import { useLanguage } from "../state/LanguageContext";
 
 const adminLinks = [
-  { to: "/admin/dashboard", label: "Dashboard", icon: BarChart3 },
-  { to: "/admin/users", label: "Students", icon: GraduationCap },
-  { to: "/admin/materials", label: "Materials", icon: FileText },
-  { to: "/admin/ai-outputs", label: "Q&A Activity", icon: MessageCircleQuestion },
-  { to: "/admin/accounts", label: "Login Access", icon: KeyRound },
+  { to: "/admin/support", label: "Support Tickets", icon: LifeBuoy },
 ];
 
 export default function AdminSidebar() {
   const { logout } = useAppData();
+  const { language } = useLanguage();
+  const zh = language === 'zh';
   const navigate = useNavigate();
 
   function handleLogout() {
@@ -28,18 +23,18 @@ export default function AdminSidebar() {
   }
 
   return (
-    <aside className="admin-sidebar">
+    <aside className="admin-sidebar" data-react-i18n>
       <div className="admin-brand">
         <span className="admin-brand-mark">
           <ShieldCheck size={18} />
         </span>
         <div className="admin-brand-copy">
           <strong>Study Companion</strong>
-          <span>Admin Portal</span>
+          <span>{zh ? '工单管理端' : 'Support Admin'}</span>
         </div>
       </div>
 
-      <p className="admin-nav-label">Management</p>
+      <p className="admin-nav-label">{zh ? '学生支持' : 'Student support'}</p>
 
       <nav className="admin-nav">
         {adminLinks.map(({ to, label, icon: Icon }) => (
@@ -51,14 +46,14 @@ export default function AdminSidebar() {
             <span className="admin-nav-icon">
               <Icon size={16} />
             </span>
-            <span>{label}</span>
+            <span>{zh ? '问题工单' : label}</span>
           </NavLink>
         ))}
       </nav>
 
       <div className="admin-sidebar-spacer" />
 
-      <p className="admin-nav-label">Account</p>
+      <p className="admin-nav-label">{zh ? '账号' : 'Account'}</p>
 
       <button
         type="button"
@@ -68,7 +63,7 @@ export default function AdminSidebar() {
         <span className="admin-nav-icon">
           <LogOut size={16} />
         </span>
-        <span>Logout</span>
+        <span>{zh ? '退出登录' : 'Logout'}</span>
       </button>
     </aside>
   );

@@ -19,6 +19,7 @@ const materials = [
   { id: 2, course_id: "course-b", owner_id: 4, name: "b.txt", type: "TXT", size_bytes: 1, status: "Ready", content: "B" },
 ];
 const database = {
+  createLoginConversation: async () => {},
   getUserByEmail: async (email) => users.find((user) => user.email === email),
   getUserById: async (id) => users.find((user) => user.id === id),
   getDatabaseStatus: async () => ({ status: "ok" }),

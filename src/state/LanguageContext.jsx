@@ -26,6 +26,7 @@ const zh = {
   "Register a student account": "注册学生账号", "Create account": "创建账号", "Full name": "姓名",
   "Confirm password": "确认密码", "Back to login": "返回登录", "Ask Me": "帮助",
   "Chat": "聊天", "My local tickets": "我的本地工单", "Send": "发送", "Clear chat": "清空聊天",
+  "Support Tickets": "问题工单", "My tickets": "我的工单",
   "Solved": "已解决", "Confirm save": "确认保存", "Not solved — save ticket": "未解决——保存工单",
   "Practise the questions you originally answered incorrectly. Your original results are kept.": "重新练习之前答错的题目，原始成绩会被保留。",
   "Study records saved to your account on the server.": "查看保存在服务器账号中的学习记录。",
@@ -62,11 +63,13 @@ export function LanguageProvider({ children }) {
     document.documentElement.lang = language === "zh" ? "zh-CN" : "en";
     const translateNode = (root) => {
       if (root.nodeType === Node.TEXT_NODE) {
+        if (root.parentElement?.closest('[data-react-i18n]')) return;
         if (!originalText.has(root)) originalText.set(root, root.nodeValue);
         root.nodeValue = language === "zh" ? translateText(originalText.get(root)) : originalText.get(root);
         return;
       }
       if (!(root instanceof Element)) return;
+      if (root.closest('[data-react-i18n]')) return;
       const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
       let node;
       while ((node = walker.nextNode())) translateNode(node);
@@ -79,6 +82,7 @@ export function LanguageProvider({ children }) {
         }
       }
       root.querySelectorAll("[placeholder],[title],[aria-label]").forEach((element) => {
+        if (element.closest('[data-react-i18n]')) return;
         for (const attr of ["placeholder", "title", "aria-label"]) {
           if (!element.hasAttribute(attr)) continue;
           const key = `data-i18n-${attr}`;

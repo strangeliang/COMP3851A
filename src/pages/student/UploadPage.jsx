@@ -4,9 +4,13 @@ import Toolbar from "../../components/Toolbar";
 import StudentLayout from "../../layouts/StudentLayout";
 import { limits } from "../../utils/studyScope";
 import { useAppData } from "../../state/AppDataContext";
-import { formatFileSize } from "../../utils/fileTextExtractor";
+import { formatFileSize, getFileExtension, SUPPORTED_MATERIAL_EXTENSIONS } from "../../utils/fileTextExtractor";
+import { useLanguage } from "../../state/LanguageContext";
+import './UploadDropzone.css';
 
 export default function UploadPage() {
+  const { language } = useLanguage();
+  const t = (en, zh) => language === 'zh' ? zh : en;
   const {
     studentCourses,
     materials,
@@ -26,11 +30,13 @@ export default function UploadPage() {
   const [selectedFiles, setSelectedFiles] = useState([]);
   const [search, setSearch] = useState("");
   const [status, setStatus] = useState(null);
+  const [dragging, setDragging] = useState(false);
+  const dragDepth = useRef(0);
   const inputRef = useRef(null);
   const pageScope = useRef(currentCourseId);
   pageScope.current = currentCourseId;
   useEffect(() => {
-    setSelectedFiles([]); setStatus(null);
+    setSelectedFiles([]); setStatus(null); setDragging(false); dragDepth.current = 0;
     if (inputRef.current) inputRef.current.value = "";
   }, [currentCourseId]);
 
@@ -41,15 +47,44 @@ export default function UploadPage() {
     );
   }, [courseMaterials, search]);
 
-  function selectFiles(event) {
-    const files = Array.from(event.target.files || []);
-    if (files.length > limits.maxFilesPerUpload) {
-      setSelectedFiles([]);
-      setStatus({ ok: false, message: `Choose at most ${limits.maxFilesPerUpload} files at a time.` });
-      event.target.value = "";
+  const selectionDisabled = !currentCourse || uploadState.pending || materialState.loading || courseState.loading;
+  function acceptFiles(incoming) {
+    if (selectionDisabled) {
+      setStatus({ ok: false, message: t('Select a course and wait for the current operation to finish before adding files.', '请先选择课程，并等待当前操作完成后再添加文件。') });
       return;
     }
-    setSelectedFiles(files); setStatus(null);
+    const files = Array.from(incoming || []);
+    if (!files.length) return;
+    const unsupported = files.find(file => !SUPPORTED_MATERIAL_EXTENSIONS.includes(getFileExtension(file.name)));
+    if (unsupported) {
+      setStatus({ ok: false, message: t(`${unsupported.name}: unsupported format. Use PDF, PPTX, DOCX, TXT, MD or supported images. Save old PPT/DOC files as PPTX/DOCX first.`, `${unsupported.name}：不支持此格式。请使用 PDF、PPTX、DOCX、TXT、MD 或支持的图片格式。旧版 PPT/DOC 请先另存为 PPTX/DOCX。`) });
+      return;
+    }
+    if (files.some(file => file.size <= 0 || file.size > limits.maxFileBytes)) {
+      setStatus({ ok: false, message: t(`Each file must be non-empty and at most ${formatFileSize(limits.maxFileBytes)}.`, `文件不能为空，且每个文件不能超过 ${formatFileSize(limits.maxFileBytes)}。`) });
+      return;
+    }
+    const unique = new Map(selectedFiles.map(file => [JSON.stringify([file.name,file.size,file.lastModified]), file]));
+    for (const file of files) unique.set(JSON.stringify([file.name,file.size,file.lastModified]),file);
+    const next = [...unique.values()];
+    if (next.length > limits.maxFilesPerUpload || courseMaterials.length + next.length > limits.maxFilesPerCourse || materials.length + next.length > limits.maxTotalFilesPerUser) {
+      setStatus({ ok: false, message: t(`You can select up to ${limits.maxFilesPerUpload} files per upload, within the course and account limits. Remove a selected file before adding more.`, `每批最多选择 ${limits.maxFilesPerUpload} 个文件，且不能超过课程和账号文件上限。请先移除部分待上传文件。`) });
+      return;
+    }
+    setSelectedFiles(next); setStatus(null);
+  }
+  function selectFiles(event) { acceptFiles(event.target.files); event.target.value = ''; }
+  function dropFiles(event) {
+    event.preventDefault(); event.stopPropagation(); dragDepth.current = 0; setDragging(false);
+    const transfer = event.dataTransfer;
+    const entries = Array.from(transfer.items || []);
+    if (entries.some(item => item.webkitGetAsEntry?.()?.isDirectory)) {
+      setStatus({ ok: false, message: t('Drop individual files, not folders.', '请拖入单个文件，不要拖入文件夹。') }); return;
+    }
+    if (!transfer.files?.length) {
+      setStatus({ ok: false, message: t('This is a browser link or text, not a file. Download the document first, then drag the downloaded file here or choose it with Choose Files.', '拖入的是浏览器链接或文字，不是文件。请先下载文档，再拖入下载后的文件，或点击“选择文件”。') }); return;
+    }
+    acceptFiles(transfer.files);
   }
 
   async function uploadAll() {
@@ -127,27 +162,38 @@ export default function UploadPage() {
         </div>
       </div>
 
-      <section className={`upload-dropzone${!currentCourse ? " disabled-zone" : ""}`}>
+      <section data-react-i18n aria-label={t('Choose study materials', '选择学习材料')} aria-disabled={selectionDisabled}
+        className={`upload-dropzone${selectionDisabled ? " disabled-zone" : ""}${dragging ? " drag-active" : ""}`}
+        onDragEnter={event=>{event.preventDefault(); event.stopPropagation(); dragDepth.current++; if (!selectionDisabled) setDragging(true);}}
+        onDragOver={event=>{event.preventDefault(); event.stopPropagation(); event.dataTransfer.dropEffect=selectionDisabled?'none':'copy';}}
+        onDragLeave={event=>{event.preventDefault(); event.stopPropagation(); dragDepth.current=Math.max(0,dragDepth.current-1); if (!dragDepth.current) setDragging(false);}}
+        onDrop={dropFiles}>
         <span className="upload-symbol"><UploadCloud size={28} /></span>
-        <h2>{selectedFiles.length ? `${selectedFiles.length} file(s) selected` : "Choose study materials"}</h2>
+        <h2>{dragging ? t('Drop files here', '松开即可添加文件') : selectedFiles.length ? t(`${selectedFiles.length} file(s) selected`, `已选择 ${selectedFiles.length} 个文件`) : t('Choose study materials', '选择学习材料')}</h2>
+        <p className="upload-drag-hint">{t('Drag files here, or choose files below. Then click Upload All to upload.', '将文件拖到此处，或点击下方选择文件。确认后点击“全部上传”。')}</p>
         <p>Choose up to {limits.maxFilesPerUpload} files per upload. Each file must contain no more than {limits.maxStoredTextCharacters.toLocaleString()} extracted characters.</p>
         <p>PDF: up to {limits.maxPDFPages} pages and {limits.maxPDFOCRPages} pages needing OCR. OCR supports English and Simplified Chinese.</p>
         <label className="file-picker-modern">
-          Choose Files
+          {t('Choose Files', '选择文件')}
           <input
             ref={inputRef}
             type="file"
             multiple
             accept=".txt,.md,.pdf,.docx,.pptx,.png,.jpg,.jpeg,.webp,.bmp"
             onChange={selectFiles}
-            disabled={!currentCourse || uploadState.pending || materialState.loading}
+            disabled={selectionDisabled}
           />
         </label>
         {!!selectedFiles.length && (
-          <div className="selected-file-names">
+          <div className="upload-queue" aria-label={t('Files waiting to upload', '待上传文件')}>
             {selectedFiles.map((file, index) => (
-              <span key={`${file.name}-${index}`}>{file.name}</span>
+              <div className="upload-queue-item" key={`${file.name}-${index}`}>
+                <span className="upload-queue-name">{file.name}<small>{formatFileSize(file.size)}</small></span>
+                <button className="upload-queue-remove" type="button" disabled={uploadState.pending} aria-label={t(`Remove ${file.name}`, `移除 ${file.name}`)} onClick={()=>{setSelectedFiles(old=>old.filter((_,i)=>i!==index));setStatus(null);}}><Trash2 size={16} aria-hidden="true" />{t('Remove', '移除')}</button>
+              </div>
             ))}
+            <button className="upload-queue-clear" type="button" disabled={uploadState.pending} onClick={()=>{setSelectedFiles([]);setStatus(null);if(inputRef.current)inputRef.current.value='';}}>{t('Clear pending files', '清空待上传')}</button>
+            <p className="upload-queue-note">{t('Removing here only clears the upload queue. Files on your computer and already uploaded materials are not deleted.', '这里只移除待上传文件，不会删除电脑原文件或已上传的材料。')}</p>
           </div>
         )}
       </section>

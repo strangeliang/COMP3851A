@@ -4,6 +4,7 @@ const { randomBytes } = require("node:crypto");
 const { OAuth2Client } = require("google-auth-library");
 const { StudyError } = require("../services/studyContracts");
 const { createRateLimiter } = require("../services/sessionService");
+const { startLogin } = require('../services/startLogin');
 
 function createGoogleRoutes({ database, sessions, publicUser, client = new OAuth2Client(), clientId = process.env.GOOGLE_CLIENT_ID || "" }) {
   const router = express.Router();
@@ -45,8 +46,7 @@ function createGoogleRoutes({ database, sessions, publicUser, client = new OAuth
       }
     }
     if (user.status !== "Active") throw new StudyError(403, "ACCOUNT_DISABLED", "This account is disabled. Contact the administrator.");
-    sessions.clear(req.headers.cookie);
-    res.setHeader("Set-Cookie", [cookie("", 0), sessions.create(user.id, false)]);
+    res.setHeader("Set-Cookie", [cookie("", 0), await startLogin(database, sessions, user, false, req.headers.cookie)]);
     res.json({ user: publicUser(await database.getUserById(user.id)) });
   });
   return router;

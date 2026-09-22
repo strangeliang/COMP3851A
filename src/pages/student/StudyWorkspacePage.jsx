@@ -14,6 +14,7 @@ import Toolbar from "../../components/Toolbar";
 import StudentLayout from "../../layouts/StudentLayout";
 import { useAppData } from "../../state/AppDataContext";
 import useAIRequest from "../../hooks/useAIRequest";
+import useWorkspaceState from "../../hooks/useWorkspaceState";
 import {
   generateAISummary,
   generateAIQuiz,
@@ -37,12 +38,11 @@ function SummaryPanel({ canUseAI, materialSourceLabel }) {
   const {
     selectedMaterials,
     recordSummaryUse,
-    currentSummaryRecord,
     scope,
   } = useAppData();
 
-  const request = useAIRequest(scope.scopeKey);
-  const summary = request.data || currentSummaryRecord?.summary;
+  const request = useAIRequest(scope.scopeKey, "summary");
+  const summary = request.data;
 
   async function generate() {
     if (!canUseAI || request.pending) return;
@@ -127,17 +127,17 @@ function SummaryPanel({ canUseAI, materialSourceLabel }) {
 function QuizPanel({ canUseAI, materialSourceLabel }) {
   const { selectedMaterials, saveQuizAttempt, scope } = useAppData();
 
-  const request = useAIRequest(scope.scopeKey);
+  const request = useAIRequest(scope.scopeKey, "quiz");
 
   const questions = request.data?.questions || [];
 
-  const [index, setIndex] = useState(0);
-  const [answers, setAnswers] = useState({});
-  const [submitted, setSubmitted] = useState(false);
+  const [index, setIndex] = useWorkspaceState(`quiz-index:${scope.scopeKey}`, 0);
+  const [answers, setAnswers] = useWorkspaceState(`quiz-answers:${scope.scopeKey}`, {});
+  const [submitted, setSubmitted] = useWorkspaceState(`quiz-submitted:${scope.scopeKey}`, false);
   const [warning, setWarning] = useState("");
-  const [difficulty, setDifficulty] = useState("medium");
+  const [difficulty, setDifficulty] = useWorkspaceState(`quiz-difficulty:${scope.scopeKey}`, "medium");
 
-  const submittedRef = useRef(false);
+  const submittedRef = useRef(submitted);
 
   const complete =
     questions.length > 0 &&
@@ -254,7 +254,7 @@ function QuizPanel({ canUseAI, materialSourceLabel }) {
       </div>
 
       <p className="demo-warning">
-        Generate three practice questions from your materials. Check AI
+        Generate five practice questions from your materials. Check AI
         explanations against the sources.
       </p>
 
@@ -403,12 +403,12 @@ function FlashcardsPanel({
   const { selectedMaterials, scope, persistStudy } =
     useAppData();
 
-  const request = useAIRequest(scope.scopeKey);
+  const request = useAIRequest(scope.scopeKey, "flashcards");
 
   const cards = request.data?.cards || [];
 
   const [flipped, setFlipped] =
-    useState({});
+    useWorkspaceState(`flashcards-flipped:${scope.scopeKey}`, {});
 
   async function generate() {
     if (!canUseAI || request.pending) return;
@@ -1011,7 +1011,7 @@ export default function StudyWorkspacePage() {
         )}
       </div>
 
-      {mode === "summary" && (
+      <div hidden={mode !== "summary"}>
         <SummaryPanel
           key={scope.scopeKey}
           canUseAI={canUseAI}
@@ -1019,9 +1019,9 @@ export default function StudyWorkspacePage() {
             materialSourceLabel
           }
         />
-      )}
+      </div>
 
-      {mode === "qa" && (
+      <div hidden={mode !== "qa"}>
         <section className="user-card workspace-panel">
           <div className="panel-title-row">
             <div>
@@ -1047,9 +1047,10 @@ export default function StudyWorkspacePage() {
             currentCourse={currentCourse}
           />
         </section>
-      )}
+      </div>
 
-      {mode === "quiz" && (
+      {/* Keep this scoped panel mounted across AI tabs so questions and answers survive. */}
+      <div hidden={mode !== "quiz"}>
         <QuizPanel
           key={scope.scopeKey}
           canUseAI={canUseAI}
@@ -1057,9 +1058,9 @@ export default function StudyWorkspacePage() {
             materialSourceLabel
           }
         />
-      )}
+      </div>
 
-      {mode === "flashcards" && (
+      <div hidden={mode !== "flashcards"}>
         <FlashcardsPanel
           key={scope.scopeKey}
           canUseAI={canUseAI}
@@ -1067,7 +1068,7 @@ export default function StudyWorkspacePage() {
             materialSourceLabel
           }
         />
-      )}
+      </div>
     </StudentLayout>
   );
 }

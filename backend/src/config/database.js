@@ -101,6 +101,11 @@ async function getDatabaseStatus() {
 }
 
 module.exports = {
+  createLoginConversation: (id, owner) => {
+    const now = new Date().toISOString();
+    return run(`INSERT INTO support_tickets(id,client_id,owner_id,category,title,description,created_at,updated_at)
+      VALUES(?,?,?,'other','Login support conversation','Automatic support conversation for this login.',?,?)`, [id,id,owner,now,now]);
+  },
   registerStudent: async (name, email, passwordHash) => {
     const result = await run("INSERT INTO users(name,email,password_hash,role,status) VALUES(?,?,?,'Student','Active')", [name, email, passwordHash]);
     return get("SELECT id,name,email,role,status FROM users WHERE id=?", [result.id]);

@@ -11,6 +11,7 @@ test("Google login requires a verified nonce-bound token, isolates existing acco
   let created = 0;
   const sessions = createSessionService({ secure: false });
   const database = {
+    createLoginConversation: async (id, owner) => { assert.match(id, /^SESSION-/); assert.equal(owner, 10); },
     getGoogleUser: async () => user,
     getUserByEmail: async () => existing ? { id: 99 } : null,
     createGoogleUser: async (data) => { created++; assert.ok(data.passwordHash.startsWith("$2")); user = { id: 10, status: "Active", role: "Student" }; return user; },

@@ -14,6 +14,52 @@ import {
 
 globalThis.IS_REACT_ACT_ENVIRONMENT = true;
 
+test("workspace session restores generated results and answers after remount/reload, isolates scopes and clears on login", async () => {
+  const window = memoryWindow();
+  window.sessionStorage = memoryWindow().localStorage;
+  const entry = `export { default as useRequest } from './src/hooks/useAIRequest.js';
+    export { default as useDraft } from './src/hooks/useWorkspaceState.js';
+    export * from './src/services/workspaceSession.js';`;
+  let modules = await loadSource(entry, {}, { window });
+  let exposed;
+  function Probe({ scope = "user1:course1:file1", kind = "quiz" }) {
+    const request = modules.useRequest(scope, kind);
+    const [answers, setAnswers] = modules.useDraft('answers:' + scope, {});
+    const [submitted, setSubmitted] = modules.useDraft('submitted:' + scope, false);
+    exposed = { request, answers, setAnswers, submitted, setSubmitted };
+    return null;
+  }
+  let renderer;
+  await act(async () => { renderer = create(React.createElement(Probe)); });
+  await act(async () => {
+    await exposed.request.run(async () => ({ questions: [{ id: 'q1' }] }));
+    exposed.setAnswers({ q1: 2 });
+    exposed.setSubmitted(true);
+  });
+  await act(async () => { renderer.unmount(); });
+  // Fresh module instance emulates a browser refresh: only sessionStorage survives.
+  modules = await loadSource(entry, {}, { window });
+  await act(async () => { renderer = create(React.createElement(Probe)); });
+  assert.equal(exposed.request.data.questions[0].id, 'q1');
+  assert.deepEqual(exposed.answers, { q1: 2 });
+  assert.equal(exposed.submitted, true);
+  await act(async () => { renderer.update(React.createElement(Probe, { scope: "user2:course1:file1" })); });
+  assert.equal(exposed.request.data, null);
+  assert.deepEqual(exposed.answers, {});
+  await act(async () => { renderer.update(React.createElement(Probe, { kind: "flashcards" })); });
+  assert.equal(exposed.request.data, null);
+  await act(async () => { renderer.update(React.createElement(Probe)); });
+  assert.equal(exposed.request.data.questions[0].id, 'q1');
+  const previousSession = modules.workspaceSessionId();
+  modules.resetWorkspaceSession();
+  modules.writeWorkspaceState('quiz:user1:course1:file1', { data: 'stale' }, previousSession);
+  await act(async () => { renderer.unmount(); renderer = create(React.createElement(Probe)); });
+  assert.equal(exposed.request.data, null);
+  assert.deepEqual(exposed.answers, {});
+  assert.equal(exposed.submitted, false);
+  await act(async () => { renderer.unmount(); });
+});
+
 const widgets = {
   ChatContainer: "test-chat",
   MainContainer: "test-main",
@@ -995,7 +1041,7 @@ test(
 test(
   "summary and quiz buttons generate results from the API; scoring follows the returned questions",
   async (t) => {
-    const questions = [1, 3, 0].map(
+    const questions = [1, 3, 0, 2, 1].map(
       (answerIndex, index) => ({
         id: index + 1,
         question: `Course fact ${
@@ -1085,6 +1131,14 @@ test(
           questions[index].answerIndex
         ].props.onChange()
       );
+
+      if (index === 0) {
+        await act(async () => button(app.renderer, 'Q&A').props.onClick());
+        await act(async () => button(app.renderer, 'Quiz').props.onClick());
+        const restored = app.renderer.root.findAllByType('input').filter(node => node.props.type === 'radio');
+        assert.equal(restored[questions[0].answerIndex].props.checked, true, 'Switching to Q&A must preserve the selected quiz answer');
+        assert.ok(button(app.renderer, 'Generate New Quiz'), 'Generated questions survive switching AI tabs');
+      }
 
       if (
         index <

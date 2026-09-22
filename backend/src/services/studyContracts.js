@@ -77,7 +77,7 @@ const systemInstruction = [
 const modePrompts = {
   qa: "Answer the student's current question. Use relevant recent conversation for follow-up questions, but verify claims against the selected sources.",
   summary: "Summarise the selected sources together. Return one clear paragraph and 3 to 8 key concepts. Cover substantive course content, highlight important differences, and cite source labels in the paragraph or concepts. Return only the requested JSON object.",
-  quiz: "Create exactly 3 multiple-choice revision questions grounded in the selected sources. Each question must have exactly 4 distinct options and exactly 1 unambiguously correct option. Provide its zero-based answerIndex and an explanation with a source label. Avoid questions about the app itself unless that is actually the source topic. Return only the requested JSON object.",
+  quiz: "Create exactly 5 multiple-choice revision questions grounded in the selected sources. Each question must have exactly 4 distinct options and exactly 1 unambiguously correct option. Provide its zero-based answerIndex and an explanation with a source label. Avoid questions about the app itself unless that is actually the source topic. Return only the requested JSON object.",
   flashcards: "Create exactly 5 revision flashcards grounded in the selected sources. Each card must have a concise front question or key term, a clear back explanation, and a source label such as [S1]. Return only the requested JSON object.",
 };
 
@@ -91,7 +91,7 @@ const responseSchemas = {
     type: "OBJECT",
     properties: {
       questions: {
-        type: "ARRAY", minItems: 3, maxItems: 3,
+        type: "ARRAY", minItems: 5, maxItems: 5,
         items: {
           type: "OBJECT",
           properties: {
@@ -179,7 +179,7 @@ function parseOutput(mode, data) {
     });
     return { cards, mode: "api" };
   }
-  if (!Array.isArray(output?.questions) || output.questions.length !== 3) badOutput();
+  if (!Array.isArray(output?.questions) || output.questions.length !== 5) badOutput();
   const questionTexts = new Set();
   const questions = output.questions.map((question, index) => {
     if (!checkedText(question?.question, 2000) || questionTexts.has(question.question.trim().toLowerCase()) || !Array.isArray(question.options) || question.options.length !== 4 || !question.options.every((option) => checkedText(option, 1000)) || new Set(question.options.map((option) => option.trim().toLowerCase())).size !== 4 || !Number.isInteger(question.answerIndex) || question.answerIndex < 0 || question.answerIndex > 3 || !checkedText(question.explanation, 3000)) badOutput();

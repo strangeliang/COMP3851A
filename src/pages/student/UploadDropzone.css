@@ -1,0 +1,13 @@
+.upload-dropzone { transition: border-color .16s ease, background-color .16s ease, box-shadow .16s ease; }
+.upload-dropzone.drag-active { border-color: #7136ff; background: #ece2ff; box-shadow: 0 0 0 4px #7136ff18; }
+.upload-dropzone .upload-drag-hint { font-size: 14px; color: #65459b; }
+.upload-dropzone .upload-queue { display: flex; flex-direction: column; gap: 10px; width: 100%; max-width: 620px; margin: 18px auto 0; text-align: left; }
+.upload-queue-item { display: flex; align-items: center; gap: 12px; padding: 12px; border: 1px solid #dfd2ff; border-radius: 12px; background: #fff; min-width: 0; }
+.upload-queue-name { flex: 1; min-width: 0; overflow-wrap: anywhere; white-space: normal; color: #302541; font-size: 14px; }
+.upload-queue-name small { display: block; color: #756b82; margin-top: 4px; }
+.upload-queue button { display: inline-flex; align-items: center; justify-content: center; gap: 6px; flex-shrink: 0; min-height: 40px; border: 1px solid #e9bdd0; border-radius: 8px; padding: 8px 12px; color: #a0214f; background: #fff5f8; font-size: 14px; cursor: pointer; }
+.upload-queue .upload-queue-clear { align-self: flex-end; }
+.upload-queue button:focus-visible { outline: 2px solid #7136ff; outline-offset: 2px; }
+.upload-queue button:disabled { opacity: .5; cursor: not-allowed; }
+.upload-dropzone .upload-queue-note { margin: 0; font-size: 12px; line-height: 1.5; color: #756b82; }
+@media (prefers-reduced-motion: reduce) { .upload-dropzone { transition: none; } }

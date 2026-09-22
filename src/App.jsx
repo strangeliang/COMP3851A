@@ -8,11 +8,7 @@ import DashboardPage from "./pages/student/DashboardPage";
 import UploadPage from "./pages/student/UploadPage";
 import SummaryPage from "./pages/student/SummaryPage";
 import QAPage from "./pages/student/QAPage";
-import AdminDashboardPage from "./pages/admin/AdminDashboardPage";
-import AdminUsersPage from "./pages/admin/AdminUsersPage";
-import AdminMaterialsPage from "./pages/admin/AdminMaterialsPage";
-import AdminAIOutputsPage from "./pages/admin/AdminAIOutputsPage";
-import AdminAccountsPage from "./pages/admin/AdminAccountsPage";
+import AdminSupportPage from "./pages/admin/AdminSupportPage";
 import ProtectedRoute from "./components/ProtectedRoute";
 import StudyWorkspacePage from "./pages/student/StudyWorkspacePage";
 import LanguageToggle from "./components/LanguageToggle";
@@ -21,6 +17,7 @@ export default function App() {
   return (<>
     <LanguageToggle />
     <Routes>
+      <Route path="/admin/support" element={<ProtectedRoute role="Admin"><AdminSupportPage /></ProtectedRoute>} />
       <Route path="/register" element={<RegisterPage />} />
       <Route path="/student/history" element={<ProtectedRoute role="Student"><HistoryPage key="history" /></ProtectedRoute>} />
       <Route path="/student/review" element={<ProtectedRoute role="Student"><HistoryPage key="review" review /></ProtectedRoute>} />
@@ -73,50 +70,7 @@ export default function App() {
         }
       />
 
-      <Route
-        path="/admin/dashboard"
-        element={
-          <ProtectedRoute role="Admin">
-            <AdminDashboardPage />
-          </ProtectedRoute>
-        }
-      />
-
-      <Route
-        path="/admin/users"
-        element={
-          <ProtectedRoute role="Admin">
-            <AdminUsersPage />
-          </ProtectedRoute>
-        }
-      />
-
-      <Route
-        path="/admin/materials"
-        element={
-          <ProtectedRoute role="Admin">
-            <AdminMaterialsPage />
-          </ProtectedRoute>
-        }
-      />
-
-      <Route
-        path="/admin/ai-outputs"
-        element={
-          <ProtectedRoute role="Admin">
-            <AdminAIOutputsPage />
-          </ProtectedRoute>
-        }
-      />
-
-      <Route
-        path="/admin/accounts"
-        element={
-          <ProtectedRoute role="Admin">
-            <AdminAccountsPage />
-          </ProtectedRoute>
-        }
-      />
+      <Route path="/admin/*" element={<ProtectedRoute role="Admin"><Navigate to="/admin/support" replace /></ProtectedRoute>} />
 
       <Route path="/dashboard.html" element={<Navigate to="/student/dashboard" replace />} />
       <Route path="/upload.html" element={<Navigate to="/student/upload" replace />} />

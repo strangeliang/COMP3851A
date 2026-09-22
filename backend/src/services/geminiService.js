@@ -1,4 +1,5 @@
 const { StudyError, validateRequest, buildGeminiRequest, parseOutput } = require("./studyContracts");
+const { buildSupportRequest, parseSupportOutput } = require('./supportAiContracts');
 
 function abortableDelay(milliseconds, signal) {
   return new Promise((resolve, reject) => {
@@ -14,7 +15,7 @@ function createGeminiService({ apiKey = process.env.GEMINI_API_KEY || "", model 
   return {
     status: () => ({ configured, provider: "Gemini", model }),
     async generate(mode, input, { signal } = {}) {
-      const request = validateRequest(mode, input);
+      const request = mode === 'support' ? buildSupportRequest(input) : buildGeminiRequest(mode, validateRequest(mode, input));
       if (!configured) throw new StudyError(503, "AI_NOT_CONFIGURED", "AI is not configured yet. Please contact the project owner.");
       const controller = new AbortController();
       let timedOut = false;
@@ -27,10 +28,10 @@ function createGeminiService({ apiKey = process.env.GEMINI_API_KEY || "", model 
           const response = await fetchImpl(`https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent`, {
             method: "POST",
             headers: { "Content-Type": "application/json", "x-goog-api-key": apiKey },
-            body: JSON.stringify(buildGeminiRequest(mode, request)),
+            body: JSON.stringify(request),
             signal: controller.signal,
           });
-          if (response.ok) return parseOutput(mode, await response.json());
+          if (response.ok) return mode === 'support' ? parseSupportOutput(await response.json()) : parseOutput(mode, await response.json());
           // Never log or forward provider error bodies, URLs, or keys.
           await response.text();
           if (attempt === 0 && [429, 500, 502, 503, 504].includes(response.status)) {
@@ -43,7 +44,7 @@ function createGeminiService({ apiKey = process.env.GEMINI_API_KEY || "", model 
           throw new StudyError(503, "AI_UNAVAILABLE", "The AI service is temporarily unavailable. Please try again later.");
         }
       } catch (error) {
-        if (timedOut) throw new StudyError(504, "AI_TIMEOUT", "The AI request timed out. Please try again with fewer materials.");
+        if (timedOut) throw new StudyError(504, "AI_TIMEOUT", mode === 'support' ? "The AI reply timed out. Please retry or wait for support." : "The AI request timed out. Please try again with fewer materials.");
         if (signal?.aborted) throw new DOMException("Cancelled", "AbortError");
         if (error instanceof StudyError) throw error;
         throw new StudyError(503, "AI_UNAVAILABLE", "The AI service could not complete the request. Please try again.");
