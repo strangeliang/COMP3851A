@@ -90,4 +90,9 @@ Reference: https://ai.google.dev/api/generate-content
 
 The public `/forgot-password` page accepts an account name and linked email, with explicit consent to share them with administrators. `POST /api/auth/recovery-request` creates an unverified recovery request. It does not query whether the account exists, change credentials, issue a token, or send email. Public responses never expose ticket IDs or account history. Requests are rate-limited by IP and persistently by email, and retried client IDs are deduplicated.
 
-Recovery requests appear in the administrator's Support Tickets inbox under Account. Their claimed name/email are not attached to an existing user. Only administrators can read them, add internal notes, and update workflow status. Notes are not sent to applicants. Marking a request Resolved is not a password reset. Future completion requires a configured mail provider plus an expiring, single-use verification/reset flow and session revocation; no manual identity bypass is included.
+Recovery requests appear in the administrator's Support Tickets inbox under Account. Their claimed name/email are not attached to an existing user. Only administrators can read them, add internal notes, and update workflow status. Notes are not sent to applicants. Marking a request Resolved is not a password reset. Direct applicants to `/reset-password` for the separate one-time email flow; `/verify-email` verifies email ownership. See DEPLOYMENT.md for mail configuration. No manual identity bypass is included.
+
+The Admin inbox can hide empty login conversations, filter tickets awaiting a staff reply,
+and sort by recent updates or oldest creation time. A student message requires attention
+until a staff member replies or resolves the ticket; automatic AI replies do not count
+as staff replies. Counts and filters still apply to the latest 200 loaded tickets.

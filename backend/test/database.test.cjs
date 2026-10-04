@@ -4,10 +4,40 @@ const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
 const bcrypt = require("bcryptjs");
+const { execFileSync } = require("node:child_process");
+const { validateRuntime } = require('../src/config/runtime');
+
+test('production refuses implicit temporary storage and invalid public origins before opening SQLite', () => {
+  const configured = { NODE_ENV: 'production', STUDY_DATABASE_PATH: path.resolve('persistent/test.db'),
+    STUDY_UPLOAD_PATH: path.resolve('persistent/originals'), FRONTEND_URL: 'https://study.example.test' };
+  assert.doesNotThrow(() => validateRuntime(configured));
+  assert.doesNotThrow(() => validateRuntime({ NODE_ENV: 'development' }));
+  for (const change of [{ STUDY_DATABASE_PATH: '' }, { STUDY_UPLOAD_PATH: 'relative' },
+    { FRONTEND_URL: 'http://study.example.test' }, { FRONTEND_URL: 'https://study.example.test/' },
+    { RESEND_API_KEY: 'test-only-key' }]) assert.throws(() => validateRuntime({ ...configured, ...change }));
+});
+
+test("public-style startup never seeds published demo accounts", () => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), "study-public-database-test-"));
+  try {
+    const result = execFileSync(process.execPath, ["-e", `
+      const database = require('./src/config/database');
+      database.initializeDatabase().then(async () => {
+        const status = await database.getDatabaseStatus();
+        process.stdout.write(JSON.stringify(status.counts));
+        database.db.close();
+      }).catch((error) => { console.error(error); process.exitCode = 1; });
+    `], { cwd: path.join(__dirname, ".."), env: { ...process.env, NODE_ENV: "production", STUDY_SEED_DEMO: "0", STUDY_DATABASE_PATH: path.join(directory, "test.db") }, encoding: "utf8" });
+    assert.deepEqual(JSON.parse(result.slice(result.indexOf("{"))), { users: 0, courses: 0, materials: 0 });
+  } finally {
+    fs.rmSync(directory, { recursive: true, force: true });
+  }
+});
 
 test("a fresh SQLite database initializes twice safely and stores usable password hashes", async () => {
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), "study-database-test-"));
   process.env.STUDY_DATABASE_PATH = path.join(directory, "test.db");
+  process.env.STUDY_SEED_DEMO = "1";
   const database = require("../src/config/database");
   try {
     await database.initializeDatabase();
@@ -49,8 +79,14 @@ test("a fresh SQLite database initializes twice safely and stores usable passwor
 
     await database.initializeDatabase();
     assert.deepEqual((await database.getDatabaseStatus()).counts, { users: 4, courses: 4, materials: 4 });
+    await database.saveHistory('material-history', 2, 'summary', 'user-2-course', { sourceFileId: material.id, selectedMaterialIds: [material.id] });
     assert.equal((await database.deleteMaterialForOwner(material.id, 2)).changes, 1);
+    assert.equal(await database.getHistory('material-history', 2), undefined);
+    await database.saveHistory('history-delete', 1, 'quiz', 'hci', { questions: [] });
+    await database.saveReview('review-delete', 1, 'history-delete', { score: 100 });
     await database.deleteCourse("hci", 1);
+    assert.equal(await database.getHistory('history-delete', 1), undefined);
+    assert.equal(await database.getReview('review-delete', 1), undefined);
     await database.deleteCourse("inft3050", 1);
     await database.initializeDatabase();
     assert.equal(await database.courseBelongsToOwner("hci", 1), undefined);

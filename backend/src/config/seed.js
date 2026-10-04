@@ -143,7 +143,8 @@ async function seedDatabase({ exec, get, run }) {
     if (!initialized) {
       const existing = await get("SELECT COUNT(*) AS count FROM users;");
       // Existing installations already had demo data: never resurrect deleted rows.
-      if (existing.count === 0) {
+      // Public deployments must never bootstrap accounts with published passwords.
+      if (existing.count === 0 && process.env.NODE_ENV !== "production" && process.env.STUDY_SEED_DEMO === "1") {
         await insertAccounts({ get, run });
         await insertCoursesAndMaterials({ get, run });
       }

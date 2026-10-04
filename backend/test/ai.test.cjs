@@ -6,7 +6,7 @@ const { createGeminiService } = require("../src/services/geminiService");
 const materials = [{ id: "notes", name: "course.txt", content: "Photosynthesis converts light energy into chemical energy. [Page 1]" }];
 const input = { materials, question: "What does photosynthesis do?", history: [] };
 const complete = (text) => ({ candidates: [{ finishReason: "STOP", content: { parts: [{ text }] } }] });
-const output = { questions: Array.from({ length: 5 }, (_, index) => ({ question: `Question ${index + 1}?`, options: ["Light", "Sound", "Heat", "Motion"], answerIndex: 0, explanation: "Light is described in the source. [S1]" })) };
+const output = { questions: Array.from({ length: 5 }, (_, index) => ({ question: `Question ${index + 1}?`, options: ["Light", "Sound", "Heat", "Motion"], answerIndices: index % 2 ? [0, 2] : [0], explanation: "Light is described in the source. [S1]" })) };
 const flashcardOutput = { cards: Array.from({ length: 5 }, (_, index) => ({ front: `Term ${index + 1}`, back: `Explanation ${index + 1}`, source: "[S1]" })) };
 const reply = (text, status = 200, headers = {}) => new Response(typeof text === "string" ? text : JSON.stringify(text), { status, headers });
 const codeIs = (code) => (error) => error.code === code;
@@ -101,7 +101,12 @@ test("quiz validation checks answer indices, option uniqueness, question count, 
   assert.equal(request.generationConfig.responseSchema.properties.questions.minItems, 5);
   assert.equal(request.generationConfig.responseSchema.properties.questions.maxItems, 5);
   for (const mutate of [
-    (value) => { value.questions[0].answerIndex = 4; },
+    (value) => { value.questions[0].answerIndices = [4]; },
+    (value) => { value.questions[0].answerIndices = [0, 0]; },
+    (value) => { value.questions[0].answerIndices = []; },
+    (value) => { value.questions[0].answerIndices = ["0"]; },
+    (value) => { value.questions.forEach((q) => { q.answerIndices = [0]; }); },
+    (value) => { value.questions.forEach((q) => { q.answerIndices = [0, 1]; }); },
     (value) => { value.questions[0].options[1] = " light "; },
     (value) => { value.questions.pop(); },
     (value) => { value.questions = value.questions.slice(0, 3); },
@@ -112,6 +117,39 @@ test("quiz validation checks answer indices, option uniqueness, question count, 
     const invalid = structuredClone(output); mutate(invalid);
     assert.throws(() => parseOutput("quiz", complete(JSON.stringify(invalid))), codeIs("INVALID_AI_OUTPUT"));
   }
+});
+
+test("quiz counts 1 through 20 reach the provider and parser without changing the default schema", async () => {
+  for (const questionCount of [1, 2, 7, 20]) {
+    const questions = Array.from({ length: questionCount }, (_, i) => ({ ...output.questions[i % 5], question: `Fact ${i}?` }));
+    const service = createGeminiService({ apiKey: "test-key", fetchImpl: async (_url, options) => {
+      const config = JSON.parse(options.body).generationConfig;
+      assert.equal(config.responseSchema.properties.questions.minItems, questionCount);
+      assert.equal(config.responseSchema.properties.questions.maxItems, questionCount);
+      return reply(complete(JSON.stringify({ questions })));
+    } });
+    const result = await service.generate("quiz", { materials, questionCount });
+    assert.equal(result.questions.length, questionCount);
+  }
+  assert.equal(buildGeminiRequest("quiz", validateRequest("quiz", { materials })).generationConfig.responseSchema.properties.questions.maxItems, 5);
+  for (const questionCount of [0, 21, -1, 1.5, "5", null]) {
+    assert.throws(() => validateRequest("quiz", { materials, questionCount }), codeIs("INVALID_INPUT"));
+  }
+});
+
+test("shared quiz marking uses exact sets, preserves legacy answers and shuffles answer mappings", () => {
+  const { isCorrect, toggleAnswer, shuffleOptions, answerText, correctIndices } = require("../../shared/quiz.mjs");
+  const question = { options: ["A", "B", "C", "D"], answerIndices: [0, 2] };
+  assert.equal(isCorrect(question, [2, 0]), true);
+  for (const answer of [[], [0], [0, 1, 2], [1, 3], [0, 0, 2], [0, 4], undefined]) assert.equal(isCorrect(question, answer), false);
+  assert.deepEqual(toggleAnswer(question, [0], 2), [0, 2]);
+  assert.deepEqual(toggleAnswer(question, [0, 2], 0), [2]);
+  const legacy = { options: ["A", "B"], answerIndex: 1 };
+  assert.equal(isCorrect(legacy, 1), true);
+  assert.equal(isCorrect(legacy, [0, 1]), false);
+  const shuffled = shuffleOptions(question, () => 0);
+  assert.notDeepEqual(shuffled.options, question.options);
+  assert.deepEqual(answerText(shuffled, correctIndices(shuffled)).split("; ").sort(), ["A", "C"]);
 });
 
 test("flashcard validation requires five unique cards with source labels", () => {

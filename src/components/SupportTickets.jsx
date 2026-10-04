@@ -26,6 +26,9 @@ function TicketInbox({ user, onNewTicket }) {
   const [filter, setFilter] = useState('All');
   const [category, setCategory] = useState('All');
   const [search, setSearch] = useState('');
+  const [hideEmpty, setHideEmpty] = useState(admin);
+  const [needsReplyOnly, setNeedsReplyOnly] = useState(false);
+  const [sort, setSort] = useState('newest');
   const [selectedId, setSelectedId] = useState(null);
   const [selected, setSelected] = useState(null);
   const [detailLoading, setDetailLoading] = useState(false);
@@ -121,7 +124,8 @@ function TicketInbox({ user, onNewTicket }) {
     finally { writeLock.current = false; if (mounted.current) setBusy(false); }
   }
   function choose(id) { if (busy) return; statusEdited.current=false; setSelectedId(id); setReply(''); replyAttempt.current = null; setNotice(''); }
-  const listed = tickets.filter((item) => (filter === 'All' || item.status === filter) && (category === 'All' || item.category === category) && `${item.id} ${item.title} ${item.name} ${item.category}`.toLowerCase().includes(search.trim().toLowerCase()));
+  const listed = tickets.filter((item) => (!hideEmpty || item.hasMessages !== false) && (!needsReplyOnly || item.needsReply) && (filter === 'All' || item.status === filter) && (category === 'All' || item.category === category) && `${item.id} ${item.title} ${item.name} ${item.category} ${item.contactEmail || ''}`.toLowerCase().includes(search.trim().toLowerCase()))
+    .sort((a,b) => sort === 'oldest' ? a.createdAt.localeCompare(b.createdAt) : b.updatedAt.localeCompare(a.updatedAt));
   const icons = [Inbox, Clock3, MessageSquare, CheckCircle2];
   const badge = (status) => <span className={`support-badge ${statusClass[status]}`}>{statusLabel(status)}</span>;
   return <div data-react-i18n className={`support-tickets ${admin ? 'support-admin' : 'support-student'}`}>
@@ -132,10 +136,11 @@ function TicketInbox({ user, onNewTicket }) {
     {hasMore && <p className="support-note">{t('Showing the latest 200 tickets. Counts and filters apply to these loaded tickets.', '显示最新 200 条工单；统计和筛选仅针对已加载记录。')}</p>}
     <div className="support-workspace"><section className="support-list-panel" aria-label={t('Ticket list', '工单列表')}>
       <div className="support-filters"><label className="support-search"><span>{t('Search tickets', '搜索工单')}</span><div><Search size={16} /><input type="search" value={search} onChange={(e) => setSearch(e.target.value)} placeholder={t('Title, student or ticket ID', '标题、学生或工单编号')} /></div></label><div className="support-filter-pair"><label>{t('Status', '状态')}<select value={filter} onChange={(e) => setFilter(e.target.value)}>{['All', ...ticketStatuses].map((s) => <option key={s} value={s}>{statusLabel(s)}</option>)}</select></label><label>{t('Category', '类别')}<select value={category} onChange={(e) => setCategory(e.target.value)}><option value="All">{t('All categories', '全部类别')}</option>{ticketCategories.map((c) => <option key={c} value={c}>{categoryLabel(c)}</option>)}</select></label></div></div>
+      {admin && <div className="support-filters"><label><input type="checkbox" checked={hideEmpty} onChange={e=>setHideEmpty(e.target.checked)}/>{t('Hide empty login conversations','隐藏空登录会话')}</label><label><input type="checkbox" checked={needsReplyOnly} onChange={e=>setNeedsReplyOnly(e.target.checked)}/>{t('Awaiting staff reply','等待管理员回复')}</label><label>{t('Sort','排序')}<select value={sort} onChange={e=>setSort(e.target.value)}><option value="newest">{t('Recently updated','最近更新')}</option><option value="oldest">{t('Oldest first','最早提交优先')}</option></select></label></div>}
       <div className="support-list-heading"><h2>{t('Inbox', '收件箱')}</h2><span>{loaded ? listed.length : '—'}</span></div>
       {loading && <p role="status" className="support-empty">{t('Loading tickets…', '正在加载工单…')}</p>}
       {!loading && loaded && !listed.length && <div className="support-empty"><Inbox size={28} /><h3>{t('No tickets found', '暂无工单')}</h3><p>{tickets.length ? t('Try a different search or filter.', '请调整搜索词或筛选条件。') : t('Submitted tickets will appear here.', '提交的工单将在这里显示。')}</p></div>}
-      <div className="support-list">{listed.map((item) => <button disabled={busy} type="button" className={`support-ticket-row ${selectedId === item.id ? 'selected' : ''}`} key={item.id} aria-pressed={selectedId === item.id} onClick={() => choose(item.id)}><div className="support-row-top">{badge(item.status)}<small>{categoryLabel(item.category)}</small></div><strong>{item.title}</strong><span className="support-row-excerpt">{item.description}</span><div className="support-row-meta"><span>{item.name}</span><small>{date(item.updatedAt)}</small></div></button>)}</div>
+      <div className="support-list">{listed.map((item) => <button disabled={busy} type="button" className={`support-ticket-row ${selectedId === item.id ? 'selected' : ''}`} key={item.id} aria-pressed={selectedId === item.id} onClick={() => choose(item.id)}><div className="support-row-top">{badge(item.status)}<small>{categoryLabel(item.category)}</small>{item.needsReply && <small>{t('Awaiting reply','待回复')}</small>}</div><strong>{item.title}</strong><span className="support-row-excerpt">{item.description}</span><div className="support-row-meta"><span>{item.name}</span><small>{date(item.updatedAt)}</small></div></button>)}</div>
     </section><section className="support-detail" aria-label={t('Ticket details', '工单详情')}>
       {detailError && <p role="alert" className="support-error">{detailError} <button disabled={busy} onClick={() => setReload((n) => n + 1)}>{t('Refresh details', '刷新详情')}</button></p>}
       {notice && <p role="status" className="support-notice">{notice}</p>}

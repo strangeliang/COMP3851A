@@ -25,6 +25,8 @@ export function loadAppData(defaultData) {
     data.chatRecords = data.chatRecords.filter((record) => recordIsValid(record) && typeof record.text === "string" && ["User", "AI"].includes(record.role));
     data.summaryRecords = data.summaryRecords.filter((record) => recordIsValid(record) && isObject(record.summary) && typeof record.summary.paragraph === "string" && Array.isArray(record.summary.concepts) && record.summary.concepts.every((concept) => typeof concept === "string"));
     data.quizAttempts = data.quizAttempts.filter((record) => recordIsValid(record) && Number.isFinite(record.score) && record.score >= 0 && record.score <= 100);
+    data.studyOutbox = Array.isArray(data.studyOutbox) ? data.studyOutbox.filter((record) => recordIsValid(record)
+      && ['summary', 'qa', 'quiz', 'flashcards'].includes(record.kind) && isObject(record.payload)) : [];
     data.activities = data.activities.filter((record) => recordIsValid(record) && typeof record.description === "string");
     data.selectedMaterialIds = data.selectedMaterialIds.filter(hasId);
     data.currentCourseId = typeof data.currentCourseId === "string" ? data.currentCourseId : "";

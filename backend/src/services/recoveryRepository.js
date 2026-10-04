@@ -8,7 +8,8 @@ function createRecoveryRepository(db) {
     return { id: row.id, name: row.account_name, contactEmail: row.email, category: 'account',
       title: 'Password reset request', description: 'Account recovery requested. Identity is not verified; no password has been changed.',
       status: row.status, version: row.version, createdAt: row.created_at, updatedAt: row.updated_at,
-      resolvedAt: row.resolved_at, isRecoveryRequest: true, isLoginConversation: false };
+      resolvedAt: row.resolved_at, isRecoveryRequest: true, isLoginConversation: false,
+      hasMessages: true, needsReply: row.status !== 'Resolved' };
   }
   async function find(id, user) {
     if (user.role !== 'Admin') return null;

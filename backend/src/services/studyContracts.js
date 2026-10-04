@@ -1,4 +1,5 @@
 const limits = require("../../../shared/studyLimits.json");
+const { validIndices, shuffleOptions } = require("../../../shared/quiz.mjs");
 
 class StudyError extends Error {
   constructor(status, code, message) {
@@ -61,7 +62,9 @@ function validateRequest(mode, body = {}) {
   if (mode === "qa" && (typeof answerStyle !== "string" || !answerStylePrompts[answerStyle])) invalid("Select a valid answer style.");
   const difficulty = body.difficulty === undefined ? "medium" : body.difficulty;
   if (mode === "quiz" && (typeof difficulty !== "string" || !quizDifficultyPrompts[difficulty])) invalid("Select a valid quiz difficulty.");
-  return { materials: sources, question, history: messages, answerStyle, difficulty };
+  const questionCount = body.questionCount === undefined ? 5 : body.questionCount;
+  if (mode === "quiz" && (!Number.isInteger(questionCount) || questionCount < 1 || questionCount > 20)) invalid("Enter a whole number of questions from 1 to 20.");
+  return { materials: sources, question, history: messages, answerStyle, difficulty, questionCount };
 }
 
 const systemInstruction = [
@@ -77,7 +80,7 @@ const systemInstruction = [
 const modePrompts = {
   qa: "Answer the student's current question. Use relevant recent conversation for follow-up questions, but verify claims against the selected sources.",
   summary: "Summarise the selected sources together. Return one clear paragraph and 3 to 8 key concepts. Cover substantive course content, highlight important differences, and cite source labels in the paragraph or concepts. Return only the requested JSON object.",
-  quiz: "Create exactly 5 multiple-choice revision questions grounded in the selected sources. Each question must have exactly 4 distinct options and exactly 1 unambiguously correct option. Provide its zero-based answerIndex and an explanation with a source label. Avoid questions about the app itself unless that is actually the source topic. Return only the requested JSON object.",
+  quiz: "Create revision questions grounded in the selected sources. Each question must have exactly 4 distinct options. Single-answer questions have one correct option; multiple-answer questions have two or three correct options. Provide zero-based answerIndices and an explanation with a source label. Explain using option text, never option letters or positions, because options will be shuffled. Vary the questions across generations. Avoid questions about the app itself unless that is the source topic. Return only the requested JSON object.",
   flashcards: "Create exactly 5 revision flashcards grounded in the selected sources. Each card must have a concise front question or key term, a clear back explanation, and a source label such as [S1]. Return only the requested JSON object.",
 };
 
@@ -97,10 +100,10 @@ const responseSchemas = {
           properties: {
             question: { type: "STRING" },
             options: { type: "ARRAY", items: { type: "STRING" }, minItems: 4, maxItems: 4 },
-            answerIndex: { type: "INTEGER", minimum: 0, maximum: 3 },
+            answerIndices: { type: "ARRAY", items: { type: "INTEGER", minimum: 0, maximum: 3 }, minItems: 1, maxItems: 3 },
             explanation: { type: "STRING" },
           },
-          required: ["question", "options", "answerIndex", "explanation"],
+          required: ["question", "options", "answerIndices", "explanation"],
         },
       },
     },
@@ -132,12 +135,19 @@ function buildGeminiRequest(mode, request) {
   const generationConfig = { temperature: 0.2, maxOutputTokens: 8192 };
   if (responseSchemas[mode]) {
     generationConfig.responseMimeType = "application/json";
-    generationConfig.responseSchema = responseSchemas[mode];
+    generationConfig.responseSchema = structuredClone(responseSchemas[mode]);
+    if (mode === "quiz") {
+      const count = request.questionCount ?? 5;
+      generationConfig.responseSchema.properties.questions.minItems = count;
+      generationConfig.responseSchema.properties.questions.maxItems = count;
+      generationConfig.maxOutputTokens = 16384;
+      generationConfig.temperature = 0.6;
+    }
   }
   const taskPrompt = mode === "qa"
     ? `${modePrompts.qa} ${answerStylePrompts[request.answerStyle]}`
     : mode === "quiz"
-      ? `${modePrompts.quiz} Difficulty: ${request.difficulty}. ${quizDifficultyPrompts[request.difficulty]}`
+      ? `${modePrompts.quiz} Create exactly ${request.questionCount ?? 5} questions. ${(request.questionCount ?? 5) > 1 ? "Include at least one single-answer and at least one multiple-answer question." : "Choose either a single-answer or a multiple-answer question."} Difficulty: ${request.difficulty}. ${quizDifficultyPrompts[request.difficulty]}`
       : modePrompts[mode];
   return {
     systemInstruction: { parts: [{ text: systemInstruction }] },
@@ -150,14 +160,14 @@ function checkedText(value, maximum = 20000) {
   return typeof value === "string" && value.trim().length > 0 && value.length <= maximum;
 }
 
-function parseOutput(mode, data) {
+function parseOutput(mode, data, { questionCount = 5 } = {}) {
   const candidate = data?.candidates?.[0];
   if (candidate?.finishReason === "MAX_TOKENS") throw new StudyError(502, "OUTPUT_TRUNCATED", "The AI response was cut short. Try fewer materials or a shorter question.");
   if (!candidate || candidate.finishReason !== "STOP") throw new StudyError(502, "INCOMPLETE_RESPONSE", "The AI did not return a complete answer. Please try again or rephrase the request.");
   const parts = candidate.content?.parts;
   const text = Array.isArray(parts) ? parts.filter((part) => part && !part.thought && typeof part.text === "string").map((part) => part.text).join("\n").trim() : "";
   const badOutput = () => { throw new StudyError(502, "INVALID_AI_OUTPUT", "The AI returned an invalid result. Please generate it again."); };
-  if (!checkedText(text, 40000)) badOutput();
+  if (!checkedText(text, mode === "quiz" ? 190000 : 40000)) badOutput();
   if (mode === "qa") {
     if (!checkedText(text)) badOutput();
     return { answer: text, mode: "api" };
@@ -179,13 +189,14 @@ function parseOutput(mode, data) {
     });
     return { cards, mode: "api" };
   }
-  if (!Array.isArray(output?.questions) || output.questions.length !== 5) badOutput();
+  if (!Array.isArray(output?.questions) || output.questions.length !== questionCount) badOutput();
   const questionTexts = new Set();
   const questions = output.questions.map((question, index) => {
-    if (!checkedText(question?.question, 2000) || questionTexts.has(question.question.trim().toLowerCase()) || !Array.isArray(question.options) || question.options.length !== 4 || !question.options.every((option) => checkedText(option, 1000)) || new Set(question.options.map((option) => option.trim().toLowerCase())).size !== 4 || !Number.isInteger(question.answerIndex) || question.answerIndex < 0 || question.answerIndex > 3 || !checkedText(question.explanation, 3000)) badOutput();
+    if (!checkedText(question?.question, 2000) || questionTexts.has(question.question.trim().toLowerCase()) || !Array.isArray(question.options) || question.options.length !== 4 || !question.options.every((option) => checkedText(option, 1000)) || new Set(question.options.map((option) => option.trim().toLowerCase())).size !== 4 || !Array.isArray(question.answerIndices) || !validIndices(question.answerIndices, 4) || question.answerIndices.length > 3 || !checkedText(question.explanation, 3000)) badOutput();
     questionTexts.add(question.question.trim().toLowerCase());
-    return { id: index + 1, question: question.question, options: question.options, answerIndex: question.answerIndex, explanation: question.explanation };
+    return shuffleOptions({ id: index + 1, question: question.question, options: question.options, answerIndices: question.answerIndices, explanation: question.explanation });
   });
+  if (questionCount > 1 && (!questions.some((q) => q.answerIndices.length === 1) || !questions.some((q) => q.answerIndices.length > 1))) badOutput();
   return { questions, mode: "api" };
 }
 

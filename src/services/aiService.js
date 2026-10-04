@@ -1,7 +1,7 @@
 import { apiRequest, APIError } from "./apiClient";
 import { selectionError, materialIsIncomplete, limits } from "../utils/studyScope";
 
-async function generate(mode, { materials, question = "", history = [], answerStyle = "simple", difficulty = "medium", signal }) {
+async function generate(mode, { materials, question = "", history = [], answerStyle = "simple", difficulty = "medium", questionCount = 5, signal }) {
   const error = selectionError(materials);
   if (error) throw new APIError(error, "INVALID_INPUT", 400);
   if (mode === "qa" && (!question.trim() || question.length > limits.maxQuestionCharacters)) {
@@ -13,7 +13,7 @@ async function generate(mode, { materials, question = "", history = [], answerSt
       materials: materials.map((material) => ({ id: material.id, name: material.name, content: material.content, readingNotes: material.parseWarning || "", incomplete: materialIsIncomplete(material) })),
       question, history,
       ...(mode === "qa" ? { answerStyle } : {}),
-      ...(mode === "quiz" ? { difficulty } : {}),
+      ...(mode === "quiz" ? { difficulty, questionCount } : {}),
     },
   });
 }

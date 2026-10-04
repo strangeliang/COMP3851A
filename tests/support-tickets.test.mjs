@@ -9,6 +9,48 @@ const statuses=['Open','In progress','Resolved'];
 const initial={id:'ASK-demo',name:'Test Student',title:'Upload issue',description:'The file did not upload.',category:'upload',status:'Open',version:1,createdAt:'2026-09-22T00:00:00Z',updatedAt:'2026-09-22T00:00:00Z',resolvedAt:null,replies:[]};
 const text=node=>JSON.stringify(node.toJSON());
 
+test('email reset retains its link in StrictMode, removes it from URL and waits for explicit matching-password submission',async()=>{
+  const previousWindow=globalThis.window, previousForm=globalThis.FormData;
+  let renderer; const calls=[]; const pending=deferred(); const token='a'.repeat(64);
+  globalThis.window={location:{hash:`#token=${token}`,pathname:'/reset-password'},history:{replaceState(){globalThis.window.location.hash='';}}};
+  globalThis.FormData=class {constructor(values){this.values=values;}get(key){return this.values[key];}};
+  const {default:EmailPage}=await loadSource("export {default} from './src/pages/EmailAccessPage.jsx'",{
+    '../hooks/useBodyClass':()=>{},
+    '../services/apiClient':{apiRequest:async(path,options)=>{calls.push({path,...options});return pending.promise;}},
+    'react-router-dom':{Link:({to,children})=>React.createElement('a',{href:to},children)},
+  });
+  try {
+    await act(async()=>{renderer=create(React.createElement(React.StrictMode,null,React.createElement(EmailPage)));});
+    assert.equal(calls.length,0);assert.equal(globalThis.window.location.hash,'');
+    const submit=values=>renderer.root.findByType('form').props.onSubmit({preventDefault(){},currentTarget:values});
+    await act(async()=>{await submit({password:'long-password-123',confirm:'different'});});
+    assert.equal(calls.length,0);assert.match(text(renderer),/Passwords do not match/);
+    await act(async()=>{submit({password:'long-password-123',confirm:'long-password-123'});submit({password:'long-password-123',confirm:'long-password-123'});});
+    assert.equal(calls.length,1);assert.equal(calls[0].body.token,token);
+    await act(async()=>pending.resolve({message:'Password updated.'}));
+    assert.match(text(renderer),/Password updated/);
+  } finally {if(renderer)await act(async()=>renderer.unmount());globalThis.window=previousWindow;globalThis.FormData=previousForm;}
+});
+
+test('admin inbox hides empty sessions and can focus on students awaiting staff',async()=>{
+  let renderer;
+  const tickets=[{...initial,hasMessages:true,needsReply:true},{...initial,id:'SESSION-empty',title:'Empty session',hasMessages:false,needsReply:false}];
+  const {default:Inbox}=await loadSource("export {default} from './src/components/SupportTickets.jsx'",{
+    '../state/AppDataContext':{useAppData:()=>({currentUser:{id:2,role:'Admin'}})},
+    '../state/LanguageContext':{useLanguage:()=>({language:'en'})},
+    '../services/ticketApiService':{ticketCategories:categories,ticketStatuses:statuses,listServerTickets:async()=>({tickets,hasMore:false})},
+  });
+  try {
+    await act(async()=>{renderer=create(React.createElement(Inbox));});
+    const rows=()=>renderer.root.findAll(n=>n.type==='button' && String(n.props.className).startsWith('support-ticket-row'));
+    assert.equal(rows().length,1);
+    await act(async()=>renderer.root.findAllByProps({type:'checkbox'})[0].props.onChange({target:{checked:false}}));
+    assert.equal(rows().length,2);
+    await act(async()=>renderer.root.findAllByProps({type:'checkbox'})[1].props.onChange({target:{checked:true}}));
+    assert.equal(rows().length,1);assert.match(text(renderer),/Awaiting reply/);
+  } finally {if(renderer)await act(async()=>renderer.unmount());}
+});
+
 test('recovery form requires consent, locks submissions, retries idempotently and never claims a password reset',async()=>{
   let renderer;let pending=deferred();const calls=[];
   const {default:Recovery}=await loadSource("export {default} from './src/pages/ForgotPasswordPage.jsx'",{

@@ -1,4 +1,5 @@
 import AIChatBox from "../../components/AIChatBox";
+import { indices, correctIndices, isMultiple, validAnswer, isCorrect, toggleAnswer, answerText } from "../../../shared/quiz.mjs";
 import {
   AlertCircle,
   BookOpenText,
@@ -136,19 +137,21 @@ function QuizPanel({ canUseAI, materialSourceLabel }) {
   const [submitted, setSubmitted] = useWorkspaceState(`quiz-submitted:${scope.scopeKey}`, false);
   const [warning, setWarning] = useState("");
   const [difficulty, setDifficulty] = useWorkspaceState(`quiz-difficulty:${scope.scopeKey}`, "medium");
+  const [questionCount, setQuestionCount] = useWorkspaceState(`quiz-count:${scope.scopeKey}`, "5");
+  const countValid = /^\d+$/.test(String(questionCount)) && Number(questionCount) >= 1 && Number(questionCount) <= 20;
 
   const submittedRef = useRef(submitted);
 
   const complete =
     questions.length > 0 &&
     questions.every((question) =>
-      Number.isInteger(answers[question.id])
+      validAnswer(question, answers[question.id])
     );
 
   const correct = questions.reduce(
     (sum, question) =>
       sum +
-      (answers[question.id] === question.answerIndex ? 1 : 0),
+      (isCorrect(question, answers[question.id]) ? 1 : 0),
     0
   );
 
@@ -168,13 +171,14 @@ function QuizPanel({ canUseAI, materialSourceLabel }) {
 
   async function generate() {
     if (!canUseAI || request.pending) return;
-
+    if (!countValid) return;
     resetAnswers();
 
     await request.run((signal) =>
       generateAIQuiz({
         materials: selectedMaterials,
         difficulty,
+        questionCount: Number(questionCount),
         signal,
       })
     );
@@ -220,6 +224,14 @@ function QuizPanel({ canUseAI, materialSourceLabel }) {
           </div>
         )}
 
+        <label className="user-field" style={{ minWidth: 140 }}>
+          Number of questions (1–20)
+          <input type="number" min="1" max="20" step="1" required
+            aria-label="Number of questions (1–20)" aria-invalid={!countValid}
+            value={questionCount} disabled={request.pending}
+            onChange={(event) => setQuestionCount(event.target.value)} />
+        </label>
+
         <label
           className="user-field"
           style={{ minWidth: 140 }}
@@ -243,7 +255,7 @@ function QuizPanel({ canUseAI, materialSourceLabel }) {
           className="primary-button"
           type="button"
           onClick={generate}
-          disabled={!canUseAI || request.pending}
+          disabled={!canUseAI || request.pending || !countValid}
         >
           {request.pending
             ? "Generating…"
@@ -254,9 +266,9 @@ function QuizPanel({ canUseAI, materialSourceLabel }) {
       </div>
 
       <p className="demo-warning">
-        Generate five practice questions from your materials. Check AI
-        explanations against the sources.
+        Choose 1–20 questions. Quizzes mix single-answer and multiple-answer questions when there is more than one question. Select all correct options; no partial credit. Check AI explanations against the sources.
       </p>
+      {!countValid && <p className="form-error" role="alert">Enter a whole number of questions from 1 to 20.</p>}
 
       {request.pending && (
         <div className="state-banner" role="status">
@@ -288,6 +300,7 @@ function QuizPanel({ canUseAI, materialSourceLabel }) {
           </div>
 
           <h3>{question.question}</h3>
+          <p>{isMultiple(question) ? "Multiple answers — select all that apply" : "Single answer — select one option"}</p>
 
           <div className="quiz-options">
             {question.options.map(
@@ -295,21 +308,21 @@ function QuizPanel({ canUseAI, materialSourceLabel }) {
                 <label
                   key={optionIndex}
                   className={
-                    answers[question.id] === optionIndex
+                    indices(answers[question.id]).includes(optionIndex)
                       ? "selected"
                       : ""
                   }
                 >
                   <input
-                    type="radio"
+                    type={isMultiple(question) ? "checkbox" : "radio"}
                     name={`question-${question.id}`}
                     checked={
-                      answers[question.id] === optionIndex
+                      indices(answers[question.id]).includes(optionIndex)
                     }
                     onChange={() =>
                       setAnswers((current) => ({
                         ...current,
-                        [question.id]: optionIndex,
+                        [question.id]: toggleAnswer(question, current[question.id], optionIndex),
                       }))
                     }
                   />
@@ -361,18 +374,19 @@ function QuizPanel({ canUseAI, materialSourceLabel }) {
 
       {submitted && (
         <div className="quiz-review">
-          {questions.map((item) => (
+          {questions.map((item, questionIndex) => (
             <article key={item.id}>
-              <h3>{item.question}</h3>
+              <h3>{questionIndex + 1}. {item.question}</h3>
+              <p><strong>{isCorrect(item, answers[item.id]) ? "Correct" : "Incorrect"}</strong></p>
 
               <p>
                 <strong>Your answer:</strong>{" "}
-                {item.options[answers[item.id]]}
+                {answerText(item, answers[item.id])}
               </p>
 
               <p>
                 <strong>Correct answer:</strong>{" "}
-                {item.options[item.answerIndex]}
+                {answerText(item, correctIndices(item))}
               </p>
 
               <p>

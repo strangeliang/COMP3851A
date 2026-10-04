@@ -25,7 +25,7 @@ test('support tickets: permissions, replies, status audit, idempotency and real 
       database.initializeDatabase().then(()=>{
         const server=createApp({database,gemini}).listen(0,'127.0.0.1',()=>process.send(server.address().port));
       }).catch(e=>{console.error(e);process.exit(1);});
-    `], {cwd:path.join(__dirname,'..'),env:{...process.env,STUDY_DATABASE_PATH:path.join(directory,'test.db')},stdio:['ignore','ignore','pipe','ipc']});
+    `], {cwd:path.join(__dirname,'..'),env:{...process.env,STUDY_SEED_DEMO:'1',STUDY_DATABASE_PATH:path.join(directory,'test.db')},stdio:['ignore','ignore','pipe','ipc']});
     let errors=''; child.stderr.on('data',d=>{errors+=d;});
     const [port]=await Promise.race([once(child,'message'),once(child,'exit').then(()=>{throw Error(errors || 'Backend exited');})]);
     base=`http://127.0.0.1:${port}/api`;

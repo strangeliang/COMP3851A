@@ -5,6 +5,6 @@ async function startLogin(database, sessions, user, remember, previousCookie) {
   const conversationId = user.role === 'Student' ? `SESSION-${randomUUID()}` : null;
   if (conversationId) await database.createLoginConversation(conversationId, user.id);
   sessions.clear(previousCookie);
-  return sessions.create(user.id, remember, conversationId);
+  return sessions.create(user.id, remember, conversationId, user.password_hash);
 }
 module.exports = { startLogin };

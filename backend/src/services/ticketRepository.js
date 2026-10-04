@@ -4,7 +4,11 @@ function createTicketRepository(db) {
   const get = async (sql,args=[]) => (await all(sql,args))[0];
   const run = (sql,args=[]) => new Promise((resolve,reject) => db.run(sql,args,function(e) { e?reject(e):resolve(this.changes); }));
   const scope = (user) => user.role==='Admin' ? [1, user.id] : [0,user.id];
-  const select = `SELECT t.*,u.name FROM support_tickets t JOIN users u ON u.id=t.owner_id`;
+  const select = `SELECT t.*,u.name,
+    (SELECT COUNT(*) FROM support_events e WHERE e.ticket_id=t.id AND e.kind='reply') AS message_count,
+    (SELECT author.role FROM support_events e JOIN users author ON author.id=e.author_id
+      WHERE e.ticket_id=t.id AND e.kind='reply' ORDER BY e.created_at DESC,e.rowid DESC LIMIT 1) AS last_author_role
+    FROM support_tickets t JOIN users u ON u.id=t.owner_id`;
   async function find(id,user) {
     const ticket=await get(`${select} WHERE t.id=? AND (?=1 OR t.owner_id=?)`,[id,...scope(user)]);
     if (!ticket) return null;
@@ -20,7 +24,9 @@ function createTicketRepository(db) {
   }
   function map(t) {return {id:t.id,userId:t.owner_id,name:t.name,category:t.category,title:t.title,
     description:t.description,status:t.status,version:t.version,createdAt:t.created_at,
-    updatedAt:t.updated_at,resolvedAt:t.resolved_at,isLoginConversation:t.id.startsWith('SESSION-')};}
+    updatedAt:t.updated_at,resolvedAt:t.resolved_at,isLoginConversation:t.id.startsWith('SESSION-'),
+    hasMessages:!t.id.startsWith('SESSION-') || t.message_count>0,
+    needsReply:t.status!=='Resolved' && (t.last_author_role==='Student' || (!t.last_author_role && !t.id.startsWith('SESSION-')))};}
   return {
     find,
     message: (id,clientId,user) => get(`SELECT e.id,e.body,a.body AS answer FROM support_events e

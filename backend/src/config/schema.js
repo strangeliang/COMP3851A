@@ -1,6 +1,30 @@
 const REQUIRED_TABLES = ["users", "courses", "materials"];
 
 const SCHEMA_SQL = `
+  CREATE TABLE IF NOT EXISTS email_tokens (
+    token_hash TEXT PRIMARY KEY,
+    request_id TEXT NOT NULL UNIQUE,
+    user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    purpose TEXT NOT NULL CHECK(purpose IN ('verify','reset')),
+    credential_hash TEXT NOT NULL,
+    expires_at INTEGER NOT NULL,
+    created_at INTEGER NOT NULL,
+    used_at INTEGER,
+    replacement_hash TEXT
+  );
+  CREATE TABLE IF NOT EXISTS verified_emails (
+    user_id INTEGER PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+    verified_at INTEGER NOT NULL
+  );
+  CREATE TRIGGER IF NOT EXISTS consume_email_token AFTER UPDATE OF used_at ON email_tokens
+  WHEN OLD.used_at IS NULL AND NEW.used_at IS NOT NULL
+  BEGIN
+    UPDATE users SET password_hash=NEW.replacement_hash,updated_at=CURRENT_TIMESTAMP
+      WHERE id=NEW.user_id AND NEW.purpose='reset';
+    INSERT INTO verified_emails(user_id,verified_at) VALUES(NEW.user_id,NEW.used_at)
+      ON CONFLICT(user_id) DO UPDATE SET verified_at=excluded.verified_at;
+    UPDATE email_tokens SET expires_at=0 WHERE user_id=NEW.user_id AND used_at IS NULL;
+  END;
   CREATE TABLE IF NOT EXISTS account_recovery_requests (
     id TEXT PRIMARY KEY,
     client_id TEXT NOT NULL UNIQUE,
@@ -168,6 +192,17 @@ const SCHEMA_SQL = `
 
   CREATE INDEX IF NOT EXISTS idx_materials_owner_id
     ON materials(owner_id);
+
+  CREATE TRIGGER IF NOT EXISTS delete_course_history AFTER DELETE ON courses
+  BEGIN
+    DELETE FROM study_history WHERE course_id=OLD.id AND owner_id=OLD.owner_id;
+  END;
+  CREATE TRIGGER IF NOT EXISTS delete_material_history AFTER DELETE ON materials
+  BEGIN
+    DELETE FROM study_history WHERE owner_id=OLD.owner_id AND course_id=OLD.course_id
+      AND (CAST(json_extract(payload,'$.sourceFileId') AS TEXT)=CAST(OLD.id AS TEXT)
+        OR EXISTS(SELECT 1 FROM json_each(payload,'$.selectedMaterialIds') WHERE CAST(value AS TEXT)=CAST(OLD.id AS TEXT)));
+  END;
 `;
 
 async function createSchema({ exec }) {
