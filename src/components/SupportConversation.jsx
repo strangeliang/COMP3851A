@@ -20,7 +20,7 @@ export default function SupportConversation({ ticket, admin, zh, reply, setReply
   if (ticket.isRecoveryRequest) return <section className="support-chat-window" aria-label={t('Account recovery review', '账号恢复审核')}>
     <header className="support-chat-header"><ShieldCheck size={22}/><div><h3>{t('Identity not verified', '身份未验证')}</h3><p>{t('Submitted without signing in', '来自未登录页面的申请')}</p></div></header>
     <div className="support-submitted-history"><p><strong>{t('Claimed account name', '申请人填写的账户名')}:</strong> {ticket.name}</p><p><strong>{t('Claimed linked email', '申请人填写的绑定邮箱')}:</strong> {ticket.contactEmail}</p>
-      <p className="support-note">{t('These details are unverified. Do not reset a password based on a name and email alone. Email verification and reset-link delivery are not enabled. Notes below are admin-only and are not sent to the applicant. Resolving this ticket does not change a password.', '以上信息尚未验证，不能仅凭账户名和邮箱重置密码。邮箱验证和重置链接发送尚未开通。下方为管理员内部备注，不会发送给申请人；将工单标记为已解决不会修改密码。')}</p>
+      <p className="support-note">{t('These details are unverified. Direct the applicant to the email password-reset page. Notes below are admin-only and are not sent to the applicant. Resolving this ticket does not change a password.', '以上信息尚未验证。请引导申请人使用邮件密码重置页面。下方为管理员内部备注，不会发送给申请人；将工单标记为已解决不会修改密码。')}</p>
       <h4>{t('Review history', '处理记录')}</h4><p>{t('Request received', '收到申请')} · {date(ticket.createdAt)}</p>
       {ticket.replies.map(event=><article className="support-bubble incoming" key={event.id}><header><strong>{event.name}</strong><time>{date(event.createdAt)}</time></header><p>{event.kind==='status'?status(event.text):event.text}</p></article>)}
     </div>

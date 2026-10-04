@@ -3,6 +3,12 @@ import limits from "../../shared/studyLimits.json";
 export { limits };
 export const sameId = (left, right) => String(left) === String(right);
 
+export function recentCourseMaterial(course, selectedMaterial, materials) {
+  if (!course) return null;
+  if (selectedMaterial && sameId(selectedMaterial.courseId, course.id)) return selectedMaterial;
+  return materials.find((material) => sameId(material.courseId, course.id)) || null;
+}
+
 export function getScopeKey(userId, courseId, materialIds = []) {
   return JSON.stringify([String(userId ?? ""), String(courseId || ""), [...new Set(materialIds.map(String))].sort()]);
 }

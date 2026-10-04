@@ -12,6 +12,7 @@ import { Link } from "react-router-dom";
 import Toolbar from "../../components/Toolbar";
 import StudentLayout from "../../layouts/StudentLayout";
 import { useAppData } from "../../state/AppDataContext";
+import { recentCourseMaterial, sameId } from "../../utils/studyScope";
 
 export default function DashboardPage() {
   const {
@@ -44,9 +45,9 @@ export default function DashboardPage() {
     );
   }, [search, studentCourses]);
 
-  const recentMaterial = sourceFile || studentMaterials[0] || null;
+  const recentMaterial = recentCourseMaterial(currentCourse, sourceFile, studentMaterials);
   const courseMaterialCount = (courseId) =>
-    materials.filter((material) => material.courseId === courseId).length;
+    materials.filter((material) => sameId(material.courseId, courseId)).length;
 
   const stats = [
     ["Courses", studentCourses.length, GraduationCap],

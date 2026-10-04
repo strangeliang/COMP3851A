@@ -4,6 +4,7 @@ import RegisterPage from "./pages/RegisterPage";
 import HistoryPage from "./pages/student/HistoryPage";
 import ProfilePage from "./pages/student/ProfilePage";
 import ForgotPasswordPage from "./pages/ForgotPasswordPage";
+import EmailAccessPage from "./pages/EmailAccessPage";
 import DashboardPage from "./pages/student/DashboardPage";
 import UploadPage from "./pages/student/UploadPage";
 import SummaryPage from "./pages/student/SummaryPage";
@@ -24,6 +25,8 @@ export default function App() {
       <Route path="/student/profile" element={<ProtectedRoute role="Student"><ProfilePage /></ProtectedRoute>} />
       <Route path="/" element={<LoginPage />} />
       <Route path="/forgot-password" element={<ForgotPasswordPage />} />
+      <Route path="/reset-password" element={<EmailAccessPage key="reset" purpose="reset" />} />
+      <Route path="/verify-email" element={<EmailAccessPage key="verify" purpose="verify" />} />
 
       <Route
         path="/student/dashboard"

@@ -7,7 +7,7 @@ const { createStudyRoutes } = require("./routes/studyRoutes");
 const { createGeminiService } = require("./services/geminiService");
 const { StudyError } = require("./services/studyContracts");
 
-function createApp({ database, gemini = createGeminiService(), sessions } = {}) {
+function createApp({ database, gemini = createGeminiService(), sessions, mailer } = {}) {
   const app = express();
   const frontendOrigin = process.env.FRONTEND_URL || "http://localhost:5173";
   app.disable("x-powered-by");
@@ -23,8 +23,7 @@ function createApp({ database, gemini = createGeminiService(), sessions } = {}) 
   });
   app.use(express.json({ limit: "1mb" }));
   app.use("/api/health", healthRoutes);
-  app.get("/api/database/status", async (req, res) => res.json(await database.getDatabaseStatus()));
-  app.use("/api", createStudyRoutes({ database, gemini, sessions }));
+  app.use("/api", createStudyRoutes({ database, gemini, sessions, mailer }));
   app.use("/api", (req, res) => res.status(404).json({ code: "NOT_FOUND", message: "This API endpoint does not exist." }));
 
   const dist = path.join(__dirname, "../../dist");

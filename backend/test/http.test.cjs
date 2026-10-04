@@ -30,6 +30,7 @@ const database = {
   listMaterialsByCourseOwner: async (courseId, ownerId) => materials.filter((material) => material.course_id === courseId && material.owner_id === ownerId),
   createMaterialForOwner: async ({ courseId, ownerId, ...material }) => courses.some((course) => course.id === courseId && course.owner_id === ownerId) ? { id: 99, course_id: courseId, owner_id: ownerId, ...material } : null,
   deleteMaterialForOwner: async (id, ownerId) => ({ changes: materials.some((material) => material.id === id && material.owner_id === ownerId) ? 1 : 0 }),
+  getMaterialForOwner: async (id, owner) => materials.find((m) => m.id === id && m.owner_id === owner),
 };
 const body = { materials: [{ id: "1", name: "notes.txt", content: "A source fact." }], question: "Explain this fact." };
 test("history isolates accounts and scores wrong-question practice without changing the original", async (t) => {
@@ -38,7 +39,8 @@ test("history isolates accounts and scores wrong-question practice without chang
   database.listHistory = async (id) => records.filter((r) => r.owner_id === id);
   database.listReviews = async (id) => reviews.filter((r) => r.owner_id === id);
   database.getHistory = async (id, owner) => records.find((r) => r.id === id && r.owner_id === owner);
-  database.saveReview = async (id, owner_id, record_id, payload) => reviews.push({ id, owner_id, record_id, payload: JSON.stringify(payload) });
+  database.saveReview = async (id, owner_id, record_id, payload) => { if (!reviews.some((r) => r.id === id)) reviews.push({ id, owner_id, record_id, payload: JSON.stringify(payload) }); };
+  database.getReview = async (id, owner) => reviews.find((r) => r.id === id && r.owner_id === owner);
   const { request, login } = await setup(t);
   assert.equal((await request("/history")).status, 401);
   const cookie = await login();
@@ -55,6 +57,44 @@ test("history isolates accounts and scores wrong-question practice without chang
   const result = await (await request("/history/1:test/review", { cookie, method: "POST", data: { answers: { 1: 0 }, score: 0 } })).json();
   assert.equal(result.score, 100); assert.equal(reviews.length, 1);
   assert.equal(JSON.parse(records[0].payload).answers[1], 1);
+  const mixed = { id: "mixed", kind: "quiz", courseId: "course-a", payload: {
+    questions: [{ id: 1, question: "Choose A and C", options: ["A", "B", "C", "D"], answerIndices: [0, 2], explanation: "Both apply" },
+      { id: 2, question: "Choose B", options: ["A", "B", "C", "D"], answerIndices: [1], explanation: "B applies" }],
+    answers: { 1: [0], 2: 1 }, score: 100, total: 999,
+  } };
+  assert.equal((await request("/history", { cookie, method: "POST", data: mixed })).status, 200);
+  const mixedSaved = JSON.parse(records[1].payload);
+  assert.equal(mixedSaved.score, 50); assert.equal(mixedSaved.total, 2);
+  for (const answer of [[0], [0, 1, 2], [2, 0]]) {
+    const review = await (await request("/history/1:mixed/review", { cookie, method: "POST", data: { answers: { 1: answer } } })).json();
+    assert.equal(review.score, answer.length === 2 ? 100 : 0);
+    assert.equal(review.total, 1);
+  }
+  for (const answer of [[], [0, 0, 2], [0, 4]]) {
+    assert.equal((await request("/history/1:mixed/review", { cookie, method: "POST", data: { answers: { 1: answer } } })).status, 400);
+  }
+  assert.equal((await request("/history/1:mixed/review", { cookie: other, method: "POST", data: { answers: { 1: [0, 2] } } })).status, 404);
+  assert.deepEqual(JSON.parse(records[1].payload).answers, { 1: [0], 2: 1 });
+  const clientId = 'retry-00000000-0000-0000-000000000001';
+  const before = reviews.length;
+  const retry = () => request('/history/1:mixed/review', { cookie, method: 'POST', data: { answers: { 1: [0, 2] }, clientId } });
+  assert.deepEqual((await Promise.all([retry(), retry()])).map((r) => r.status), [200, 200]);
+  assert.equal(reviews.length, before + 1);
+  assert.equal((await request('/history/1:mixed/review', { cookie, method: 'POST', data: { answers: { 1: [1] }, clientId } })).status, 409);
+  assert.equal((await request('/history', { cookie, method: 'POST', data: { ...data, payload: { ...payload, answers: { 1: 0 } } } })).status, 409);
+  for (const [kind, payload] of [['summary', { summary: { paragraph: {}, concepts: [] } }],
+    ['qa', { role: 'Admin', text: 'invalid role' }], ['flashcards', { cards: [{ front: {}, back: 'x' }] }],
+    ['quiz', { ...mixed.payload, questions: [{ ...mixed.payload.questions[0], explanation: {} }] }]]) {
+    assert.equal((await request('/history', { cookie, method: 'POST', data: { id: 'bad', kind, payload, courseId: 'course-a' } })).status, 400);
+  }
+  assert.equal((await request('/history', { cookie, method: 'POST', data: { id: 'foreign-file', kind: 'qa', courseId: 'course-a', payload: { role: 'User', text: 'test', selectedMaterialIds: [2] } } })).status, 403);
+});
+
+test('database diagnostic counts are visible only to administrators', async (t) => {
+  const { request, login } = await setup(t);
+  assert.equal((await request('/database/status')).status, 401);
+  assert.equal((await request('/database/status', { cookie: await login() })).status, 403);
+  assert.equal((await request('/database/status', { cookie: await login('admin@test.invalid') })).status, 200);
 });
 
 async function setup(t, gemini = createGeminiService({ apiKey: "" })) {

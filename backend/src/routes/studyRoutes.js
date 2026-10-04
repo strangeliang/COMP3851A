@@ -6,6 +6,8 @@ const { StudyError } = require("../services/studyContracts");
 const { createOriginalStorage, validateOriginal } = require("../services/originalStorage");
 const path = require("node:path");
 const { startLogin } = require('../services/startLogin');
+const { validAnswer, isCorrect } = require('../../../shared/quiz.mjs');
+const { validateHistory } = require('../services/historyContracts');
 
 function publicUser(user) {
   return { id: user.id, name: user.name, email: user.email, role: user.role, status: user.status,
@@ -44,7 +46,7 @@ function rejectClientOwner(req) {
   }
 }
 
-function createStudyRoutes({ database, gemini, sessions = createSessionService() }) {
+function createStudyRoutes({ database, gemini, mailer, sessions = createSessionService() }) {
   const router = express.Router();
   const loginLimit = createRateLimiter(20, 10 * 60 * 1000);
   const aiLimit = createRateLimiter(30, 5 * 60 * 1000);
@@ -55,13 +57,14 @@ function createStudyRoutes({ database, gemini, sessions = createSessionService()
   async function authenticate(req, res, next) {
     const session = sessions.get(req.headers.cookie);
     const user = session ? await database.getUserById(session.userId) : null;
-    if (!user || user.status !== "Active") throw new StudyError(401, "AUTH_REQUIRED", "Please log in again.");
+    if (!user || user.status !== "Active" || (session.credentialHash && session.credentialHash !== user.password_hash)) throw new StudyError(401, "AUTH_REQUIRED", "Please log in again.");
     req.user = publicUser(user);
     req.session = session;
     next();
   }
 
   router.use(require('./ticketRoutes').createTicketRoutes({database,authenticate,gemini}));
+  router.use(require('./emailRoutes').createEmailRoutes({database,mailer}));
 
   router.post("/auth/login", async (req, res) => {
     loginLimit(req.ip);
@@ -71,6 +74,16 @@ function createStudyRoutes({ database, gemini, sessions = createSessionService()
     }
     const user = await database.getUserByEmail(email.trim().toLowerCase());
     if (!user || user.status !== "Active" || !(await bcrypt.compare(password, user.password_hash))) throw new StudyError(401, "INVALID_LOGIN", "Invalid email or password, or the account is disabled.");
+    // Existing public databases may have been seeded before production seeding was disabled.
+    // Reject only the published demo credentials; a changed password remains usable.
+    if ((process.env.NODE_ENV === "production" || process.env.STUDY_SEED_DEMO !== "1") && [
+      ["student@example.com", "student123"],
+      ["admin@example.com", "admin123"],
+      ["mia@student.edu", "student123"],
+      ["john@student.edu", "student123"],
+    ].some(([demoEmail, demoPassword]) => user.email.toLowerCase() === demoEmail && password === demoPassword)) {
+      throw new StudyError(401, "INVALID_LOGIN", "Invalid email or password, or the account is disabled.");
+    }
     res.setHeader("Set-Cookie", await startLogin(database, sessions, user, remember, req.headers.cookie));
     res.json({ user: publicUser(user) });
   });
@@ -95,6 +108,10 @@ function createStudyRoutes({ database, gemini, sessions = createSessionService()
     res.json({ ok: true });
   });
   router.get("/auth/me", authenticate, (req, res) => res.json({ user: req.user }));
+  router.get('/database/status', authenticate, async (req, res) => {
+    if (req.user.role !== 'Admin') throw new StudyError(403, 'ADMIN_REQUIRED', 'Administrator access is required.');
+    res.json(await database.getDatabaseStatus());
+  });
   router.get("/history", authenticate, async (req, res) => res.json({
     records: (await database.listHistory(req.user.id)).map((r) => ({ ...r, payload: JSON.parse(r.payload) })),
     reviews: (await database.listReviews(req.user.id)).map((r) => ({ ...r, payload: JSON.parse(r.payload) })),
@@ -103,25 +120,39 @@ function createStudyRoutes({ database, gemini, sessions = createSessionService()
     const { id, kind, courseId, payload } = req.body || {};
     if (typeof id !== "string" || id.length > 100 || !id || !["summary", "qa", "quiz", "flashcards"].includes(kind) || !payload || typeof payload !== "object" || JSON.stringify(payload).length > 200000) throw new StudyError(400, "INVALID_HISTORY", "Invalid study record.");
     if (!await database.courseBelongsToOwner(courseId, req.user.id)) throw new StudyError(403, "COURSE_NOT_FOUND", "Course unavailable.");
-    if (kind === "quiz") {
-      const qs = payload.questions;
-      if (!Array.isArray(qs) || !qs.length || qs.length > 50 || new Set(qs.map((q) => q.id)).size !== qs.length || qs.some((q) => !q.id || typeof q.question !== "string" || !Array.isArray(q.options) || q.options.length < 2 || q.options.some((o) => typeof o !== "string") || !Number.isInteger(q.answerIndex) || q.answerIndex < 0 || q.answerIndex >= q.options.length || !Number.isInteger(payload.answers?.[q.id]) || payload.answers[q.id] < 0 || payload.answers[q.id] >= q.options.length)) throw new StudyError(400, "INVALID_QUIZ", "Quiz questions and answers are required.");
-      payload.correct = qs.filter((q) => payload.answers[q.id] === q.answerIndex).length;
-      payload.score = Math.round(payload.correct / qs.length * 100);
+    validateHistory(kind, payload);
+    if (payload.selectedMaterialIds !== undefined) {
+      if (!Array.isArray(payload.selectedMaterialIds) || payload.selectedMaterialIds.length > 3) throw new StudyError(400, 'INVALID_HISTORY', 'Invalid source materials.');
+      for (const id of payload.selectedMaterialIds) {
+        const material = Number.isSafeInteger(Number(id)) && await database.getMaterialForOwner(Number(id), req.user.id);
+        if (!material || String(material.course_id) !== String(courseId)) throw new StudyError(403, 'MATERIAL_NOT_FOUND', 'A source material is no longer available in this course.');
+      }
     }
     await database.saveHistory(`${req.user.id}:${id}`, req.user.id, kind, courseId, payload);
+    const saved = await database.getHistory(`${req.user.id}:${id}`, req.user.id);
+    if (!saved) throw new StudyError(404, 'COURSE_NOT_FOUND', 'The course was removed before the record could be saved.');
+    if (saved.kind !== kind || saved.course_id !== courseId || saved.payload !== JSON.stringify(payload)) {
+      throw new StudyError(409, "HISTORY_CONFLICT", "This record ID has already been used for different content.");
+    }
     res.json({ ok: true });
   });
   router.post("/history/:id/review", authenticate, async (req, res) => {
     const record = await database.getHistory(req.params.id, req.user.id);
     if (!record || record.kind !== "quiz") throw new StudyError(404, "NOT_FOUND", "Quiz unavailable.");
     const original = JSON.parse(record.payload);
-    const questions = original.questions.filter((q) => original.answers[q.id] !== q.answerIndex);
+    const questions = original.questions.filter((q) => !isCorrect(q, original.answers[q.id]));
     const answers = req.body?.answers;
-    if (!questions.length || !answers || questions.some((q) => !Number.isInteger(answers[q.id]) || answers[q.id] < 0 || answers[q.id] >= q.options.length)) throw new StudyError(400, "INCOMPLETE_REVIEW", "Answer every wrong question before submitting.");
-    const correct = questions.filter((q) => answers[q.id] === q.answerIndex).length;
-    const result = { answers, correct, total: questions.length, score: Math.round(correct / questions.length * 100) };
-    await database.saveReview(randomUUID(), req.user.id, record.id, result);
+    if (!questions.length || !answers || questions.some((q) => !validAnswer(q, answers[q.id]))) throw new StudyError(400, "INCOMPLETE_REVIEW", "Answer every wrong question before submitting.");
+    const correct = questions.filter((q) => isCorrect(q, answers[q.id])).length;
+    const clientId = req.body?.clientId;
+    if (clientId !== undefined && (typeof clientId !== 'string' || !/^[a-zA-Z0-9-]{16,100}$/.test(clientId))) throw new StudyError(400, 'INVALID_REVIEW_ID', 'Invalid practice request ID.');
+    const result = { answers: Object.fromEntries(questions.map((q) => [q.id, answers[q.id]])), correct, total: questions.length, score: Math.round(correct / questions.length * 100) };
+    const reviewId = clientId ? `${req.user.id}:${clientId}` : randomUUID();
+    await database.saveReview(reviewId, req.user.id, record.id, result);
+    if (clientId) {
+      const saved = await database.getReview(reviewId, req.user.id);
+      if (saved.record_id !== record.id || saved.payload !== JSON.stringify(result)) throw new StudyError(409, 'REVIEW_CONFLICT', 'This practice request has already been saved with different answers.');
+    }
     res.json(result);
   });
   router.patch("/auth/profile", authenticate, async (req, res) => {

@@ -13,6 +13,7 @@ import {
 } from "../services/courseMaterialService";
 import { extractTextFromFile, getFileExtension, SUPPORTED_MATERIAL_EXTENSIONS } from "../utils/fileTextExtractor";
 import { getRecordMaterialIds, getScopeKey, limits, recordScopeKey, sameId } from "../utils/studyScope";
+import { mergeServerHistory } from "../utils/historySync";
 
 const AppDataContext = createContext(null);
 const now = () => new Date().toLocaleString();
@@ -42,6 +43,7 @@ function createDefaultData() {
     selectedMaterialIds: initialMaterials.filter((item) => item.courseId === initialCourses[0]?.id).map((item) => item.id),
     summaryUses: 0, qaUses: 0,
     summaryRecords: [], chatRecords: [], quizAttempts: [], activities: [],
+    studyOutbox: [],
     legacyCourseMaterialData: { courses: [], materials: [] },
   };
 }
@@ -60,6 +62,9 @@ export function AppDataProvider({ children }) {
   const uploadRef = useRef(null);
   const courseRequestRef = useRef(null);
   const materialRequestRef = useRef(null);
+  const historyRequestRef = useRef(null);
+  const syncRef = useRef(null);
+  const [historySync, setHistorySync] = useState({ pending: false, error: "" });
   const courseMutationRef = useRef(null);
   const [uploadState, setUploadState] = useState({ pending: false, progress: "" });
   const [courseState, setCourseState] = useState(resourceState());
@@ -86,6 +91,8 @@ export function AppDataProvider({ children }) {
     courseRequestRef.current?.controller.abort();
     materialRequestRef.current?.controller.abort();
     courseMutationRef.current?.controller.abort();
+    historyRequestRef.current?.abort();
+    syncRef.current?.controller.abort();
   }
 
   function acceptUser(user) {
@@ -94,6 +101,7 @@ export function AppDataProvider({ children }) {
     userRef.current = user;
     setCurrentUser(user);
     if (!user) {
+      setHistorySync({ pending: false, error: "" });
       resetWorkspaceSession();
       setCourseState(resourceState());
       setMaterialState(resourceState({ courseId: "" }));
@@ -105,6 +113,7 @@ export function AppDataProvider({ children }) {
       const preferredMaterialIds = dataRef.current.selectedMaterialIds;
       updateData((current) => ({ ...current, currentCourseId: "", selectedMaterialIds: [], sourceFileId: "" }));
       loadCoursesForUser(user, sessionEpoch.current, preferredCourseId, preferredMaterialIds);
+      refreshStudyHistory();
     } else {
       setCourseState(resourceState({ ready: true }));
       setMaterialState(resourceState({ ready: true, courseId: "" }));
@@ -373,7 +382,8 @@ export function AppDataProvider({ children }) {
         const keep = (record) => !sameId(record.courseId, courseId);
         return { ...current, courses, materials, currentCourseId: nextCourseId, selectedMaterialIds: [], sourceFileId: "",
           summaryRecords: current.summaryRecords.filter(keep), chatRecords: current.chatRecords.filter(keep),
-          quizAttempts: current.quizAttempts.filter(keep), activities: activity(current, "course", "Deleted a course", { courseId, sourceFileId: "" }) };
+          quizAttempts: current.quizAttempts.filter(keep), studyOutbox: current.studyOutbox.filter(keep),
+          activities: activity(current, "course", "Deleted a course", { courseId, sourceFileId: "" }) };
       });
       notify("Course deleted");
       if (nextCourseId) loadMaterialsForCourse(nextCourseId, user, request.epoch, { selectDefaults: true });
@@ -492,6 +502,7 @@ export function AppDataProvider({ children }) {
         return { ...current, materials: current.materials.filter((item) => !sameId(item.id, materialId)),
           selectedMaterialIds: ids, sourceFileId: ids[0] || "", summaryRecords: current.summaryRecords.filter(keep),
           chatRecords: current.chatRecords.filter(keep), quizAttempts: current.quizAttempts.filter(keep),
+          studyOutbox: current.studyOutbox.filter((record) => !sameId(record.userId, user.id) || keep(record.payload)),
           activities: activity(current, "material", `Deleted material ${material.name}`, { courseId: material.courseId, sourceFileId: material.id }) };
       });
       notify("Material deleted");
@@ -503,9 +514,9 @@ export function AppDataProvider({ children }) {
 
   function recordSummaryUse(summary, scope = scopeNow()) {
     if (!scopeIsCurrent(scope)) return;
-    persistStudy("summary", { summary }, scope);
+    const id = persistStudy("summary", { summary }, scope);
     updateData((current) => ({ ...current, summaryUses: current.summaryUses + 1,
-      summaryRecords: [{ id: newId(), ...scope, summary, mode: "api", createdAt: now() }, ...current.summaryRecords],
+      summaryRecords: [{ id, syncId: id, ...scope, summary, mode: "api", createdAt: now() }, ...current.summaryRecords],
       activities: activity(current, "summary", "Generated a Gemini summary") }));
   }
 
@@ -517,15 +528,15 @@ export function AppDataProvider({ children }) {
   function addChatRecord(role, text, details = {}) {
     const scope = details.scope || scopeNow();
     if (!scopeIsCurrent(scope) || !["User", "AI"].includes(role) || typeof text !== "string") return;
-    persistStudy("qa", { role, text }, scope);
+    const id = persistStudy("qa", { role, text }, scope);
     updateData((current) => ({ ...current, chatRecords: [...current.chatRecords,
-      { id: newId(), ...scope, workspaceSession: workspaceSessionId(), role, text, mode: details.mode || "api", createdAt: now() }] }));
+      { id, syncId: id, ...scope, workspaceSession: workspaceSessionId(), role, text, mode: details.mode || "api", createdAt: now() }] }));
   }
 
   function saveQuizAttempt(attempt, scope = scopeNow()) {
     if (!scopeIsCurrent(scope) || !Number.isFinite(attempt.score) || attempt.score < 0 || attempt.score > 100) return;
-    persistStudy("quiz", attempt, scope);
-    updateData((current) => ({ ...current, quizAttempts: [{ ...attempt, id: newId(), ...scope, completedAt: now() }, ...current.quizAttempts],
+    const id = persistStudy("quiz", attempt, scope);
+    updateData((current) => ({ ...current, quizAttempts: [{ ...attempt, id, syncId: id, ...scope, completedAt: now() }, ...current.quizAttempts],
       activities: activity(current, "quiz", `Completed a quiz with score ${attempt.score}%`) }));
   }
 
@@ -537,9 +548,64 @@ export function AppDataProvider({ children }) {
   }
   function persistStudy(kind, payload, scope = scopeNow()) {
     if (!scopeIsCurrent(scope)) return;
+    const id = newId();
+    const entry = { id, kind, userId: scope.userId, courseId: scope.courseId,
+      payload: { ...payload, selectedMaterialIds: scope.selectedMaterialIds, sourceFileId: scope.sourceFileId, scopeKey: scope.scopeKey } };
+    updateData((current) => ({ ...current, studyOutbox: [...current.studyOutbox, entry] }));
+    flushStudyRecords();
+    return id;
+  }
+
+  async function flushStudyRecords() {
+    const user = userRef.current;
+    if (!user || user.role !== 'Student') return;
+    if (syncRef.current && !syncRef.current.controller.signal.aborted) return syncRef.current.promise;
+    const task = { controller: new AbortController(), epoch: sessionEpoch.current };
+    syncRef.current = task;
+    setHistorySync({ pending: true, error: "" });
+    task.promise = (async () => {
+      try {
+        while (!task.controller.signal.aborted && task.epoch === sessionEpoch.current && sameId(userRef.current?.id, user.id)) {
+          const item = dataRef.current.studyOutbox.find((r) => sameId(r.userId, user.id));
+          if (!item) break;
+          await apiRequest('/history', { method: 'POST', signal: task.controller.signal,
+            body: { id: item.id, kind: item.kind, courseId: item.courseId, payload: item.payload } });
+          if (task.controller.signal.aborted || task.epoch !== sessionEpoch.current) return;
+          updateData((current) => {
+            const mark = (r) => sameId(r.userId, user.id) && r.id === item.id ? { ...r, serverId: `${user.id}:${item.id}` } : r;
+            return { ...current, studyOutbox: current.studyOutbox.filter((r) => r !== item),
+              summaryRecords: current.summaryRecords.map(mark), chatRecords: current.chatRecords.map(mark), quizAttempts: current.quizAttempts.map(mark) };
+          });
+        }
+        if (!task.controller.signal.aborted) setHistorySync({ pending: false, error: "" });
+      } catch (error) {
+        if (!task.controller.signal.aborted && task.epoch === sessionEpoch.current) setHistorySync({ pending: false,
+          error: `Some study records are not yet saved to the server. Keep this page open and retry saving. ${error.message}` });
+      } finally { if (syncRef.current === task) syncRef.current = null; }
+    })();
+    return task.promise;
+  }
+
+  async function refreshStudyHistory() {
+    const user = userRef.current;
+    if (!user || user.role !== 'Student') return;
     const epoch = sessionEpoch.current;
-    apiRequest("/history", { method: "POST", body: { id: newId(), kind, courseId: scope.courseId, payload } })
-      .catch(() => { if (epoch === sessionEpoch.current) notify("Study record was not saved to the server. Please check the backend and retry from Study History."); });
+    historyRequestRef.current?.abort();
+    const controller = new AbortController();
+    historyRequestRef.current = controller;
+    await flushStudyRecords();
+    try {
+      const before = dataRef.current;
+      const knownSyncedIds = new Set([...before.summaryRecords, ...before.chatRecords, ...before.quizAttempts]
+        .filter((r) => sameId(r.userId, user.id)).map((r) => r.serverId).filter(Boolean));
+      const { records } = await apiRequest('/history', { signal: controller.signal });
+      if (!controller.signal.aborted && epoch === sessionEpoch.current && Array.isArray(records)) {
+        updateData((current) => mergeServerHistory(current, records, user.id, knownSyncedIds));
+      }
+    } catch (error) {
+      if (!controller.signal.aborted && epoch === sessionEpoch.current) setHistorySync((state) => ({ ...state,
+        error: `Could not refresh server study records. Displayed statistics may be incomplete. ${error.message}` }));
+    }
   }
 
   const studentDataReady = currentUser?.role !== "Student" || courseState.ready;
@@ -560,6 +626,7 @@ export function AppDataProvider({ children }) {
   const currentChatRecords = useMemo(() => data.chatRecords.filter((record) => recordScopeKey(record) === scope.scopeKey && record.workspaceSession === activeWorkspaceSession), [data.chatRecords, scope.scopeKey, activeWorkspaceSession]);
   const averageQuizScore = quizAttempts.length ? Math.round(quizAttempts.reduce((sum, attempt) => sum + attempt.score, 0) / quizAttempts.length) : 0;
   const value = {
+    historySync, refreshStudyHistory, pendingStudyCount: data.studyOutbox.filter((r) => sameId(r.userId, currentUser?.id)).length,
     persistStudy,
     saveProfile: async (profile) => {
       const epoch = sessionEpoch.current;

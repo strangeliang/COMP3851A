@@ -14,6 +14,84 @@ import {
 
 globalThis.IS_REACT_ACT_ENVIRONMENT = true;
 
+test('translation restores the latest React value, not stale dashboard counts or names', async () => {
+  const { translatedValue } = await loadSource('src/utils/translationCache.js');
+  const cache = new WeakMap(); const node = {};
+  const translate = (s) => s.replace('shown', '显示');
+  assert.equal(translatedValue(cache, node, 'text', '1 shown', translate, true), '1 显示');
+  assert.equal(translatedValue(cache, node, 'text', '1 显示', translate, true), '1 显示');
+  assert.equal(translatedValue(cache, node, 'text', '2 shown', translate, true), '2 显示');
+  assert.equal(translatedValue(cache, node, 'text', '2 显示', translate, false), '2 shown');
+  assert.equal(translatedValue(cache, node, 'text', 'New course', translate, false), 'New course');
+  assert.equal(translatedValue(cache, node, 'title', '3 shown', translate, true), '3 显示');
+  assert.equal(translatedValue(cache, node, 'title', '4 shown', translate, false), '4 shown');
+});
+
+test('study-save retry keeps its ID, survives browser storage and cannot cross accounts', async (t) => {
+  let fail = true;
+  const app = await harness(t, { courseApi: ({ url, options }) => url === '/api/history' && options.method === 'POST' && fail
+    ? jsonReply({ message: 'Temporary failure' }, 503) : undefined });
+  await act(async () => { app.data.recordSummaryUse({ paragraph: 'Stored summary', concepts: ['Concept'] }); });
+  assert.equal(app.data.pendingStudyCount, 1);
+  assert.match(app.data.historySync.error, /not yet saved to the server/);
+  const stored = JSON.parse(app.window.localStorage.getItem('study-companion-app-data'));
+  assert.equal(stored.studyOutbox.length, 1);
+  const queuedId = stored.studyOutbox[0].id;
+  await act(async () => { await app.data.logout(); await app.data.login(mia.email, 'test-password'); });
+  assert.equal(app.data.pendingStudyCount, 0);
+  assert.equal(app.data.summaryRecords.length, 0);
+  assert.equal(app.requests.filter((r) => r.url === '/api/history' && r.options.method === 'POST').length, 1);
+  fail = false;
+  await act(async () => { await app.data.logout(); await app.data.login(student.email, 'test-password'); });
+  await act(async () => { await app.data.refreshStudyHistory(); });
+  assert.equal(app.data.pendingStudyCount, 0);
+  assert.equal(app.data.summaryRecords.length, 1);
+  assert.equal(app.data.summaryRecords[0].serverId, `1:${queuedId}`);
+  assert.equal(app.server.history.length, 1);
+  assert.deepEqual(app.requests.filter((r) => r.url === '/api/history' && r.options.method === 'POST').map((r) => r.body.id), [queuedId, queuedId]);
+});
+
+test('dashboard statistics hydrate from server history on a new browser without duplicates', async (t) => {
+  const records = [
+    { id: '1:remote-quiz', course_id: 'inft3050', kind: 'quiz', created_at: '2026-10-01', payload: { score: 75, questions: [], answers: {} } },
+    { id: '1:remote-summary', course_id: 'inft3050', kind: 'summary', created_at: '2026-10-01', payload: { summary: { paragraph: 'Remote', concepts: [] } } },
+  ];
+  const app = await harness(t, { courseApi: ({ url, options }) => url === '/api/history' && options.method === 'GET'
+    ? jsonReply({ records, reviews: [] }) : undefined });
+  await act(async () => { await app.data.refreshStudyHistory(); });
+  assert.equal(app.data.quizAttempts.length, 1);
+  assert.equal(app.data.averageQuizScore, 75);
+  assert.equal(app.data.summaryUses, 1);
+  await act(async () => { await app.data.refreshStudyHistory(); });
+  assert.equal(app.data.quizAttempts.length, 1);
+});
+
+test('imported legacy history replaces its browser record without doubling statistics', async () => {
+  const { mergeServerHistory } = await loadSource('src/utils/historySync.js');
+  const old = { id: 'older-quiz', userId: 1, courseId: 'course', score: 40 };
+  const state = { quizAttempts: [old], summaryRecords: [], chatRecords: [] };
+  const server = [{ id: '1:legacy-older-quiz', course_id: 'course', kind: 'quiz', payload: old, created_at: 'today' }];
+  const merged = mergeServerHistory(state, server, 1);
+  assert.equal(merged.quizAttempts.length, 1);
+  assert.equal(merged.quizAttempts[0].serverId, '1:legacy-older-quiz');
+  assert.equal(mergeServerHistory(merged, server, 1).quizAttempts.length, 1);
+  const concurrent = { ...merged, quizAttempts: [...merged.quizAttempts, { id: 'new', userId: 1, serverId: '1:new', score: 80 }] };
+  const refreshed = mergeServerHistory(concurrent, [], 1, new Set(['1:legacy-older-quiz']));
+  assert.equal(refreshed.quizAttempts.length, 1);
+  assert.equal(refreshed.quizAttempts[0].id, 'new');
+});
+
+test("dashboard recent material never falls back to another course", async () => {
+  const { recentCourseMaterial } = await loadSource("src/utils/studyScope.js");
+  const currentCourse = { id: "empty-course" };
+  const other = { id: 1, courseId: "other-course", name: "private-other-course.txt" };
+  assert.equal(recentCourseMaterial(currentCourse, null, [other]), null);
+  assert.equal(recentCourseMaterial(currentCourse, other, [other]), null);
+  const own = { id: 2, courseId: "empty-course", name: "own.txt" };
+  assert.equal(recentCourseMaterial(currentCourse, other, [other, own]), own);
+  assert.equal(recentCourseMaterial(null, own, [own]), null);
+});
+
 test("workspace session restores generated results and answers after remount/reload, isolates scopes and clears on login", async () => {
   const window = memoryWindow();
   window.sessionStorage = memoryWindow().localStorage;
@@ -180,6 +258,7 @@ async function harness(
     ],
 
     nextMaterialId: 4,
+    history: [],
   };
 
   const fetch = async (url, options = {}) => {
@@ -245,6 +324,16 @@ async function harness(
 
     const method = options.method || "GET";
     const userId = sessionUser?.id;
+
+    if (url === '/api/history') {
+      if (method === 'POST') {
+        const id = `${userId}:${body.id}`;
+        if (!server.history.some((r) => r.id === id)) server.history.push({ id, owner_id: userId,
+          kind: body.kind, course_id: body.courseId, payload: body.payload, created_at: '2026-10-01' });
+        return jsonReply({ ok: true });
+      }
+      return jsonReply({ records: server.history.filter((r) => r.owner_id === userId), reviews: [] });
+    }
 
     if (
       url === "/api/courses" &&
@@ -1037,6 +1126,84 @@ test(
     );
   }
 );
+
+test("review shows original numbering, multiple selections, answers and repeat practice", async (t) => {
+  const record = { id: "attempt", kind: "quiz", course_id: "course", created_at: "today", payload: {
+    questions: [
+      { id: 1, question: "Already correct", options: ["A", "B"], answerIndex: 0 },
+      { id: 2, question: "Choose both", options: ["Alpha", "Beta", "Gamma", "Delta"], answerIndices: [0, 2], explanation: "Alpha and Gamma apply." },
+    ], answers: { 1: 0, 2: [1] }, score: 50,
+  } };
+  let submitted;
+  const { default: History } = await loadSource("export { default } from './src/pages/student/HistoryPage.jsx';", {
+    "../../layouts/StudentLayout": ({ children }) => React.createElement("main", null, children),
+    "../../state/AppDataContext": { useAppData: () => ({ studentCourses: [], summaryRecords: [], currentChatRecords: [], quizAttempts: [] }) },
+    "../../services/apiClient": { apiRequest: async (_path, options) => {
+      if (options?.method === "POST") { submitted = options.body.answers; return { answers: submitted, correct: 1, total: 1, score: 100 }; }
+      return { records: [record], reviews: [] };
+    } },
+  });
+  let renderer;
+  await act(async () => { renderer = create(React.createElement(History, { review: true })); });
+  t.after(() => act(() => renderer.unmount()));
+  await act(async () => renderer.root.findAllByType("button").find((b) => b.children.join("").includes("QUIZ")).props.onClick());
+  assert.equal(renderer.root.findByType("h3").children.join(""), "2. Choose both");
+  assert.ok(JSON.stringify(renderer.toJSON()).includes("Beta"));
+  const inputs = renderer.root.findAllByType("input");
+  assert.equal(inputs.length, 4); assert.equal(inputs[0].props.type, "checkbox");
+  await act(async () => inputs[2].props.onChange());
+  await act(async () => inputs[0].props.onChange());
+  await act(async () => renderer.root.findByType("form").props.onSubmit({ preventDefault() {} }));
+  assert.deepEqual(submitted, { 2: [2, 0] });
+  assert.ok(JSON.stringify(renderer.toJSON()).includes("Gamma; Alpha"));
+  assert.ok(JSON.stringify(renderer.toJSON()).includes("Alpha; Gamma"));
+  assert.ok(JSON.stringify(renderer.toJSON()).includes("Alpha and Gamma apply."));
+  await act(async () => button(renderer, "Practise again").props.onClick());
+  assert.ok(renderer.root.findAllByType("input").every((i) => !i.props.checked));
+  assert.deepEqual(record.payload.answers[2], [1]);
+});
+
+test("quiz accepts custom counts, toggles multiple answers and preserves them across tabs", async (t) => {
+  let sent;
+  const questions = [
+    { id: 1, question: "Select two", options: ["A", "B", "C", "D"], answerIndices: [0, 2], explanation: "Both apply" },
+    { id: 2, question: "Select one", options: ["A", "B", "C", "D"], answerIndices: [1], explanation: "B applies" },
+  ];
+  const app = await harness(t, { workspace: true, ai: async (_url, body) => {
+    sent = body;
+    return jsonReply({ questions, mode: "api" });
+  } });
+  await act(async () => button(app.renderer, "Quiz").props.onClick());
+  const countInput = () => app.renderer.root.findByProps({ "aria-label": "Number of questions (1–20)" });
+  for (const value of ["", "0", "21", "1.5"]) {
+    await act(async () => countInput().props.onChange({ target: { value } }));
+    assert.equal(button(app.renderer, "Generate Quiz").props.disabled, true);
+  }
+  await act(async () => countInput().props.onChange({ target: { value: "2" } }));
+  await act(async () => button(app.renderer, "Generate Quiz").props.onClick());
+  assert.equal(sent.questionCount, 2);
+  const checks = () => app.renderer.root.findAllByType("input").filter((n) => n.props.type === "checkbox" && n.props.name === "question-1");
+  assert.equal(checks().length, 4);
+  await act(async () => checks()[0].props.onChange());
+  await act(async () => checks()[2].props.onChange());
+  await act(async () => checks()[0].props.onChange());
+  assert.equal(checks()[0].props.checked, false);
+  await act(async () => checks()[0].props.onChange());
+  await act(async () => button(app.renderer, "Q&A").props.onClick());
+  await act(async () => button(app.renderer, "Quiz").props.onClick());
+  assert.equal(checks()[0].props.checked, true);
+  assert.equal(checks()[2].props.checked, true);
+  assert.equal(countInput().props.value, "2");
+  await act(async () => button(app.renderer, "Submit").props.onClick());
+  assert.equal(app.data.quizAttempts.length, 0);
+  await act(async () => button(app.renderer, "Next").props.onClick());
+  const radios = app.renderer.root.findAllByType("input").filter((n) => n.props.type === "radio");
+  await act(async () => radios[1].props.onChange());
+  await act(async () => button(app.renderer, "Submit").props.onClick());
+  assert.equal(app.data.quizAttempts[0].score, 100);
+  assert.deepEqual(app.data.quizAttempts[0].answers[1], [2, 0]);
+  assert.ok(JSON.stringify(app.renderer.toJSON()).includes("C; A"));
+});
 
 test(
   "summary and quiz buttons generate results from the API; scoring follows the returned questions",

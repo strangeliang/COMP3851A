@@ -38,16 +38,17 @@ export default function ForgotPasswordPage() {
   return <main className="forgot-modern-shell" data-react-i18n><section className="forgot-modern-card recovery-card">
     <div className="forgot-brand-row"><span className="brand-mark"><ShieldCheck size={20} /></span><span>Study Companion</span></div>
     <div className="forgot-heading"><span className="login-status-pill">{t('Account Recovery', '账号恢复')}</span>
-      <h1>{t('Reset password', '重置密码')}</h1>
+      <h1>{t('Account recovery support', '账号恢复支持')}</h1>
+      <p><Link to="/reset-password">{t('Reset password with an email link', '通过邮件链接重置密码')}</Link></p>
       <p>{t('Enter your account name and linked email to request help from the support team.', '填写你的账户名和绑定邮箱，向管理员申请账号恢复。')}</p>
     </div>
     {done ? <div className="recovery-success" role="status"><CheckCircle2 size={26}/><h2>{t('Recovery request received', '已收到恢复申请')}</h2>
       <p>{t('Your request is in the support review queue. This does not confirm whether an account exists. Repeated requests may be combined.', '申请已进入客服审核队列。此提示不代表已确认该账户存在，重复申请可能合并处理。')}</p>
-      <p>{t('No password has been changed. Email verification and reset-link delivery are not enabled yet; no email has been sent. Identity must be verified before a reset can be completed.', '密码尚未更改。邮箱验证及重置链接发送尚未开通，因此不会收到自动邮件。完成身份验证后才能继续重置。')}</p>
+      <p>{t('No password has been changed and no email has been sent by this support request. Use the email reset link above for self-service recovery.', '此支持申请不会修改密码或发送重置邮件。自助恢复请使用上方的邮件重置链接。')}</p>
     </div> : <form className="recovery-form" onSubmit={submit}>
       <label htmlFor="recovery-name">{t('Account name', '账户名')}<input id="recovery-name" name="accountName" autoComplete="username" required maxLength={80} disabled={busy} value={accountName} onChange={e=>setAccountName(e.target.value)} placeholder={t('Name used for your account', '填写账号使用的姓名或用户名')}/></label>
       <label htmlFor="recovery-email">{t('Linked email', '绑定邮箱')}<input id="recovery-email" name="email" type="email" autoComplete="email" required maxLength={254} disabled={busy} value={email} onChange={e=>setEmail(e.target.value)} placeholder="you@example.com"/></label>
-      <div className="recovery-info"><Mail size={18}/><p>{t('This submits a recovery ticket, not an immediate password reset. Email verification is not enabled yet. Never include passwords, verification codes or API keys.', '此操作会提交恢复工单，不会立即更改密码。邮箱验证暂未开通，请勿填写密码、验证码或 API Key。')}</p></div>
+      <div className="recovery-info"><Mail size={18}/><p>{t('This submits a support ticket. Never include passwords, verification codes or API keys.', '此操作会提交支持工单。请勿填写密码、验证码或 API Key。')}</p></div>
       <label className="recovery-consent"><input type="checkbox" checked={consent} required disabled={busy} onChange={e=>setConsent(e.target.checked)}/><span>{t('I agree to share this account name and email with support administrators for account recovery.', '我同意将上述账户名和邮箱交给支持管理员，用于处理账号恢复申请。')}</span></label>
       {error && <p className="recovery-error" role="alert">{error}</p>}
       <button className="recovery-submit" disabled={busy || !consent}>{busy ? t('Submitting…', '提交中…') : t('Submit recovery request', '提交恢复申请')}</button>

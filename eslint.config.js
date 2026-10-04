@@ -8,6 +8,10 @@ export default [
     ignores: [
       ".compare/**",
       ".npm-cache/**",
+      ".tmp/**",
+      "tmp/**",
+      "outputs/**",
+      "output/**",
       "dist/**",
       "node_modules/**",
     ],
@@ -53,7 +57,7 @@ export default [
     },
   },
   {
-    files: ["tests/**/*.mjs", "backend/test/**/*.cjs"],
+    files: ["tests/**/*.mjs", "backend/test/**/*.cjs", "server/**/*.js"],
     languageOptions: { ecmaVersion: "latest", globals: globals.node },
     rules: js.configs.recommended.rules,
   },

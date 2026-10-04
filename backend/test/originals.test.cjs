@@ -10,14 +10,14 @@ test("original bytes survive a real backend restart; sessions, ownership and del
   const directory = await fs.mkdtemp(path.join(os.tmpdir(), "study-originals-"));
   let child;
   let base;
-  async function start() {
+  async function start(seedDemo = true) {
     child = spawn(process.execPath, ["-e", `
       const database = require('./src/config/database');
       const {createApp} = require('./src/app');
       database.initializeDatabase().then(() => {
         const server = createApp({database}).listen(0,'127.0.0.1', () => process.send(server.address().port));
       }).catch(e => { console.error(e); process.exit(1); });
-    `], { cwd: path.join(__dirname, ".."), env: { ...process.env, STUDY_DATABASE_PATH: path.join(directory, "test.db"), STUDY_UPLOAD_PATH: path.join(directory, "originals") }, stdio: ["ignore", "ignore", "pipe", "ipc"] });
+    `], { cwd: path.join(__dirname, ".."), env: { ...process.env, STUDY_SEED_DEMO: seedDemo ? "1" : "0", STUDY_DATABASE_PATH: path.join(directory, "test.db"), STUDY_UPLOAD_PATH: path.join(directory, "originals") }, stdio: ["ignore", "ignore", "pipe", "ipc"] });
     const [port] = await Promise.race([once(child, "message"), once(child, "exit").then(() => { throw new Error("Test backend exited before listening"); })]);
     base = `http://127.0.0.1:${port}/api`;
   }
@@ -69,6 +69,17 @@ test("original bytes survive a real backend restart; sessions, ownership and del
     assert.equal((await request(`/materials/${id}`, { cookie: other, method: "DELETE" })).status, 404);
     assert.equal((await request(`/courses/${course}`, { cookie: other, method: "DELETE" })).status, 404);
     assert.equal((await fs.readdir(path.join(directory, "originals"))).length, 1);
+    const history = { id: 'persistent-quiz', kind: 'quiz', courseId: course, payload: {
+      questions: [{ id: 1, question: 'Choose both', options: ['A', 'B', 'C'], answerIndices: [0, 2], explanation: 'A and C' }],
+      answers: { 1: [1] }, selectedMaterialIds: [id], sourceFileId: id,
+    } };
+    assert.equal((await request('/history', { cookie, method: 'POST', data: history })).status, 200);
+    const savedId = (await (await request('/history', { cookie })).json()).records[0].id;
+    const practice = { answers: { 1: [0, 2] }, clientId: 'persistent-practice-000000001' };
+    for (let i = 0; i < 2; i++) assert.equal((await request(`/history/${savedId}/review`, { cookie, method: 'POST', data: practice })).status, 200);
+    assert.equal((await (await request('/history', { cookie: other })).json()).records.length, 0);
+    const profile = { name: "O'Brian; DROP TABLE users;", bio: 'Literal input <script>alert(1)</script>', learningGoal: 'Safe learning', avatar: '' };
+    assert.equal((await request('/auth/profile', { cookie, method: 'PATCH', data: profile })).status, 200);
     await request("/auth/logout", { cookie, method: "POST" });
     assert.equal((await request(url, { cookie })).status, 401);
     cookie = await login();
@@ -78,6 +89,12 @@ test("original bytes survive a real backend restart; sessions, ownership and del
     assert.equal((await request(url, { cookie })).status, 401);
     cookie = await login();
     const download = await request(url, { cookie });
+    const persistedHistory = await (await request('/history', { cookie })).json();
+    assert.equal(persistedHistory.records.length, 1);
+    assert.equal(persistedHistory.records[0].payload.score, 0);
+    assert.equal(persistedHistory.reviews.length, 1);
+    assert.equal(persistedHistory.reviews[0].payload.score, 100);
+    assert.equal((await (await request('/auth/me', { cookie })).json()).user.name, profile.name);
     assert.equal(download.status, 200);
     assert.match(download.headers.get("content-disposition"), /^attachment/);
     assert.deepEqual(Buffer.from(await download.arrayBuffer()), bytes);
@@ -85,6 +102,7 @@ test("original bytes survive a real backend restart; sessions, ownership and del
     assert.equal(list.materials[0].has_original, 1);
     assert.equal(list.materials[0].storage_key, undefined);
     assert.equal((await request(`/materials/${id}`, { cookie, method: "DELETE" })).status, 200);
+    assert.deepEqual(await (await request('/history', { cookie })).json(), { records: [], reviews: [] });
     assert.equal((await request(url, { cookie })).status, 404);
     assert.deepEqual(await fs.readdir(path.join(directory, "originals")), []);
     // Deleting a course also deletes its originals, not only extracted records.
@@ -92,6 +110,11 @@ test("original bytes survive a real backend restart; sessions, ownership and del
     assert.equal((await request(`/materials/${second.material.id}/original`, { cookie, method: "PUT", bytes })).status, 201);
     assert.equal((await request(`/courses/${course}`, { cookie, method: "DELETE" })).status, 200);
     assert.deepEqual(await fs.readdir(path.join(directory, "originals")), []);
+    await stop();
+    await start(false);
+    assert.equal((await request("/auth/login", { method: "POST", data: { email: "admin@example.com", password: "admin123" } })).status, 401);
+    assert.equal((await request("/auth/login", { method: "POST", data: { email: "student@example.com", password: "student123" } })).status, 401);
+    assert.equal((await request("/auth/login", { method: "POST", data: { email: signup.email, password: signup.password } })).status, 200);
   } finally {
     await stop();
     // Only the explicitly created test directory is removed.

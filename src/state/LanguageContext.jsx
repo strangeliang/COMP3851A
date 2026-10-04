@@ -1,9 +1,16 @@
 import { createContext, useContext, useEffect, useMemo, useState } from "react";
+import { translatedValue } from "../utils/translationCache";
 
 const LanguageContext = createContext(null);
 const originalText = new WeakMap();
 
 const zh = {
+  "Correct": "正确", "Incorrect": "错误", "Practise again": "再次练习",
+  "Number of questions (1–20)": "题目数量（1–20）",
+  "Enter a whole number of questions from 1 to 20.": "请输入 1 到 20 之间的整数题数。",
+  "Multiple answers — select all that apply": "多选题——请选择所有正确选项",
+  "Single answer — select one option": "单选题——请选择一个选项",
+  "Choose 1–20 questions. Quizzes mix single-answer and multiple-answer questions when there is more than one question. Select all correct options; no partial credit. Check AI explanations against the sources.": "可选择 1–20 题，多于一题时混合单选与多选。必须选中全部正确选项且不能错选，不计部分分数。请对照资料核查 AI 解析。",
   "Overview": "概览", "Dashboard": "主页", "Upload": "上传", "AI Functions": "AI 功能",
   "Summary": "总结", "Q&A": "问答", "Quiz": "测验", "Flashcards": "记忆卡",
   "Study History": "学习历史", "Review Centre": "错题中心", "Settings": "设置",
@@ -55,17 +62,19 @@ function translateText(value) {
 }
 
 export function LanguageProvider({ children }) {
-  const [language, setLanguage] = useState(() => localStorage.getItem("study-language") || "en");
+  const [language, setLanguage] = useState(() => {
+    try { return localStorage.getItem("study-language") === "zh" ? "zh" : "en"; } catch { return "en"; }
+  });
   const toggleLanguage = () => setLanguage((value) => value === "en" ? "zh" : "en");
 
   useEffect(() => {
-    localStorage.setItem("study-language", language);
+    try { localStorage.setItem("study-language", language); } catch { /* Language remains usable without browser storage. */ }
     document.documentElement.lang = language === "zh" ? "zh-CN" : "en";
     const translateNode = (root) => {
       if (root.nodeType === Node.TEXT_NODE) {
         if (root.parentElement?.closest('[data-react-i18n]')) return;
-        if (!originalText.has(root)) originalText.set(root, root.nodeValue);
-        root.nodeValue = language === "zh" ? translateText(originalText.get(root)) : originalText.get(root);
+        const value = translatedValue(originalText, root, 'text', root.nodeValue, translateText, language === 'zh');
+        if (root.nodeValue !== value) root.nodeValue = value;
         return;
       }
       if (!(root instanceof Element)) return;
@@ -73,28 +82,23 @@ export function LanguageProvider({ children }) {
       const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
       let node;
       while ((node = walker.nextNode())) translateNode(node);
-      for (const attr of ["placeholder", "title", "aria-label"]) {
-        if (root.hasAttribute(attr)) {
-          const key = `data-i18n-${attr}`;
-          if (!root.hasAttribute(key)) root.setAttribute(key, root.getAttribute(attr));
-          const original = root.getAttribute(key);
-          root.setAttribute(attr, language === "zh" ? translateText(original) : original);
-        }
-      }
-      root.querySelectorAll("[placeholder],[title],[aria-label]").forEach((element) => {
+      [root, ...root.querySelectorAll("[placeholder],[title],[aria-label]")].forEach((element) => {
         if (element.closest('[data-react-i18n]')) return;
         for (const attr of ["placeholder", "title", "aria-label"]) {
           if (!element.hasAttribute(attr)) continue;
-          const key = `data-i18n-${attr}`;
-          if (!element.hasAttribute(key)) element.setAttribute(key, element.getAttribute(attr));
-          const original = element.getAttribute(key);
-          element.setAttribute(attr, language === "zh" ? translateText(original) : original);
+          const current = element.getAttribute(attr);
+          const value = translatedValue(originalText, element, attr, current, translateText, language === 'zh');
+          if (current !== value) element.setAttribute(attr, value);
         }
       });
     };
     translateNode(document.body);
-    const observer = new MutationObserver((records) => records.forEach((record) => record.addedNodes.forEach(translateNode)));
-    observer.observe(document.body, { childList: true, subtree: true });
+    const observer = new MutationObserver((records) => records.forEach((record) => {
+      if (record.type === 'characterData' || record.type === 'attributes') translateNode(record.target);
+      else record.addedNodes.forEach(translateNode);
+    }));
+    observer.observe(document.body, { childList: true, subtree: true, characterData: true,
+      attributes: true, attributeFilter: ['placeholder', 'title', 'aria-label'] });
     return () => observer.disconnect();
   }, [language]);
 
