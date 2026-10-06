@@ -65,6 +65,7 @@ function createStudyRoutes({ database, gemini, mailer, sessions = createSessionS
 
   router.use(require('./ticketRoutes').createTicketRoutes({database,authenticate,gemini}));
   router.use(require('./emailRoutes').createEmailRoutes({database,mailer}));
+  router.use(require('./registrationRoutes').createRegistrationRoutes({database,mailer}));
 
   router.post("/auth/login", async (req, res) => {
     loginLimit(req.ip);
@@ -86,21 +87,6 @@ function createStudyRoutes({ database, gemini, mailer, sessions = createSessionS
     }
     res.setHeader("Set-Cookie", await startLogin(database, sessions, user, remember, req.headers.cookie));
     res.json({ user: publicUser(user) });
-  });
-
-  router.post("/auth/register", async (req, res) => {
-    loginLimit(req.ip);
-    const { name, email, password } = req.body || {};
-    if (Object.keys(req.body || {}).some((key) => !["name", "email", "password"].includes(key))) throw new StudyError(400, "INVALID_REGISTRATION", "Only name, email and password are accepted.");
-    const displayName = requiredText(name, "Name", 80);
-    if (typeof email !== "string" || email.length > 254 || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim()) || typeof password !== "string" || password.length < 12 || Buffer.byteLength(password, "utf8") > 72) throw new StudyError(400, "INVALID_REGISTRATION", "Enter a valid email and a password of at least 12 characters (maximum 72 UTF-8 bytes).");
-    try {
-      await database.registerStudent(displayName, email.trim().toLowerCase(), await bcrypt.hash(password, 12));
-    } catch (error) {
-      if (error.code === "SQLITE_CONSTRAINT") throw new StudyError(409, "REGISTRATION_UNAVAILABLE", "Cannot register this email. Try signing in or contact the administrator.");
-      throw error;
-    }
-    res.status(201).json({ ok: true });
   });
 
   router.post("/auth/logout", (req, res) => {

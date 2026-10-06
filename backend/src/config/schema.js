@@ -1,6 +1,27 @@
 const REQUIRED_TABLES = ["users", "courses", "materials"];
 
 const SCHEMA_SQL = `
+  CREATE TABLE IF NOT EXISTS registration_codes (
+    id TEXT PRIMARY KEY,
+    email TEXT NOT NULL COLLATE NOCASE,
+    name TEXT NOT NULL,
+    password_hash TEXT NOT NULL,
+    code_hash TEXT NOT NULL,
+    created_at INTEGER NOT NULL,
+    expires_at INTEGER NOT NULL,
+    attempts INTEGER NOT NULL DEFAULT 0,
+    used_at INTEGER
+  );
+  CREATE INDEX IF NOT EXISTS idx_registration_email_time ON registration_codes(email,created_at);
+  CREATE TRIGGER IF NOT EXISTS finish_verified_registration AFTER UPDATE OF used_at ON registration_codes
+  WHEN OLD.used_at IS NULL AND NEW.used_at IS NOT NULL
+  BEGIN
+    INSERT INTO users(name,email,password_hash,role,status)
+      VALUES(NEW.name,NEW.email,NEW.password_hash,'Student','Active');
+    INSERT INTO verified_emails(user_id,verified_at)
+      SELECT id,NEW.used_at FROM users WHERE email=NEW.email;
+    UPDATE registration_codes SET expires_at=0,password_hash='',code_hash='' WHERE email=NEW.email;
+  END;
   CREATE TABLE IF NOT EXISTS email_tokens (
     token_hash TEXT PRIMARY KEY,
     request_id TEXT NOT NULL UNIQUE,

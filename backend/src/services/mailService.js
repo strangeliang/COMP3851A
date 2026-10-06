@@ -10,6 +10,16 @@ function createMailService({ apiKey = process.env.RESEND_API_KEY, from = process
   const configured = Boolean(apiKey && from && origin);
   return {
     configured,
+    async sendRegistrationCode(email, code, requestId) {
+      if (!configured) throw new StudyError(503, 'MAIL_NOT_CONFIGURED', 'Email service is not configured yet. Contact support.');
+      const response = await fetchImpl('https://api.resend.com/emails', {
+        method: 'POST', signal: AbortSignal.timeout(10000),
+        headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json', 'Idempotency-Key': `registration-${requestId}` },
+        body: JSON.stringify({ from, to: [email], subject: 'Your Study Companion registration code',
+          text: `Your registration verification code is: ${code}\n\nEnter it on the registration page to create your account. It expires in 10 minutes and can be used once. Do not share this code. If you did not request it, ignore this email.\n\n你的注册验证码是：${code}\n请在注册页面输入，10 分钟内有效且只能使用一次。请勿向他人提供验证码。若非本人操作，请忽略。` }),
+      });
+      if (!response.ok) throw new StudyError(503, 'MAIL_UNAVAILABLE', 'Email service is temporarily unavailable. Try again later.');
+    },
     async sendLink(email, purpose, token, requestId) {
       if (!configured) throw new StudyError(503, 'MAIL_NOT_CONFIGURED', 'Email service is not configured yet. Contact support.');
       const link = `${origin}/${purpose === 'reset' ? 'reset-password' : 'verify-email'}#token=${encodeURIComponent(token)}`;

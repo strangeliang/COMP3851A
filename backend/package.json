@@ -7,7 +7,7 @@
   "scripts": {
     "start": "node src/server.js",
     "dev": "nodemon src/server.js",
-    "test": "node --test test/ai.test.cjs test/http.test.cjs test/database.test.cjs test/originals.test.cjs test/google.test.cjs test/tickets.test.cjs test/email.test.cjs test/backup.test.cjs"
+    "test": "node --test test/ai.test.cjs test/http.test.cjs test/database.test.cjs test/originals.test.cjs test/google.test.cjs test/tickets.test.cjs test/email.test.cjs test/backup.test.cjs test/registration.test.cjs"
   },
   "dependencies": {
     "bcryptjs": "^3.0.3",
