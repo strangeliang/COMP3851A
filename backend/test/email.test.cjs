@@ -7,6 +7,59 @@ const { randomUUID } = require('node:crypto');
 const bcrypt = require('bcryptjs');
 const { createApp } = require('../src/app');
 const { createMailService } = require('../src/services/mailService');
+const { smtpOptions } = require('../src/config/smtp');
+const { validateRuntime } = require('../src/config/runtime');
+
+test('SMTP configuration requires credentials and encrypted ports; production validates selected provider', () => {
+  const env = { SMTP_HOST:'smtp.163.com', SMTP_PORT:'465', SMTP_USER:'sender@example.test', SMTP_PASS:'test-secret' };
+  const options = smtpOptions(env);
+  assert.equal(options.secure, true);
+  assert.equal(options.tls.rejectUnauthorized, true);
+  assert.equal(options.debug, false);
+  assert.equal(smtpOptions({...env, SMTP_PORT:'587'}).requireTLS, true);
+  assert.equal(smtpOptions({...env, SMTP_PORT:'587'}).secure, false);
+  for (const change of [{SMTP_PASS:''}, {SMTP_HOST:''}, {SMTP_USER:''}, {SMTP_PORT:'25'}, {SMTP_PORT:'invalid'}]) {
+    assert.equal(smtpOptions({...env,...change}), null);
+  }
+  const production = { ...env, NODE_ENV:'production', MAIL_PROVIDER:'smtp',
+    MAIL_FROM:'sender@example.test', FRONTEND_URL:'https://study.example.test', PUBLIC_APP_URL:'https://study.example.test',
+    STUDY_DATABASE_PATH:path.resolve('persistent/test.db'), STUDY_UPLOAD_PATH:path.resolve('persistent/originals') };
+  assert.doesNotThrow(() => validateRuntime(production));
+  for (const change of [{SMTP_PASS:''}, {MAIL_FROM:''}, {PUBLIC_APP_URL:'https://wrong.example.test'}, {MAIL_PROVIDER:'invalid'}]) {
+    assert.throws(() => validateRuntime({...production,...change}));
+  }
+});
+
+test('SMTP sends codes and reset links without contacting Resend or exposing credentials', async () => {
+  const sent = [];
+  let captured;
+  const smtp = smtpOptions({SMTP_HOST:'smtp.163.com',SMTP_USER:'sender@example.test',SMTP_PASS:'test-secret'});
+  const mailer = createMailService({provider:'smtp',smtp,apiKey:'unused-resend-key',
+    from:'Study <sender@example.test>',baseUrl:'https://study.example.test',
+    fetchImpl:async()=>{assert.fail('SMTP must not call Resend');},
+    createTransport:options=>{captured=options;return {sendMail:async message=>{sent.push(message);return {accepted:['student@example.test'],rejected:[]};}};},
+  });
+  assert.equal(mailer.configured,true);
+  assert.deepEqual(captured,smtp);
+  await mailer.sendRegistrationCode('student@example.test','123456','request');
+  await mailer.sendLink('student@example.test','reset','opaque-token','reset-request');
+  assert.deepEqual(sent[0].to,[{address:'student@example.test'}]);
+  assert.match(sent[0].text,/123456/);
+  assert.match(sent[1].text,/reset-password#token=opaque-token/);
+  assert.equal(JSON.stringify(sent).includes('test-secret'),false);
+  assert.equal(createMailService({provider:'smtp',smtp:null,apiKey:'present',from:'sender@example.test',baseUrl:'https://study.example.test'}).configured,false);
+});
+
+test('SMTP rejection and authentication failures return only a generic error', async () => {
+  for (const sendMail of [async()=>{throw new Error('private auth reply test-secret');},async()=>({accepted:[],rejected:['student@example.test']})]) {
+    const mailer = createMailService({provider:'smtp',smtp:{},from:'sender@example.test',baseUrl:'https://study.example.test',createTransport:()=>({sendMail})});
+    await assert.rejects(mailer.sendRegistrationCode('student@example.test','123456','request'), error=>{
+      assert.equal(error.code,'MAIL_UNAVAILABLE');
+      assert.equal(error.message.includes('test-secret'),false);
+      return true;
+    });
+  }
+});
 
 test('email links are private, expiring, single-use and reset revokes existing sessions', async(t) => {
   const folder = fs.mkdtempSync(path.join(os.tmpdir(),'study-email-'));
