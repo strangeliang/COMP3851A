@@ -15,7 +15,8 @@ test("original bytes survive a real backend restart; sessions, ownership and del
       const database = require('./src/config/database');
       const {createApp} = require('./src/app');
       database.initializeDatabase().then(() => {
-        const server = createApp({database}).listen(0,'127.0.0.1', () => process.send(server.address().port));
+        const mailer = { configured:true, sendRegistrationCode:async(email,code)=>process.send({code}) };
+        const server = createApp({database,mailer}).listen(0,'127.0.0.1', () => process.send(server.address().port));
       }).catch(e => { console.error(e); process.exit(1); });
     `], { cwd: path.join(__dirname, ".."), env: { ...process.env, STUDY_SEED_DEMO: seedDemo ? "1" : "0", STUDY_DATABASE_PATH: path.join(directory, "test.db"), STUDY_UPLOAD_PATH: path.join(directory, "originals") }, stdio: ["ignore", "ignore", "pipe", "ipc"] });
     const [port] = await Promise.race([once(child, "message"), once(child, "exit").then(() => { throw new Error("Test backend exited before listening"); })]);
@@ -35,12 +36,18 @@ test("original bytes survive a real backend restart; sessions, ownership and del
     const signup = { name: "New Student", email: "new@example.test", password: "safe-test-password" };
     assert.equal((await request("/auth/register", { method: "POST", data: { ...signup, role: "Admin" } })).status, 400);
     assert.equal((await request("/auth/register", { method: "POST", data: { ...signup, password: "short" } })).status, 400);
-    assert.equal((await request("/auth/register", { method: "POST", data: signup })).status, 201);
-    assert.equal((await request("/auth/register", { method: "POST", data: signup })).status, 409);
+    const incomingCode = once(child, 'message');
+    const registration = await request("/auth/register", { method: "POST", data: signup });
+    assert.equal(registration.status, 202);
+    const challenge = await registration.json();
+    const [mail] = await incomingCode;
+    assert.equal((await request('/auth/login', { method: 'POST', data: signup })).status, 401);
+    assert.equal((await request('/auth/register/verify', { method: 'POST', data: { challengeId: challenge.challengeId, code: mail.code } })).status, 201);
+    assert.equal((await request('/auth/register', { method: 'POST', data: signup })).status, 409);
     const registeredLogin = await request("/auth/login", { method: "POST", data: { email: signup.email, password: signup.password } });
     assert.equal(registeredLogin.status, 200);
     const newUser = (await registeredLogin.json()).user;
-    assert.equal(newUser.role, "Student");
+    assert.equal(newUser.role, 'Student');
     assert.equal(newUser.password_hash, undefined);
     let cookie = await login();
     const other = await login("mia@student.edu");
