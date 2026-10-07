@@ -1,0 +1,45 @@
+.settings-language-picker { position: relative; min-width: 220px; }
+.settings-language-trigger {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  width: 100%;
+  min-height: 46px;
+  padding: 11px 16px;
+  border: 1px solid #dcd2f3;
+  border-radius: 10px;
+  color: #5420d8;
+  background: #f7f3ff;
+  font-weight: 700;
+  cursor: pointer;
+}
+.settings-language-trigger:hover { background: #eee7ff; }
+.settings-language-menu {
+  position: absolute;
+  top: calc(100% + 8px);
+  right: 0;
+  z-index: 30;
+  width: 100%;
+  padding: 6px;
+  border: 1px solid #e5dff0;
+  border-radius: 12px;
+  background: white;
+  box-shadow: 0 12px 30px #30204d1f;
+}
+.settings-language-menu button {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  padding: 12px;
+  border: 0;
+  border-radius: 8px;
+  color: #393143;
+  background: white;
+  text-align: left;
+  cursor: pointer;
+}
+.settings-language-menu button[aria-checked="true"],
+.settings-language-menu button:hover { background: #f7f3ff; color: #5420d8; }
+.settings-language-picker button:focus-visible { outline: 2px solid #9464ff; outline-offset: 2px; }

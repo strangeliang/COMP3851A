@@ -66,6 +66,66 @@ test('dashboard statistics hydrate from server history on a new browser without 
   assert.equal(app.data.quizAttempts.length, 1);
 });
 
+test('a deleted outbox record cannot block later saves or resurrect deleted history', async (t) => {
+  let firstId;
+  const app = await harness(t, { courseApi: ({ url, options, body }) => {
+    if (url !== '/api/history' || options.method !== 'POST') return;
+    firstId ||= body.id;
+    if (body.id === firstId) return jsonReply({ code: 'HISTORY_DELETED', message: 'Use Undo to restore.' }, 409);
+  } });
+  await act(async () => app.data.recordSummaryUse({ paragraph: 'Deleted result', concepts: [] }));
+  await act(async () => app.data.recordSummaryUse({ paragraph: 'Later result', concepts: [] }));
+  await act(async () => app.data.refreshStudyHistory());
+  assert.equal(app.data.pendingStudyCount, 0);
+  assert.equal(app.server.history.length, 1);
+  assert.equal(app.server.history[0].payload.summary.paragraph, 'Later result');
+  assert.equal(app.requests.filter(request => request.url === '/api/history' && request.options.method === 'POST' && request.body.id === firstId).length, 1);
+  assert.equal(app.data.summaryRecords.length, 1);
+});
+
+test('invalid saves keep their payload locally, permit later records and can be retried explicitly', async (t) => {
+  let firstId; let fail = true;
+  const app = await harness(t, { courseApi: ({ url, options, body }) => {
+    if (url !== '/api/history' || options.method !== 'POST') return;
+    firstId ||= body.id;
+    if (body.id === firstId && fail) return jsonReply({ code: 'INVALID_HISTORY', message: 'Invalid saved record' }, 400);
+  } });
+  await act(async () => app.data.recordSummaryUse({ paragraph: 'Preserved result', concepts: [] }));
+  await act(async () => app.data.recordSummaryUse({ paragraph: 'Later result', concepts: [] }));
+  assert.equal(app.server.history.length, 1);
+  assert.equal(app.data.pendingStudyCount, 0);
+  assert.match(app.data.historySync.error, /kept in this browser/);
+  const stored = JSON.parse(app.window.localStorage.getItem('study-companion-app-data'));
+  assert.equal(stored.studyOutbox.length, 1);
+  assert.equal(stored.studyOutbox[0].blocked, true);
+  assert.equal(stored.studyOutbox[0].payload.summary.paragraph, 'Preserved result');
+  fail = false;
+  await act(async () => app.data.retryStudyRecords());
+  assert.equal(app.server.history.length, 2);
+  assert.equal(app.data.historySync.error, '');
+  assert.equal(JSON.parse(app.window.localStorage.getItem('study-companion-app-data')).studyOutbox.length, 0);
+});
+
+test('profile and review controls translate without changing learner text; toolbar has no inactive filter button', async (t) => {
+  const { Profile, History, Toolbar } = await loadSource("export { default as Profile } from './src/pages/student/ProfilePage.jsx'; export { default as History } from './src/pages/student/HistoryPage.jsx'; export { default as Toolbar } from './src/components/Toolbar.jsx';", {
+    '../../layouts/StudentLayout': ({ children }) => React.createElement('main', null, children),
+    '../../state/LanguageContext': { useLanguage: () => ({ language: 'zh' }) },
+    '../../state/AppDataContext': { useAppData: () => ({ currentUser: { name: 'Test User', email: 'test@invalid.test', role: 'Student' }, studentCourses: [], summaryRecords: [], currentChatRecords: [], quizAttempts: [] }) },
+    '../../services/apiClient': { apiRequest: async () => ({ records: [{ id: 'quiz', kind: 'quiz', course_id: 'course', created_at: '2026-10-07', payload: { score: 0, questions: [{ id: 1, question: 'Source question unchanged', options: ['A', 'B'], answerIndex: 0 }], answers: { 1: 1 } } }], reviews: [] }) },
+  });
+  let renderer;
+  await act(async () => { renderer = create(React.createElement(Profile)); });
+  t.after(() => act(() => renderer.unmount()));
+  for (const label of ['显示名称', '个人简介', '学习目标', '保存个人资料']) assert.ok(JSON.stringify(renderer.toJSON()).includes(label));
+  await act(async () => renderer.update(React.createElement(History, { review: true })));
+  await act(async () => renderer.root.findByProps({ className: 'history-record-open' }).props.onClick());
+  const markup = JSON.stringify(renderer.toJSON());
+  assert.ok(markup.includes('原始答案：')); assert.ok(markup.includes('提交练习')); assert.ok(markup.includes('Source question unchanged'));
+  assert.ok(!markup.includes('Original answer:'));
+  await act(async () => renderer.update(React.createElement(Toolbar, { value: '', onChange() {}, placeholder: 'Search' })));
+  assert.equal(renderer.root.findAllByType('button').length, 0);
+});
+
 test('imported legacy history replaces its browser record without doubling statistics', async () => {
   const { mergeServerHistory } = await loadSource('src/utils/historySync.js');
   const old = { id: 'older-quiz', userId: 1, courseId: 'course', score: 40 };
@@ -173,6 +233,7 @@ async function harness(
       }),
     courseApi,
     stored,
+    preferences,
     workspace = false,
   } = {}
 ) {
@@ -183,6 +244,7 @@ async function harness(
         }
       : {}
   );
+  if (preferences) window.localStorage.setItem("study-interface-preferences", JSON.stringify(preferences));
 
   const requests = [];
   let sessionUser = null;
@@ -524,6 +586,7 @@ async function harness(
     {
       "@chatscope/chat-ui-kit-react":
         widgets,
+      "../../state/LanguageContext": { useLanguage: () => ({ language: "en" }) },
 
       "../../layouts/StudentLayout": ({
         children,
@@ -1134,19 +1197,20 @@ test("review shows original numbering, multiple selections, answers and repeat p
       { id: 2, question: "Choose both", options: ["Alpha", "Beta", "Gamma", "Delta"], answerIndices: [0, 2], explanation: "Alpha and Gamma apply." },
     ], answers: { 1: 0, 2: [1] }, score: 50,
   } };
-  let submitted;
+  let submitted; let submittedMode;
   const { default: History } = await loadSource("export { default } from './src/pages/student/HistoryPage.jsx';", {
+    "../../state/LanguageContext": { useLanguage: () => ({ language: "en" }) },
     "../../layouts/StudentLayout": ({ children }) => React.createElement("main", null, children),
     "../../state/AppDataContext": { useAppData: () => ({ studentCourses: [], summaryRecords: [], currentChatRecords: [], quizAttempts: [] }) },
     "../../services/apiClient": { apiRequest: async (_path, options) => {
-      if (options?.method === "POST") { submitted = options.body.answers; return { answers: submitted, correct: 1, total: 1, score: 100 }; }
+      if (options?.method === "POST") { submitted = options.body.answers; submittedMode = options.body.mode; return { answers: submitted, mode: submittedMode, correct: submittedMode === "all" ? 2 : 1, total: submittedMode === "all" ? 2 : 1, score: 100 }; }
       return { records: [record], reviews: [] };
     } },
   });
   let renderer;
   await act(async () => { renderer = create(React.createElement(History, { review: true })); });
   t.after(() => act(() => renderer.unmount()));
-  await act(async () => renderer.root.findAllByType("button").find((b) => b.children.join("").includes("QUIZ")).props.onClick());
+  await act(async () => renderer.root.findAllByType("button").find((b) => b.children.join("").includes("Quiz")).props.onClick());
   assert.equal(renderer.root.findByType("h3").children.join(""), "2. Choose both");
   assert.ok(JSON.stringify(renderer.toJSON()).includes("Beta"));
   const inputs = renderer.root.findAllByType("input");
@@ -1155,12 +1219,168 @@ test("review shows original numbering, multiple selections, answers and repeat p
   await act(async () => inputs[0].props.onChange());
   await act(async () => renderer.root.findByType("form").props.onSubmit({ preventDefault() {} }));
   assert.deepEqual(submitted, { 2: [2, 0] });
+  assert.equal(submittedMode, "wrong");
   assert.ok(JSON.stringify(renderer.toJSON()).includes("Gamma; Alpha"));
   assert.ok(JSON.stringify(renderer.toJSON()).includes("Alpha; Gamma"));
   assert.ok(JSON.stringify(renderer.toJSON()).includes("Alpha and Gamma apply."));
   await act(async () => button(renderer, "Practise again").props.onClick());
   assert.ok(renderer.root.findAllByType("input").every((i) => !i.props.checked));
   assert.deepEqual(record.payload.answers[2], [1]);
+  await act(async () => renderer.root.findByProps({ "aria-label": "Practice mode" }).props.onChange({ target: { value: "all" } }));
+  assert.equal(renderer.root.findAllByType("form").length, 0, "Changing practice mode clears the previous attempt");
+  await act(async () => renderer.root.findAllByType("button").find((b) => b.children.join("").includes("Quiz")).props.onClick());
+  assert.deepEqual(renderer.root.findAllByType("h3").map(node => node.children.join("")), ["1. Already correct", "2. Choose both"]);
+  const allInputs = renderer.root.findAllByType("input");
+  await act(async () => { allInputs[0].props.onChange(); allInputs[2].props.onChange(); allInputs[4].props.onChange(); });
+  await act(async () => renderer.root.findByType("form").props.onSubmit({ preventDefault() {} }));
+  assert.equal(submittedMode, "all");
+  assert.deepEqual(submitted, { 1: 0, 2: [0, 2] });
+  assert.equal(renderer.root.findAllByType("article").filter(node => node.props.className.includes("quiz-result-correct")).length, 2);
+  assert.deepEqual(record.payload.answers, { 1: 0, 2: [1] }, "Retakes must not overwrite the original answers");
+});
+
+test("history deletion waits for server success and Undo restores the same record and reviews", async (t) => {
+  const record = { id: '1:summary', kind: 'summary', course_id: 'course', created_at: '2026-10-07', payload: { summary: { paragraph: 'Saved', concepts: [] } } };
+  let fail = true; let active = [record]; let deleted = []; let refreshes = 0;
+  const calls = [];
+  const { default: History } = await loadSource("export { default } from './src/pages/student/HistoryPage.jsx';", {
+    '../../layouts/StudentLayout': ({ children }) => React.createElement('main', null, children),
+    '../../state/LanguageContext': { useLanguage: () => ({ language: 'en' }) },
+    '../../state/AppDataContext': { useAppData: () => ({ studentCourses: [], summaryRecords: [], currentChatRecords: [], quizAttempts: [], refreshStudyHistory: async () => { refreshes++; } }) },
+    '../../services/apiClient': { apiRequest: async (url, options) => {
+      calls.push({ url, method: options?.method || 'GET' });
+      if (options?.method === 'DELETE') {
+        if (fail) throw new Error('Delete failed');
+        active = []; deleted = [record]; return { ok: true };
+      }
+      if (url.endsWith('/restore')) { active = [record]; deleted = []; return { record, reviews: [] }; }
+      return { records: active, deletedRecords: deleted, reviews: [] };
+    } },
+  });
+  let renderer;
+  await act(async () => { renderer = create(React.createElement(History)); });
+  t.after(() => act(() => renderer.unmount()));
+  const remove = () => renderer.root.findByProps({ className: 'history-delete-button' });
+  await act(async () => remove().props.onClick());
+  assert.equal(renderer.root.findAllByProps({ className: 'history-delete-button' }).length, 1);
+  assert.match(JSON.stringify(renderer.toJSON()), /Delete failed/);
+  assert.equal(refreshes, 0);
+  fail = false;
+  await act(async () => remove().props.onClick());
+  assert.equal(renderer.root.findAllByProps({ className: 'history-delete-button' }).length, 0);
+  assert.equal(refreshes, 1);
+  await act(async () => renderer.root.findByProps({ className: 'history-undo-banner' }).findByType('button').props.onClick());
+  assert.equal(renderer.root.findAllByProps({ className: 'history-delete-button' }).length, 1);
+  assert.equal(refreshes, 2);
+  assert.deepEqual(calls.filter(call => call.method !== 'GET').map(call => call.url), ['/history/1%3Asummary', '/history/1%3Asummary', '/history/1%3Asummary/restore']);
+});
+
+test("profile actions open real navigation, support conversations and account-scoped progress", async (t) => {
+  const window = memoryWindow();
+  let logouts = 0; let ticketLoads = 0; let historyRecords = [];
+  const trigger = { focus() {} };
+  const data = { currentUser: { id: 1, name: 'Alex', role: 'Student' }, logout: async () => { logouts++; },
+    studentCourses: [{ id: 'course', code: 'C101' }], studentMaterials: [{ id: 1 }, { id: 2 }],
+    quizAttempts: [{ id: 'quiz', courseId: 'course', score: 80, completedAt: '2026-10-07' }], averageQuizScore: 80,
+    summaryRecords: [{ id: 'summary', courseId: 'course', createdAt: '2026-10-07' }] };
+  const { Profile, Help } = await loadSource("export { default as Profile } from './src/components/StudentProfilePanel.jsx'; export { default as Help } from './src/components/HelpAssistant.jsx';", {
+    '../state/AppDataContext': { useAppData: () => data },
+    '../state/LanguageContext': { useLanguage: () => ({ language: 'en' }) },
+    './AvatarPicker': () => React.createElement('div', null, 'Avatar'),
+    './SupportTickets': ({ initialTicketId }) => React.createElement('div', { className: 'profile-test-inbox', ticketId: initialTicketId }),
+    '../services/ticketApiService': { listServerTickets: async () => { ticketLoads++; return { tickets: [
+      { id: 'ticket-1', status: 'Open', hasMessages: true }, { id: 'empty', status: 'Open', hasMessages: false },
+    ] }; } },
+    '../services/apiClient': { apiRequest: async () => ({ records: historyRecords }) },
+  }, { window, document: { hidden: false, addEventListener() {}, removeEventListener() {} } });
+  let renderer;
+  await act(async () => { renderer = create(React.createElement(MemoryRouter, null, React.createElement(React.Fragment, null, React.createElement(Profile), React.createElement(Help)))); });
+  t.after(() => act(() => renderer.unmount()));
+  const action = label => renderer.root.findAllByType('button').find(button => button.props['aria-label'] === label);
+  await act(async () => action('Profile options').props.onClick({ currentTarget: trigger }));
+  assert.deepEqual(renderer.root.findAllByType('a').filter(link => link.props.role === 'menuitem').map(link => link.props.href), ['/student/profile', '/student/settings']);
+  await act(async () => action('Study progress').props.onClick({ currentTarget: trigger }));
+  assert.deepEqual(renderer.root.findAllByType('dd').map(node => node.children.join('')), ['1', '2', '1', '80%']);
+  await act(async () => action('Notifications').props.onClick({ currentTarget: trigger }));
+  assert.equal(ticketLoads, 1);
+  assert.equal(renderer.root.findAllByType('a').filter(link => link.props.className === 'profile-update-item').length, 0, 'No placeholder study notifications from local sample data');
+  assert.equal(renderer.root.findAllByType('button').filter(button => button.props.className === 'profile-update-item').length, 1);
+  await act(async () => renderer.root.findAllByType('button').find(button => button.props.className === 'profile-update-item').props.onClick());
+  assert.equal(renderer.root.findByProps({ className: 'profile-test-inbox' }).props.ticketId, 'ticket-1');
+  await act(async () => action('Support messages').props.onClick());
+  assert.equal(renderer.root.findByProps({ className: 'profile-test-inbox' }).props.ticketId, null);
+  historyRecords = [
+    { id: 'completed-quiz', kind: 'quiz', course_id: 'course', created_at: '2026-10-07 09:00:00', payload: { score: 80, correct: 4, total: 5 } },
+    { id: 'generated-summary', kind: 'summary', course_id: 'course', created_at: '2026-10-07 08:00:00', payload: {} },
+    { id: 'generated-cards', kind: 'flashcards', course_id: 'course', created_at: '2026-10-07 07:00:00', payload: { cards: Array.from({ length: 6 }, () => ({})) } },
+    { id: 'user-question', kind: 'qa', course_id: 'course', created_at: '2026-10-07 06:00:00', payload: { role: 'User' } },
+  ];
+  await act(async () => action('Notifications').props.onClick({ currentTarget: trigger }));
+  assert.deepEqual(renderer.root.findAllByType('a').filter(link => link.props.className === 'profile-update-item').map(link => link.findByType('strong').children.join('')), ['Quiz completed · 80% (4/5)', 'Summary generated', 'Flashcards generated · 6 cards']);
+  assert.equal(renderer.root.findAllByType('time').length, 3);
+  await act(async () => action('Profile options').props.onClick({ currentTarget: trigger }));
+  await act(async () => renderer.root.findByProps({ className: 'profile-menu-logout' }).props.onClick());
+  assert.equal(logouts, 1);
+});
+
+test("bulk history deletion requires confirmation, survives failures and restores all records", async (t) => {
+  const records = [
+    { id: "one", kind: "summary", course_id: "course", created_at: "2026-10-07", payload: { summary: { paragraph: "One", concepts: [] } } },
+    { id: "two", kind: "summary", course_id: "course", created_at: "2026-10-06", payload: { summary: { paragraph: "Two", concepts: [] } } },
+  ];
+  let active = [...records]; let deleted = []; let confirmed = false; let fail = false; let refreshes = 0;
+  const calls = [];
+  const window = memoryWindow(); window.confirm = () => confirmed;
+  const { default: History } = await loadSource("export { default } from './src/pages/student/HistoryPage.jsx';", {
+    '../../layouts/StudentLayout': ({ children }) => React.createElement('main', null, children),
+    '../../state/LanguageContext': { useLanguage: () => ({ language: 'en' }) },
+    '../../state/AppDataContext': { useAppData: () => ({ studentCourses: [], summaryRecords: [], currentChatRecords: [], quizAttempts: [], refreshStudyHistory: async () => { refreshes++; } }) },
+    '../../services/apiClient': { apiRequest: async (url, options) => {
+      if (options?.method === 'POST') {
+        calls.push(url);
+        if (fail) throw new Error('Temporary bulk failure');
+        if (url === '/history/delete-all') { deleted = active; active = []; return { ok: true, count: deleted.length }; }
+        if (url === '/history/restore-all') { active = deleted; deleted = []; return { ok: true, count: active.length }; }
+      }
+      return { records: active, deletedRecords: deleted, reviews: [] };
+    } },
+  }, { window });
+  let renderer;
+  await act(async () => { renderer = create(React.createElement(History)); });
+  t.after(() => act(() => renderer.unmount()));
+  assert.equal(button(renderer, 'Undo all').props.disabled, true);
+  await act(async () => button(renderer, 'Delete all').props.onClick());
+  assert.equal(calls.length, 0, 'Cancelling the confirmation sends no mutation');
+  confirmed = true; fail = true;
+  await act(async () => button(renderer, 'Delete all').props.onClick());
+  assert.equal(renderer.root.findAllByProps({ className: 'history-record-open' }).length, 2);
+  assert.match(JSON.stringify(renderer.toJSON()), /Temporary bulk failure/);
+  fail = false;
+  await act(async () => button(renderer, 'Delete all').props.onClick());
+  assert.equal(renderer.root.findAllByProps({ className: 'history-record-open' }).length, 0);
+  assert.equal(button(renderer, 'Delete all').props.disabled, true);
+  assert.equal(button(renderer, 'Undo all').props.disabled, false);
+  await act(async () => button(renderer, 'Undo all').props.onClick());
+  assert.equal(renderer.root.findAllByProps({ className: 'history-record-open' }).length, 2);
+  assert.equal(button(renderer, 'Undo all').props.disabled, true);
+  assert.equal(refreshes, 2);
+});
+
+test("course display clarifies demo titles and preserves custom names and IDs", async () => {
+  const { courseName, courseLabel } = await loadSource('src/utils/courseDisplay.js');
+  const demos = [
+    [{ id: 'inft3050', code: 'INFT3050', name: 'Study Companion' }, 'AI-Assisted Learning'],
+    [{ id: 'hci', code: 'HCI', name: 'Prototype Review' }, 'User Interface Design'],
+    [{ id: 'inft3851a', code: 'INFT3851A', name: 'Study Project' }, 'Applied Computing Project'],
+  ];
+  for (const [course, name] of demos) {
+    const original = { ...course };
+    assert.equal(courseName(course), name);
+    assert.equal(courseLabel(course), `${name} (${course.code})`);
+    assert.deepEqual(course, original);
+  }
+  assert.equal(courseLabel({ code: 'HCI', name: 'My Research Seminar' }), 'My Research Seminar (HCI)');
+  assert.equal(courseLabel(null), '');
 });
 
 test("quiz accepts custom counts, toggles multiple answers and preserves them across tabs", async (t) => {
@@ -1182,6 +1402,9 @@ test("quiz accepts custom counts, toggles multiple answers and preserves them ac
   await act(async () => countInput().props.onChange({ target: { value: "2" } }));
   await act(async () => button(app.renderer, "Generate Quiz").props.onClick());
   assert.equal(sent.questionCount, 2);
+  const dots = () => app.renderer.root.findAllByType("button").filter(node => String(node.props.className || "").split(" ").includes("quiz-question-dot"));
+  assert.equal(dots().length, 2);
+  assert.ok(JSON.stringify(app.renderer.toJSON()).includes("0/2 answered · 2 remaining"));
   const checks = () => app.renderer.root.findAllByType("input").filter((n) => n.props.type === "checkbox" && n.props.name === "question-1");
   assert.equal(checks().length, 4);
   await act(async () => checks()[0].props.onChange());
@@ -1197,12 +1420,46 @@ test("quiz accepts custom counts, toggles multiple answers and preserves them ac
   await act(async () => button(app.renderer, "Submit").props.onClick());
   assert.equal(app.data.quizAttempts.length, 0);
   await act(async () => button(app.renderer, "Next").props.onClick());
+  assert.equal(app.renderer.root.findAllByType("button").filter(node => node.children.join("") === "Next").length, 0, "The final question has no Next button");
+  assert.ok(JSON.stringify(app.renderer.toJSON()).includes("1/2 answered · 1 remaining"));
+  await act(async () => dots()[0].props.onClick());
+  assert.equal(checks()[0].props.checked, true, "Jumping back preserves the answer");
+  assert.equal(dots()[0].props["aria-current"], "step");
+  assert.match(dots()[0].props.className, /answered/);
+  await act(async () => dots()[1].props.onClick());
   const radios = app.renderer.root.findAllByType("input").filter((n) => n.props.type === "radio");
-  await act(async () => radios[1].props.onChange());
+  await act(async () => radios[0].props.onChange());
   await act(async () => button(app.renderer, "Submit").props.onClick());
-  assert.equal(app.data.quizAttempts[0].score, 100);
+  assert.equal(app.data.quizAttempts[0].score, 50);
   assert.deepEqual(app.data.quizAttempts[0].answers[1], [2, 0]);
+  assert.equal(app.renderer.root.findAllByType("article").filter(node => node.props.className.includes("quiz-result-correct")).length, 1);
+  assert.equal(app.renderer.root.findAllByType("article").filter(node => node.props.className.includes("quiz-result-incorrect")).length, 1);
   assert.ok(JSON.stringify(app.renderer.toJSON()).includes("C; A"));
+});
+
+test("study defaults persist, synchronize and initialize Q&A and Quiz without overriding drafts", async (t) => {
+  const window = memoryWindow({ "study-interface-preferences": JSON.stringify({ answerStyle: "unknown", quizDifficulty: "easy", readingSize: "large" }) });
+  const { default: usePreferences } = await loadSource("export { default } from './src/hooks/useStudyPreferences.js';", {}, { window });
+  let left; let right;
+  function Probe({ side }) { const state = usePreferences(); if (side === "left") left = state; else right = state; return null; }
+  let renderer;
+  await act(async () => { renderer = create(React.createElement(React.Fragment, null, React.createElement(Probe, { side: "left" }), React.createElement(Probe, { side: "right" }))); });
+  t.after(() => act(() => renderer.unmount()));
+  assert.deepEqual(left[0], { answerStyle: "simple", quizDifficulty: "easy", readingSize: "large" });
+  await act(async () => left[1]("answerStyle", "detailed"));
+  await act(async () => right[1]("quizDifficulty", "hard"));
+  assert.deepEqual(left[0], right[0]);
+  assert.deepEqual(JSON.parse(window.localStorage.getItem("study-interface-preferences")), { answerStyle: "detailed", quizDifficulty: "hard", readingSize: "large" });
+  const app = await harness(t, { workspace: true, preferences: left[0] });
+  await act(async () => button(app.renderer, "Q&A").props.onClick());
+  const styles = () => app.renderer.root.findAllByType("select").find(node => node.findAllByType("option").some(option => option.props.value === "detailed"));
+  assert.equal(styles().props.value, "detailed");
+  await act(async () => styles().props.onChange({ target: { value: "hint" } }));
+  await act(async () => button(app.renderer, "Quiz").props.onClick());
+  const difficulty = app.renderer.root.findAllByType("select").find(node => node.findAllByType("option").some(option => option.props.value === "hard"));
+  assert.equal(difficulty.props.value, "hard");
+  await act(async () => button(app.renderer, "Q&A").props.onClick());
+  assert.equal(styles().props.value, "hint", "Existing workspace choice takes priority over the default");
 });
 
 test(
@@ -1945,7 +2202,7 @@ test(
 
     const cards = Array.from(
       {
-        length: 5,
+        length: 6,
       },
       (_, index) => ({
         id: index + 1,

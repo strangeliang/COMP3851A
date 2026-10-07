@@ -36,9 +36,9 @@ const DEMO_ACCOUNTS = [
 ];
 
 const DEMO_COURSES = [
-  { id: "inft3050", code: "INFT3050", name: "Study Companion" },
-  { id: "hci", code: "HCI", name: "Prototype Review" },
-  { id: "inft3851a", code: "INFT3851A", name: "Study Project" },
+  { id: "inft3050", code: "INFT3050", name: "AI-Assisted Learning" },
+  { id: "hci", code: "HCI", name: "User Interface Design" },
+  { id: "inft3851a", code: "INFT3851A", name: "Applied Computing Project" },
 ];
 
 const DEMO_MATERIALS = [

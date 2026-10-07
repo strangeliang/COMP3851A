@@ -6,11 +6,13 @@ const healthRoutes = require("./routes/healthRoutes");
 const { createStudyRoutes } = require("./routes/studyRoutes");
 const { createGeminiService } = require("./services/geminiService");
 const { StudyError } = require("./services/studyContracts");
+const { proxyTrust } = require("./config/proxy");
 
 function createApp({ database, gemini = createGeminiService(), sessions, mailer } = {}) {
   const app = express();
   const frontendOrigin = process.env.FRONTEND_URL || "http://localhost:5173";
   app.disable("x-powered-by");
+  app.set("trust proxy", proxyTrust());
   app.use(cors({ origin: frontendOrigin, credentials: true }));
   app.use("/api", (req, res, next) => {
     res.setHeader("Cache-Control", "no-store");

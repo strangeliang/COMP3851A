@@ -7,6 +7,7 @@ import { useAppData } from "../../state/AppDataContext";
 import { formatFileSize, getFileExtension, SUPPORTED_MATERIAL_EXTENSIONS } from "../../utils/fileTextExtractor";
 import { useLanguage } from "../../state/LanguageContext";
 import './UploadDropzone.css';
+import { courseLabel } from "../../utils/courseDisplay";
 
 export default function UploadPage() {
   const { language } = useLanguage();
@@ -131,7 +132,7 @@ export default function UploadPage() {
     <StudentLayout
       profileProps={{
         title: "Upload Overview",
-        name: currentCourse ? currentCourse.code : "No Course",
+        name: currentCourse ? courseLabel(currentCourse) : "No Course",
         subtitle: "Files are stored under the selected course only.",
       }}
       profileContent={profileContent}
@@ -152,7 +153,7 @@ export default function UploadPage() {
           <select value={currentCourseId} onChange={(event) => selectCourse(event.target.value)} disabled={uploadState.pending || courseState.loading || !studentCourses.length}>
             {!studentCourses.length && <option value="">Create a course first</option>}
             {studentCourses.map((course) => (
-              <option key={course.id} value={course.id}>{course.code} {course.name}</option>
+              <option key={course.id} value={course.id}>{courseLabel(course)}</option>
             ))}
           </select>
         </label>
@@ -216,7 +217,7 @@ export default function UploadPage() {
         {visibleMaterials.map((material) => (
           <div className="user-card file-row-modern" key={material.id}>
             <span className="file-type"><FileText size={16} /></span>
-            <div style={{ minWidth: 0 }}><strong>{material.name}</strong><small>{currentCourse?.code} · {material.type} · {material.content.length.toLocaleString()} characters</small>
+            <div style={{ minWidth: 0 }}><strong>{material.name}</strong><small>{courseLabel(currentCourse)} · {material.type} · {material.content.length.toLocaleString()} characters</small>
               {material.parseWarning && <p className="summary-source">{material.parseWarning}</p>}
               {material.hasOriginal ? <p style={{ display: "flex", gap: 16, flexWrap: "wrap" }}>
                 {["PDF", "PNG", "JPG", "JPEG", "WEBP", "BMP"].includes(material.type) && <a href={`/api/materials/${material.id}/original?preview=1`} target="_blank" rel="noopener noreferrer">Preview original</a>}

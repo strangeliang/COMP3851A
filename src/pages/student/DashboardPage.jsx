@@ -13,6 +13,7 @@ import Toolbar from "../../components/Toolbar";
 import StudentLayout from "../../layouts/StudentLayout";
 import { useAppData } from "../../state/AppDataContext";
 import { recentCourseMaterial, sameId } from "../../utils/studyScope";
+import { courseName, courseLabel } from "../../utils/courseDisplay";
 
 export default function DashboardPage() {
   const {
@@ -41,7 +42,7 @@ export default function DashboardPage() {
     const query = search.trim().toLowerCase();
     if (!query) return studentCourses;
     return studentCourses.filter((course) =>
-      `${course.code} ${course.name}`.toLowerCase().includes(query),
+      `${course.code} ${course.name} ${courseName(course)}`.toLowerCase().includes(query),
     );
   }, [search, studentCourses]);
 
@@ -72,7 +73,7 @@ export default function DashboardPage() {
 
   async function removeCourse(course) {
     const confirmed = window.confirm(
-      `Delete ${course.code} ${course.name}? Its materials and dependent study records will be removed.`,
+      `Delete ${courseLabel(course)}? Its materials and dependent study records will be removed.`,
     );
     if (!confirmed || courseActionPending) return;
     setCourseActionPending(true);
@@ -87,7 +88,7 @@ export default function DashboardPage() {
       <div className="side-list">
         <div className="side-item">
           <strong>Course</strong>
-          <span>{currentCourse ? `${currentCourse.code} ${currentCourse.name}` : "No course selected"}</span>
+          <span>{currentCourse ? courseLabel(currentCourse) : "No course selected"}</span>
         </div>
         <div className="side-item">
           <strong>Material</strong>
@@ -156,7 +157,7 @@ export default function DashboardPage() {
               value={form.code}
               disabled={courseActionPending || courseState.loading}
               onChange={(event) => setForm({ ...form, code: event.target.value })}
-              placeholder="INFT3050"
+              placeholder="e.g. CS101"
             />
           </label>
           <label>
@@ -165,7 +166,7 @@ export default function DashboardPage() {
               value={form.name}
               disabled={courseActionPending || courseState.loading}
               onChange={(event) => setForm({ ...form, name: event.target.value })}
-              placeholder="Study Companion"
+              placeholder="e.g. Introduction to Computing"
             />
           </label>
           <button className="primary-button" type="submit" disabled={courseActionPending || courseState.loading}>
@@ -180,8 +181,8 @@ export default function DashboardPage() {
             return (
               <article className={`course-row${active ? " active" : ""}`} key={course.id}>
                 <div>
+                  <strong>{courseName(course)}</strong>
                   <span>{course.code}</span>
-                  <strong>{course.name}</strong>
                   <small>{courseMaterialCount(course.id)} material(s) · Updated {course.updatedAt}</small>
                 </div>
                 <button type="button" onClick={() => selectCourse(course.id)}>

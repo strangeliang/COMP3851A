@@ -5,6 +5,25 @@ const LanguageContext = createContext(null);
 const originalText = new WeakMap();
 
 const zh = {
+  "Front": "正面", "Back": "背面", "AI Flashcards": "AI 记忆卡",
+  "Generate New Cards": "重新生成卡片", "Generate New Quiz": "重新生成测验",
+  "Generating…": "生成中…", "Stop generating": "停止生成",
+  "Generating flashcards…": "正在生成记忆卡…", "Generating questions…": "正在生成题目…",
+  "Generate six revision cards from the selected materials. Click a card to reveal its answer.": "从所选材料生成六张复习卡片，点击卡片查看答案。",
+  "Click to show the front": "点击查看正面", "Click to reveal the answer": "点击查看答案",
+  "Generate flashcards to start revising.": "生成记忆卡后即可开始复习。",
+  "Generate a quiz to start practising.": "生成测验后即可开始练习。",
+  "Previous": "上一题", "Next": "下一题", "Submit": "提交",
+  "Your answer:": "你的答案：", "Correct answer:": "正确答案：", "Explanation:": "解析：",
+  "Please answer every question before submitting.": "请回答所有题目后再提交。",
+  "Answer style": "回答方式", "Simple": "简明", "Detailed": "详细", "Example": "举例", "Hint Only": "只给提示",
+  "Difficulty": "难度", "Easy": "简单", "Medium": "中等", "Hard": "困难",
+  "Change profile photo": "更换头像", "Click to change your photo": "点击更换头像",
+  "Click photo to change": "点击头像更换", "Your avatar": "你的头像",
+  "Preview only. Save to update your profile.": "仅供预览，保存后才会更新个人资料。",
+  "Save photo": "保存头像", "Avatar saved.": "头像已保存。", "Please wait…": "请稍候…",
+  "Checking your session…": "正在检查登录状态…", "Retry saving / refresh": "重试保存／刷新",
+  "Q&A Chat": "问答聊天", "Key Concepts": "核心概念", "Student": "学生", "Admin": "管理员",
   "Correct": "正确", "Incorrect": "错误", "Practise again": "再次练习",
   "Number of questions (1–20)": "题目数量（1–20）",
   "Enter a whole number of questions from 1 to 20.": "请输入 1 到 20 之间的整数题数。",
@@ -43,6 +62,7 @@ const zh = {
 };
 
 const patterns = [
+  [/^Question (\d+) of (\d+)$/, "第 $1 题，共 $2 题"],
   [/^Welcome back, (.+)$/, "欢迎回来，$1"],
   [/^(\d+) shown$/, "显示 $1 项"],
   [/^(\d+) material\(s\)$/, "$1 个学习材料"],
@@ -52,7 +72,7 @@ const patterns = [
 function translateText(value) {
   const leading = value.match(/^\s*/)?.[0] || "";
   const trailing = value.match(/\s*$/)?.[0] || "";
-  const clean = value.trim();
+  const clean = value.trim().replace(/\s+/g, " ");
   if (!clean) return value;
   if (zh[clean]) return leading + zh[clean] + trailing;
   for (const [pattern, replacement] of patterns) {

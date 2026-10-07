@@ -1,5 +1,6 @@
+import { containsSupportSecret } from '../../shared/supportSecrets.mjs';
 export function containsSecret(text) {
-  return /\b(?:sk-[a-z0-9_-]{8,}|AIza[a-z0-9_-]{12,}|Bearer\s+\S+)|\b\d{4,8}\b|(?:password|passwd|api[ _-]?key|otp|密码|验证码|密钥)\s*(?:is|是|为|[:=：])\s*\S+/i.test(text);
+  return containsSupportSecret(text);
 }
 export function helpReply(text, language = "en") {
   const zh = language === "zh";

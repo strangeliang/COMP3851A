@@ -566,10 +566,30 @@ export function AppDataProvider({ children }) {
     task.promise = (async () => {
       try {
         while (!task.controller.signal.aborted && task.epoch === sessionEpoch.current && sameId(userRef.current?.id, user.id)) {
-          const item = dataRef.current.studyOutbox.find((r) => sameId(r.userId, user.id));
+          const item = dataRef.current.studyOutbox.find((r) => sameId(r.userId, user.id) && !r.blocked);
           if (!item) break;
-          await apiRequest('/history', { method: 'POST', signal: task.controller.signal,
-            body: { id: item.id, kind: item.kind, courseId: item.courseId, payload: item.payload } });
+          try {
+            await apiRequest('/history', { method: 'POST', signal: task.controller.signal,
+              body: { id: item.id, kind: item.kind, courseId: item.courseId, payload: item.payload } });
+          } catch (error) {
+            if (task.controller.signal.aborted || task.epoch !== sessionEpoch.current) return;
+            if (error.code === 'HISTORY_DELETED') {
+              // The server already holds this record in Deleted records. Do not recreate it.
+              updateData(current => {
+                const mark = r => sameId(r.userId, user.id) && r.id === item.id ? { ...r, serverId: `${user.id}:${item.id}` } : r;
+                return { ...current, studyOutbox: current.studyOutbox.filter(r => r !== item),
+                  summaryRecords: current.summaryRecords.map(mark), chatRecords: current.chatRecords.map(mark), quizAttempts: current.quizAttempts.map(mark) };
+              });
+              notify('A deleted study record was not saved again. Use Undo in Study History to restore it.');
+              continue;
+            }
+            if (['INVALID_HISTORY', 'HISTORY_CONFLICT', 'COURSE_NOT_FOUND', 'MATERIAL_NOT_FOUND', 'REQUEST_TOO_LARGE'].includes(error.code)) {
+              // Preserve the unsent payload locally, but allow later records to be saved.
+              updateData(current => ({ ...current, studyOutbox: current.studyOutbox.map(r => r === item ? { ...r, blocked: true, saveError: error.message } : r) }));
+              continue;
+            }
+            throw error;
+          }
           if (task.controller.signal.aborted || task.epoch !== sessionEpoch.current) return;
           updateData((current) => {
             const mark = (r) => sameId(r.userId, user.id) && r.id === item.id ? { ...r, serverId: `${user.id}:${item.id}` } : r;
@@ -577,7 +597,10 @@ export function AppDataProvider({ children }) {
               summaryRecords: current.summaryRecords.map(mark), chatRecords: current.chatRecords.map(mark), quizAttempts: current.quizAttempts.map(mark) };
           });
         }
-        if (!task.controller.signal.aborted) setHistorySync({ pending: false, error: "" });
+        if (!task.controller.signal.aborted) {
+          const blocked = dataRef.current.studyOutbox.filter(r => sameId(r.userId, user.id) && r.blocked);
+          setHistorySync({ pending: false, error: blocked.length ? `${blocked.length} study record(s) could not be saved and are kept in this browser. Other records can still save. ${blocked[0].saveError}` : "" });
+        }
       } catch (error) {
         if (!task.controller.signal.aborted && task.epoch === sessionEpoch.current) setHistorySync({ pending: false,
           error: `Some study records are not yet saved to the server. Keep this page open and retry saving. ${error.message}` });
@@ -608,6 +631,13 @@ export function AppDataProvider({ children }) {
     }
   }
 
+  async function retryStudyRecords() {
+    const user = userRef.current;
+    if (!user) return;
+    updateData(current => ({ ...current, studyOutbox: current.studyOutbox.map(r => sameId(r.userId, user.id) ? { ...r, blocked: false } : r) }));
+    await refreshStudyHistory();
+  }
+
   const studentDataReady = currentUser?.role !== "Student" || courseState.ready;
   const studentCourses = studentDataReady ? data.courses.filter((item) => ownedBy(item, currentUser)) : [];
   const studentMaterials = studentDataReady ? data.materials.filter((item) => ownedBy(item, currentUser)) : [];
@@ -626,7 +656,7 @@ export function AppDataProvider({ children }) {
   const currentChatRecords = useMemo(() => data.chatRecords.filter((record) => recordScopeKey(record) === scope.scopeKey && record.workspaceSession === activeWorkspaceSession), [data.chatRecords, scope.scopeKey, activeWorkspaceSession]);
   const averageQuizScore = quizAttempts.length ? Math.round(quizAttempts.reduce((sum, attempt) => sum + attempt.score, 0) / quizAttempts.length) : 0;
   const value = {
-    historySync, refreshStudyHistory, pendingStudyCount: data.studyOutbox.filter((r) => sameId(r.userId, currentUser?.id)).length,
+    historySync, refreshStudyHistory, retryStudyRecords, pendingStudyCount: data.studyOutbox.filter((r) => sameId(r.userId, currentUser?.id) && !r.blocked).length,
     persistStudy,
     saveProfile: async (profile) => {
       const epoch = sessionEpoch.current;
