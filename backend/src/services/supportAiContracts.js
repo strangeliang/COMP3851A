@@ -1,7 +1,7 @@
 const { StudyError, parseOutput } = require('./studyContracts');
 const { supportFaq } = require('./supportFaq');
 
-const secretPattern = /\b(?:sk-[a-z0-9_-]{8,}|AIza[a-z0-9_-]{12,}|Bearer\s+\S+)|\b\d{4,8}\b|(?:password|passwd|api[ _-]?key|otp|密码|验证码|密钥)\s*(?:is|是|为|[:=：])\s*\S+/i;
+const { supportSecretPattern: secretPattern } = require('../../../shared/supportSecrets.mjs');
 function buildSupportRequest(input) {
   if (!input || typeof input.question !== 'string' || !input.question.trim() || input.question.length > 2000
     || !['en','zh'].includes(input.language) || !Array.isArray(input.history) || input.history.length > 10
@@ -22,7 +22,7 @@ function buildSupportRequest(input) {
       'Only use the product facts below. Give concise, practical steps and ask one clarifying question if needed. Return plain text, not HTML. Keep the answer under 150 words.',
       `Preferred reply language: ${input.language==='zh'?'Simplified Chinese':'English'}.`,
       'PRODUCT FACTS:',knowledge,
-      'Use the 中文 / EN control to change interface language. My Profile edits name and avatar. A support record is created per successful login; page refresh reuses it. This login shows the current conversation, Conversation history shows previous records. Only the owner and support administrators can read them. Messages save automatically. AI learning chats are separate and not included here.',
+      'Change website language in Settings → Website language → Change language. Settings also offers chat size, default answer style, default Quiz difficulty and study text size. My Profile edits name, avatar, bio and learning goals. Review Centre offers wrong questions only or retake all questions. Study History supports Delete, Undo, Delete all and Undo all; deleting a course or source material permanently removes its dependent study records. Flashcards generates six cards. A support record is created per successful login; page refresh reuses it. This login shows the current conversation, Conversation history shows previous records. Only the owner and support administrators can read them. Messages save automatically. AI learning chats are separate and not included here.',
     ].join('\n')}]},
     contents:[...input.history.map(m=>({role:m.role,parts:[{text:m.text}]})),{role:'user',parts:[{text:input.question}]}],
     generationConfig:{temperature:0.2,maxOutputTokens:2048},

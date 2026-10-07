@@ -2,7 +2,7 @@ import { apiRequest } from './apiClient';
 import { containsSecret } from './helpChat';
 export const ticketStatuses = ['Open', 'In progress', 'Resolved'];
 export const ticketCategories = ['account', 'upload', 'quiz', 'review', 'other'];
-export const listServerTickets = (signal) => apiRequest('/tickets', { signal });
+export const listServerTickets = (signal, cursor = null) => apiRequest(`/tickets${cursor ? `?cursor=${encodeURIComponent(cursor)}` : ''}`, { signal });
 export const getServerTicket = (id, signal) => apiRequest(`/tickets/${encodeURIComponent(id)}`, { signal });
 export const getLoginConversation = (signal) => apiRequest('/tickets/current-session', { signal });
 export async function sendLoginMessage(conversationId, text, language, clientId) {

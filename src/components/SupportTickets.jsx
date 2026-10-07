@@ -11,13 +11,15 @@ export default function SupportTickets(props) {
   const { currentUser } = useAppData();
   return currentUser ? <TicketInbox key={currentUser.id} user={currentUser} {...props} /> : null;
 }
-function TicketInbox({ user, onNewTicket }) {
+function TicketInbox({ user, onNewTicket, initialTicketId = null }) {
   const { language } = useLanguage();
   const zh = language === 'zh';
   const t = (en, cn) => zh ? cn : en;
   const admin = user.role === 'Admin';
   const [tickets, setTickets] = useState([]);
   const [hasMore, setHasMore] = useState(false);
+  const [nextCursor, setNextCursor] = useState(null);
+  const [loadingMore, setLoadingMore] = useState(false);
   const [loaded, setLoaded] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -29,7 +31,7 @@ function TicketInbox({ user, onNewTicket }) {
   const [hideEmpty, setHideEmpty] = useState(admin);
   const [needsReplyOnly, setNeedsReplyOnly] = useState(false);
   const [sort, setSort] = useState('newest');
-  const [selectedId, setSelectedId] = useState(null);
+  const [selectedId, setSelectedId] = useState(initialTicketId);
   const [selected, setSelected] = useState(null);
   const [detailLoading, setDetailLoading] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -39,6 +41,8 @@ function TicketInbox({ user, onNewTicket }) {
   const [syncError, setSyncError] = useState(false);
   const statusEdited = useRef(false);
   const listRequest = useRef(null);
+  const olderRequest = useRef(null);
+  const olderLoaded = useRef(false);
   const mounted = useRef(false);
   const writeLock = useRef(false);
   const mutationEpoch = useRef(0);
@@ -47,19 +51,39 @@ function TicketInbox({ user, onNewTicket }) {
   const categoryLabel = (value) => ({ account: t('Account', '账号'), upload: t('Upload', '上传'), quiz: t('Quiz', '测验'), review: t('Study History', '学习历史'), other: t('Other', '其他') })[value] || value;
   const date = (value) => value ? new Date(value).toLocaleString(zh ? 'zh-CN' : 'en-GB', { dateStyle: 'medium', timeStyle: 'short' }) : '—';
   const refresh = useCallback(async (silent = false) => {
+    if (olderRequest.current) return;
     listRequest.current?.abort();
     const controller = new AbortController(); listRequest.current = controller;
     if (!silent) setLoading(true); setError('');
     try {
       const result = await listServerTickets(controller.signal);
-      if (!controller.signal.aborted && mounted.current) { setTickets(result.tickets); setHasMore(result.hasMore); setLoaded(true); }
+      if (!controller.signal.aborted && mounted.current) {
+        setTickets(previous => olderLoaded.current ? [...new Map([...previous, ...result.tickets].map(ticket => [ticket.id, ticket])).values()] : result.tickets);
+        if (!olderLoaded.current) { setHasMore(result.hasMore); setNextCursor(result.nextCursor || null); }
+        setLoaded(true);
+      }
     } catch (e) { if (!controller.signal.aborted && mounted.current) setError(e.message); }
     finally { if (!controller.signal.aborted && mounted.current) setLoading(false); }
   }, []);
   useEffect(() => {
     mounted.current = true; refresh();
-    return () => { mounted.current = false; listRequest.current?.abort(); };
+    return () => { mounted.current = false; listRequest.current?.abort(); olderRequest.current?.abort(); };
   }, [refresh]);
+  async function loadOlder() {
+    if (!nextCursor || olderRequest.current || busy) return;
+    listRequest.current?.abort(); setLoading(false);
+    const controller = new AbortController(); olderRequest.current = controller;
+    setLoadingMore(true); setError('');
+    try {
+      const result = await listServerTickets(controller.signal, nextCursor);
+      if (!controller.signal.aborted && mounted.current) {
+        olderLoaded.current = true;
+        setTickets(previous => [...new Map([...previous, ...result.tickets].map(ticket => [ticket.id, ticket])).values()]);
+        setHasMore(result.hasMore); setNextCursor(result.nextCursor || null);
+      }
+    } catch (e) { if (!controller.signal.aborted && mounted.current) setError(e.message); }
+    finally { if (olderRequest.current === controller) olderRequest.current = null; if (mounted.current) setLoadingMore(false); }
+  }
   useEffect(() => {
     if (!admin) return;
     let running = false;
@@ -133,7 +157,7 @@ function TicketInbox({ user, onNewTicket }) {
     <div className="support-toolbar"><p className="support-note">{t('Each student login creates a support conversation, even before any message. New conversations and open chats are checked every 8 seconds. No email notifications.', '每次学生登录自动建立客服会话，即使尚未发送消息。管理端新会话及打开的对话每 8 秒检查更新，暂不发送邮件。')}</p><button disabled={loading || busy || detailLoading} onClick={() => { refresh(); setReload((n) => n + 1); }}><RefreshCw size={15} />{t('Refresh', '刷新')}</button>{!admin && onNewTicket && <button onClick={onNewTicket}>{t('Current conversation', '本次会话')}</button>}</div>
     {admin && <div className="support-stats" aria-label={t('Loaded ticket counts', '已加载工单统计')}>{['All', ...ticketStatuses].map((status, i) => { const Icon = icons[i]; return <button key={status} className={`support-stat ${filter === status ? 'active' : ''}`} aria-pressed={filter === status} onClick={() => setFilter(status)}><Icon size={20} /><span>{statusLabel(status)}</span><strong>{loaded ? status === 'All' ? tickets.length : tickets.filter((x) => x.status === status).length : '—'}</strong></button>; })}</div>}
     {error && <p className="support-error" role="alert">{error} <button onClick={refresh}>{t('Retry', '重试')}</button></p>}
-    {hasMore && <p className="support-note">{t('Showing the latest 200 tickets. Counts and filters apply to these loaded tickets.', '显示最新 200 条工单；统计和筛选仅针对已加载记录。')}</p>}
+    {hasMore && <p className="support-note">{t('More conversations are available. Load older conversations to include them in search, filters and counts.', '还有更多会话，加载较早会话后即可将其纳入搜索、筛选和统计。')}</p>}
     <div className="support-workspace"><section className="support-list-panel" aria-label={t('Ticket list', '工单列表')}>
       <div className="support-filters"><label className="support-search"><span>{t('Search tickets', '搜索工单')}</span><div><Search size={16} /><input type="search" value={search} onChange={(e) => setSearch(e.target.value)} placeholder={t('Title, student or ticket ID', '标题、学生或工单编号')} /></div></label><div className="support-filter-pair"><label>{t('Status', '状态')}<select value={filter} onChange={(e) => setFilter(e.target.value)}>{['All', ...ticketStatuses].map((s) => <option key={s} value={s}>{statusLabel(s)}</option>)}</select></label><label>{t('Category', '类别')}<select value={category} onChange={(e) => setCategory(e.target.value)}><option value="All">{t('All categories', '全部类别')}</option>{ticketCategories.map((c) => <option key={c} value={c}>{categoryLabel(c)}</option>)}</select></label></div></div>
       {admin && <div className="support-filters"><label><input type="checkbox" checked={hideEmpty} onChange={e=>setHideEmpty(e.target.checked)}/>{t('Hide empty login conversations','隐藏空登录会话')}</label><label><input type="checkbox" checked={needsReplyOnly} onChange={e=>setNeedsReplyOnly(e.target.checked)}/>{t('Awaiting staff reply','等待管理员回复')}</label><label>{t('Sort','排序')}<select value={sort} onChange={e=>setSort(e.target.value)}><option value="newest">{t('Recently updated','最近更新')}</option><option value="oldest">{t('Oldest first','最早提交优先')}</option></select></label></div>}
@@ -141,6 +165,7 @@ function TicketInbox({ user, onNewTicket }) {
       {loading && <p role="status" className="support-empty">{t('Loading tickets…', '正在加载工单…')}</p>}
       {!loading && loaded && !listed.length && <div className="support-empty"><Inbox size={28} /><h3>{t('No tickets found', '暂无工单')}</h3><p>{tickets.length ? t('Try a different search or filter.', '请调整搜索词或筛选条件。') : t('Submitted tickets will appear here.', '提交的工单将在这里显示。')}</p></div>}
       <div className="support-list">{listed.map((item) => <button disabled={busy} type="button" className={`support-ticket-row ${selectedId === item.id ? 'selected' : ''}`} key={item.id} aria-pressed={selectedId === item.id} onClick={() => choose(item.id)}><div className="support-row-top">{badge(item.status)}<small>{categoryLabel(item.category)}</small>{item.needsReply && <small>{t('Awaiting reply','待回复')}</small>}</div><strong>{item.title}</strong><span className="support-row-excerpt">{item.description}</span><div className="support-row-meta"><span>{item.name}</span><small>{date(item.updatedAt)}</small></div></button>)}</div>
+      {hasMore && <button type="button" className="support-load-older" disabled={busy || loadingMore || !nextCursor} onClick={loadOlder}>{loadingMore ? t('Loading older conversations…', '正在加载较早会话…') : t('Load older conversations', '加载较早会话')}</button>}
     </section><section className="support-detail" aria-label={t('Ticket details', '工单详情')}>
       {detailError && <p role="alert" className="support-error">{detailError} <button disabled={busy} onClick={() => setReload((n) => n + 1)}>{t('Refresh details', '刷新详情')}</button></p>}
       {notice && <p role="status" className="support-notice">{notice}</p>}

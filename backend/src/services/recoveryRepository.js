@@ -28,9 +28,9 @@ function createRecoveryRepository(db) {
         SELECT ?,?,?,?,?,? WHERE (SELECT COUNT(*) FROM account_recovery_requests WHERE email=? AND created_at>?)<3
         ON CONFLICT(client_id) DO NOTHING`, [id, clientId, accountName, email, now, now, email, new Date(Date.now() - 3600000).toISOString()]);
     },
-    async list(user) {
+    async list(user, before = null) {
       if (user.role !== 'Admin') return { tickets: [], hasMore: false };
-      const rows = await all('SELECT * FROM account_recovery_requests ORDER BY updated_at DESC,rowid DESC LIMIT 201');
+      const rows = await all(`SELECT * FROM account_recovery_requests${before ? ' WHERE (updated_at<? OR (updated_at=? AND id>?))' : ''} ORDER BY updated_at DESC,id ASC LIMIT 201`, before ? [before.time, before.time, before.id] : []);
       return { tickets: rows.slice(0, 200).map(map), hasMore: rows.length > 200 };
     },
     async reply(id, { eventId, clientId, text }, user) {

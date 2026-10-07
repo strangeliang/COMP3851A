@@ -143,6 +143,11 @@ const SCHEMA_SQL = `
     record_id TEXT NOT NULL REFERENCES study_history(id) ON DELETE CASCADE,
     payload TEXT NOT NULL, created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
   );
+  CREATE TABLE IF NOT EXISTS study_history_deletions (
+    record_id TEXT PRIMARY KEY REFERENCES study_history(id) ON DELETE CASCADE,
+    owner_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    deleted_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+  );
   CREATE TABLE IF NOT EXISTS user_profiles (
     user_id INTEGER PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
     display_name TEXT NOT NULL,

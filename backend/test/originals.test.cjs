@@ -109,7 +109,7 @@ test("original bytes survive a real backend restart; sessions, ownership and del
     assert.equal(list.materials[0].has_original, 1);
     assert.equal(list.materials[0].storage_key, undefined);
     assert.equal((await request(`/materials/${id}`, { cookie, method: "DELETE" })).status, 200);
-    assert.deepEqual(await (await request('/history', { cookie })).json(), { records: [], reviews: [] });
+    assert.deepEqual(await (await request('/history', { cookie })).json(), { records: [], reviews: [], deletedRecords: [] });
     assert.equal((await request(url, { cookie })).status, 404);
     assert.deepEqual(await fs.readdir(path.join(directory, "originals")), []);
     // Deleting a course also deletes its originals, not only extracted records.
