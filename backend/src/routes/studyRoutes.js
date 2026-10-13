@@ -2,7 +2,7 @@ const express = require("express");
 const bcrypt = require("bcryptjs");
 const { randomUUID } = require("crypto");
 const { createSessionService, createRateLimiter } = require("../services/sessionService");
-const { StudyError } = require("../services/studyContracts");
+const { StudyError, limits } = require("../services/studyContracts");
 const { createOriginalStorage, validateOriginal } = require("../services/originalStorage");
 const path = require("node:path");
 const { startLogin } = require('../services/startLogin');
@@ -101,7 +101,31 @@ function createStudyRoutes({ database, gemini, mailer, sessions = createSessionS
   router.get("/history", authenticate, async (req, res) => res.json({
     records: (await database.listHistory(req.user.id)).map((r) => ({ ...r, payload: JSON.parse(r.payload) })),
     reviews: (await database.listReviews(req.user.id)).map((r) => ({ ...r, payload: JSON.parse(r.payload) })),
+    deletedRecords: (await database.listDeletedHistory?.(req.user.id) || []).map((r) => ({ ...r, payload: JSON.parse(r.payload) })),
   }));
+  router.post("/history/delete-all", authenticate, async (req, res) => {
+    const result = await database.deleteAllHistory(req.user.id);
+    res.json({ ok: true, count: result.changes });
+  });
+  router.post("/history/restore-all", authenticate, async (req, res) => {
+    const result = await database.restoreAllHistory(req.user.id);
+    res.json({ ok: true, count: result.changes });
+  });
+  router.delete("/history/:id", authenticate, async (req, res) => {
+    const record = await database.getHistoryIncludingDeleted(req.params.id, req.user.id);
+    if (!record) throw new StudyError(404, "NOT_FOUND", "This study record is unavailable.");
+    await database.deleteHistory(record.id, req.user.id);
+    res.json({ ok: true });
+  });
+  router.post("/history/:id/restore", authenticate, async (req, res) => {
+    const record = await database.getHistoryIncludingDeleted(req.params.id, req.user.id);
+    if (!record || !await database.courseBelongsToOwner(record.course_id, req.user.id)) throw new StudyError(404, "NOT_FOUND", "This study record or its course is unavailable.");
+    await database.restoreHistory(record.id, req.user.id);
+    const restored = await database.getHistory(record.id, req.user.id);
+    if (!restored) throw new StudyError(404, "NOT_FOUND", "This study record is unavailable.");
+    res.json({ record: { ...restored, payload: JSON.parse(restored.payload) },
+      reviews: (await database.listReviews(req.user.id)).filter(r => r.record_id === record.id).map(r => ({ ...r, payload: JSON.parse(r.payload) })) });
+  });
   router.post("/history", authenticate, async (req, res) => {
     const { id, kind, courseId, payload } = req.body || {};
     if (typeof id !== "string" || id.length > 100 || !id || !["summary", "qa", "quiz", "flashcards"].includes(kind) || !payload || typeof payload !== "object" || JSON.stringify(payload).length > 200000) throw new StudyError(400, "INVALID_HISTORY", "Invalid study record.");
@@ -116,6 +140,7 @@ function createStudyRoutes({ database, gemini, mailer, sessions = createSessionS
     }
     await database.saveHistory(`${req.user.id}:${id}`, req.user.id, kind, courseId, payload);
     const saved = await database.getHistory(`${req.user.id}:${id}`, req.user.id);
+    if (!saved && await database.getHistoryIncludingDeleted?.(`${req.user.id}:${id}`, req.user.id)) throw new StudyError(409, 'HISTORY_DELETED', 'This record was deleted. Use Undo in Study History to restore it.');
     if (!saved) throw new StudyError(404, 'COURSE_NOT_FOUND', 'The course was removed before the record could be saved.');
     if (saved.kind !== kind || saved.course_id !== courseId || saved.payload !== JSON.stringify(payload)) {
       throw new StudyError(409, "HISTORY_CONFLICT", "This record ID has already been used for different content.");
@@ -126,13 +151,15 @@ function createStudyRoutes({ database, gemini, mailer, sessions = createSessionS
     const record = await database.getHistory(req.params.id, req.user.id);
     if (!record || record.kind !== "quiz") throw new StudyError(404, "NOT_FOUND", "Quiz unavailable.");
     const original = JSON.parse(record.payload);
-    const questions = original.questions.filter((q) => !isCorrect(q, original.answers[q.id]));
+    const mode = req.body?.mode || "wrong";
+    if (!["wrong", "all"].includes(mode)) throw new StudyError(400, "INVALID_REVIEW_MODE", "Choose wrong questions or all questions.");
+    const questions = mode === "all" ? original.questions : original.questions.filter((q) => !isCorrect(q, original.answers[q.id]));
     const answers = req.body?.answers;
-    if (!questions.length || !answers || questions.some((q) => !validAnswer(q, answers[q.id]))) throw new StudyError(400, "INCOMPLETE_REVIEW", "Answer every wrong question before submitting.");
+    if (!questions.length || !answers || questions.some((q) => !validAnswer(q, answers[q.id]))) throw new StudyError(400, "INCOMPLETE_REVIEW", mode === "all" ? "Answer every question before submitting." : "Answer every wrong question before submitting.");
     const correct = questions.filter((q) => isCorrect(q, answers[q.id])).length;
     const clientId = req.body?.clientId;
     if (clientId !== undefined && (typeof clientId !== 'string' || !/^[a-zA-Z0-9-]{16,100}$/.test(clientId))) throw new StudyError(400, 'INVALID_REVIEW_ID', 'Invalid practice request ID.');
-    const result = { answers: Object.fromEntries(questions.map((q) => [q.id, answers[q.id]])), correct, total: questions.length, score: Math.round(correct / questions.length * 100) };
+    const result = { answers: Object.fromEntries(questions.map((q) => [q.id, answers[q.id]])), correct, total: questions.length, score: Math.round(correct / questions.length * 100), mode };
     const reviewId = clientId ? `${req.user.id}:${clientId}` : randomUUID();
     await database.saveReview(reviewId, req.user.id, record.id, result);
     if (clientId) {
@@ -194,9 +221,15 @@ function createStudyRoutes({ database, gemini, mailer, sessions = createSessionS
     if (!Number.isInteger(sizeBytes) || sizeBytes < 0 || sizeBytes > 10 * 1024 * 1024 || (content !== null && typeof content !== "string")) {
       throw new StudyError(400, "INVALID_MATERIAL", "Material size or content is invalid.");
     }
+    if (typeof content === "string" && content.length > limits.maxStoredTextCharacters) {
+      throw new StudyError(400, "MATERIAL_TEXT_LIMIT", `A material must contain no more than ${limits.maxStoredTextCharacters.toLocaleString()} extracted characters.`);
+    }
     try {
       const material = await database.createMaterialForOwner({ courseId, ownerId: req.user.id, name, type, sizeBytes, content });
-      if (!material) throw new StudyError(404, "COURSE_NOT_FOUND", "This course does not exist or does not belong to you.");
+      if (!material) {
+        if (!await database.courseBelongsToOwner(courseId, req.user.id)) throw new StudyError(404, "COURSE_NOT_FOUND", "This course does not exist or does not belong to you.");
+        throw new StudyError(409, "MATERIAL_LIMIT", `Each course can store at most ${limits.maxFilesPerCourse} files and each student at most ${limits.maxTotalFilesPerUser} files.`);
+      }
       res.status(201).json({ material });
     } catch (error) { if (error instanceof StudyError) throw error; mapDatabaseError(error); }
   });

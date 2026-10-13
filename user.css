@@ -243,7 +243,7 @@ body.user-app {
   background: var(--user-white);
 }
 
-.stat-icon {
+.quick-stat .stat-icon {
   display: grid;
   place-items: center;
   flex: 0 0 38px;

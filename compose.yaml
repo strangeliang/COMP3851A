@@ -8,6 +8,7 @@ services:
       NODE_ENV: production
       PORT: 3000
       HOST: 0.0.0.0
+      TRUST_PROXY: ${TRUST_PROXY:-0}
       FRONTEND_URL: ${PUBLIC_APP_URL:?Set PUBLIC_APP_URL to the public HTTPS origin}
       PUBLIC_APP_URL: ${PUBLIC_APP_URL:?Set PUBLIC_APP_URL to the public HTTPS origin}
       GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}

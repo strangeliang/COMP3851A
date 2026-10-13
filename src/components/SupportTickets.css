@@ -124,3 +124,5 @@
 .support-student .support-chat-log { height: 280px; padding: 12px; }.support-student .support-chat-tabs button { padding: 7px; }.support-student .support-chat-composer > div { flex-wrap: wrap; }
 @media (max-width: 1050px) { .support-admin .support-workspace { grid-template-columns: 1fr; }.support-header { align-items: flex-start; }.support-secure { display: none; } }
 @media (max-width: 600px) { .support-stats { grid-template-columns: 1fr 1fr; gap: 8px; }.support-tickets .support-stat { padding: 12px; }.support-detail { padding: 16px; }.support-header h1 { font-size: 25px; }.support-status-editor { flex-direction: column; align-items: stretch; }.support-toolbar { flex-wrap: wrap; } }
+.support-load-older { display: block; width: calc(100% - 24px); margin: 12px; padding: 12px; border: 1px solid #ddd5eb; border-radius: 8px; background: #faf7ff; color: #5420d8; cursor: pointer; }
+.support-load-older:disabled { opacity: .55; cursor: not-allowed; }

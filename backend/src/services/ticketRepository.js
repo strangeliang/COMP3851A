@@ -34,8 +34,8 @@ function createTicketRepository(db) {
       WHERE e.ticket_id=? AND e.author_id=? AND e.client_id=? AND t.owner_id=?`,[id,user.id,clientId,user.id]),
     saveAi: (eventId,answer,model) => run(`INSERT INTO support_ai_replies(event_id,body,model,created_at)
       VALUES(?,?,?,?) ON CONFLICT(event_id) DO NOTHING`,[eventId,answer,model,new Date().toISOString()]),
-    list: async(user) => {
-      const rows=await all(`${select} WHERE (?=1 OR t.owner_id=?) ORDER BY t.updated_at DESC,t.rowid DESC LIMIT 201`,scope(user));
+    list: async(user, before = null) => {
+      const rows=await all(`${select} WHERE (?=1 OR t.owner_id=?)${before ? ' AND (t.updated_at<? OR (t.updated_at=? AND t.id>?))' : ''} ORDER BY t.updated_at DESC,t.id ASC LIMIT 201`, [...scope(user), ...(before ? [before.time, before.time, before.id] : [])]);
       return {tickets:rows.slice(0,200).map(map),hasMore:rows.length>200};
     },
     create: async({id,clientId,category,title,description},user) => {

@@ -81,7 +81,7 @@ const modePrompts = {
   qa: "Answer the student's current question. Use relevant recent conversation for follow-up questions, but verify claims against the selected sources.",
   summary: "Summarise the selected sources together. Return one clear paragraph and 3 to 8 key concepts. Cover substantive course content, highlight important differences, and cite source labels in the paragraph or concepts. Return only the requested JSON object.",
   quiz: "Create revision questions grounded in the selected sources. Each question must have exactly 4 distinct options. Single-answer questions have one correct option; multiple-answer questions have two or three correct options. Provide zero-based answerIndices and an explanation with a source label. Explain using option text, never option letters or positions, because options will be shuffled. Vary the questions across generations. Avoid questions about the app itself unless that is the source topic. Return only the requested JSON object.",
-  flashcards: "Create exactly 5 revision flashcards grounded in the selected sources. Each card must have a concise front question or key term, a clear back explanation, and a source label such as [S1]. Return only the requested JSON object.",
+  flashcards: "Create exactly 6 revision flashcards grounded in the selected sources. Each card must have a concise front question or key term, a clear back explanation, and a source label such as [S1]. Return only the requested JSON object.",
 };
 
 const responseSchemas = {
@@ -113,7 +113,7 @@ const responseSchemas = {
     type: "OBJECT",
     properties: {
       cards: {
-        type: "ARRAY", minItems: 5, maxItems: 5,
+        type: "ARRAY", minItems: 6, maxItems: 6,
         items: {
           type: "OBJECT",
           properties: {
@@ -160,26 +160,33 @@ function checkedText(value, maximum = 20000) {
   return typeof value === "string" && value.trim().length > 0 && value.length <= maximum;
 }
 
-function parseOutput(mode, data, { questionCount = 5 } = {}) {
+function parseOutput(mode, data, { questionCount = 5, materials } = {}) {
   const candidate = data?.candidates?.[0];
   if (candidate?.finishReason === "MAX_TOKENS") throw new StudyError(502, "OUTPUT_TRUNCATED", "The AI response was cut short. Try fewer materials or a shorter question.");
   if (!candidate || candidate.finishReason !== "STOP") throw new StudyError(502, "INCOMPLETE_RESPONSE", "The AI did not return a complete answer. Please try again or rephrase the request.");
   const parts = candidate.content?.parts;
   const text = Array.isArray(parts) ? parts.filter((part) => part && !part.thought && typeof part.text === "string").map((part) => part.text).join("\n").trim() : "";
   const badOutput = () => { throw new StudyError(502, "INVALID_AI_OUTPUT", "The AI returned an invalid result. Please generate it again."); };
+  const validSources = (value) => {
+    if (!materials) return true; // Parser-only callers have no source context.
+    const references = [...value.matchAll(/\[S(\d+)\]/gi)];
+    return references.every(([, number]) => Number(number) >= 1 && Number(number) <= materials.length);
+  };
   if (!checkedText(text, mode === "quiz" ? 190000 : 40000)) badOutput();
+  if (!validSources(text)) badOutput();
   if (mode === "qa") {
     if (!checkedText(text)) badOutput();
     return { answer: text, mode: "api" };
   }
   let output;
   try { output = JSON.parse(text); } catch { badOutput(); }
+  if (!validSources(JSON.stringify(output))) badOutput();
   if (mode === "summary") {
     if (!checkedText(output?.paragraph, 12000) || !Array.isArray(output.concepts) || !output.concepts.length || output.concepts.length > 8 || !output.concepts.every((concept) => checkedText(concept, 2000))) badOutput();
     return { paragraph: output.paragraph, concepts: output.concepts, mode: "api" };
   }
   if (mode === "flashcards") {
-    if (!Array.isArray(output?.cards) || output.cards.length !== 5) badOutput();
+    if (!Array.isArray(output?.cards) || output.cards.length !== 6) badOutput();
     const fronts = new Set();
     const cards = output.cards.map((card, index) => {
       const front = card?.front?.trim().toLowerCase();

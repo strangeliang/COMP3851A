@@ -4,7 +4,14 @@ cd /d "%~dp0"
 
 where node >nul 2>nul
 if errorlevel 1 (
-  echo Install Node.js 20.19 or newer, then run this file again.
+  echo Install Node.js 22.13 or newer, then run this file again.
+  pause
+  exit /b 1
+)
+
+node -e "const [major, minor] = process.versions.node.split('.').map(Number); process.exit(major > 22 || major === 22 && minor >= 13 ? 0 : 1)"
+if errorlevel 1 (
+  echo Install Node.js 22.13 or newer, then run this file again.
   pause
   exit /b 1
 )
@@ -21,7 +28,12 @@ if not exist backend\node_modules (
 )
 if not exist backend\.env (
   copy /y backend\.env.example backend\.env >nul
-  echo Created backend\.env. Add GEMINI_API_KEY there to enable AI.
+  echo Created backend\.env. Add your GEMINI_API_KEY there to enable AI.
+  echo For local demo accounts only, uncomment STUDY_SEED_DEMO=1.
+  echo Do not enable demo accounts on a public deployment.
+  echo Save backend\.env, then run this file again. See README.md for details.
+  pause
+  exit /b 0
 )
 
 echo Starting the backend in a separate window...

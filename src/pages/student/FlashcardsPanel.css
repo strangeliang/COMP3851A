@@ -1,0 +1,11 @@
+.flashcards-panel h2 { display: flex; gap: 10px; align-items: center; }
+.flashcards-panel h2 svg { color: #6f32ff; }
+.revision-flashcard { box-shadow: 0 3px 12px rgba(60,42,102,.035); }
+.revision-flashcard:hover { box-shadow: 0 8px 22px rgba(60,42,102,.09); }
+.flashcard-topline { display: flex; justify-content: space-between; align-items: center; gap: 12px; }
+.flashcard-number { display: inline-flex; gap: 5px; align-items: center; padding: 5px 8px; border-radius: 8px; background: #f3edff; color: #6c43be; font-size: 11px; }
+.revision-flashcard h3 { display: flex; gap: 8px; align-items: center; font-size: 15px; }
+.revision-flashcard h3 svg { color: #6f32ff; }
+.revision-flashcard.is-flipped h3 svg { color: #297d69; }
+.revision-flashcard small svg { vertical-align: -2px; margin-right: 5px; }
+.revision-flashcard > p { line-height: 1.65; }

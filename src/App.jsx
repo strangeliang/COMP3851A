@@ -1,8 +1,10 @@
-import { Navigate, Route, Routes } from "react-router-dom";
+import { Navigate, Route, Routes, useLocation } from "react-router-dom";
+import "./PageMotion.css";
 import LoginPage from "./pages/LoginPage";
 import RegisterPage from "./pages/RegisterPage";
 import HistoryPage from "./pages/student/HistoryPage";
 import ProfilePage from "./pages/student/ProfilePage";
+import SettingsPage from "./pages/student/SettingsPage";
 import ForgotPasswordPage from "./pages/ForgotPasswordPage";
 import EmailAccessPage from "./pages/EmailAccessPage";
 import DashboardPage from "./pages/student/DashboardPage";
@@ -12,17 +14,17 @@ import QAPage from "./pages/student/QAPage";
 import AdminSupportPage from "./pages/admin/AdminSupportPage";
 import ProtectedRoute from "./components/ProtectedRoute";
 import StudyWorkspacePage from "./pages/student/StudyWorkspacePage";
-import LanguageToggle from "./components/LanguageToggle";
 
 export default function App() {
-  return (<>
-    <LanguageToggle />
+  const location = useLocation();
+  return (<div className="app-page-transition" key={location.pathname}>
     <Routes>
       <Route path="/admin/support" element={<ProtectedRoute role="Admin"><AdminSupportPage /></ProtectedRoute>} />
       <Route path="/register" element={<RegisterPage />} />
       <Route path="/student/history" element={<ProtectedRoute role="Student"><HistoryPage key="history" /></ProtectedRoute>} />
       <Route path="/student/review" element={<ProtectedRoute role="Student"><HistoryPage key="review" review /></ProtectedRoute>} />
       <Route path="/student/profile" element={<ProtectedRoute role="Student"><ProfilePage /></ProtectedRoute>} />
+      <Route path="/student/settings" element={<ProtectedRoute role="Student"><SettingsPage /></ProtectedRoute>} />
       <Route path="/" element={<LoginPage />} />
       <Route path="/forgot-password" element={<ForgotPasswordPage />} />
       <Route path="/reset-password" element={<EmailAccessPage key="reset" purpose="reset" />} />
@@ -82,5 +84,5 @@ export default function App() {
 
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>
-  </>);
+  </div>);
 }

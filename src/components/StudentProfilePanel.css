@@ -1,0 +1,21 @@
+.profile-menu-anchor { position: relative; }
+.profile-more-button { display: grid; place-items: center; min-height: 30px; padding: 4px; border: 0; border-radius: 7px; background: transparent; color: #6f32ff; cursor: pointer; }
+.profile-more-button:hover { background: #f7f3ff; }
+.profile-options-menu { position: absolute; top: calc(100% + 6px); right: 0; z-index: 35; width: 200px; padding: 6px; border: 1px solid #ece9f2; border-radius: 12px; background: white; box-shadow: 0 12px 30px #30204d1f; }
+.profile-options-menu a, .profile-options-menu button { display: flex; align-items: center; gap: 10px; width: 100%; padding: 11px 10px; border: 0; border-radius: 8px; font: inherit; font-size: 13px; color: #393143; background: white; text-align: left; text-decoration: none; cursor: pointer; }
+.profile-options-menu a:hover, .profile-options-menu button:hover { background: #f7f3ff; }
+.profile-options-menu .profile-menu-logout { color: #bc324c; }
+.user-profile .profile-actions button { display: grid; place-items: center; width: 38px; min-height: 38px; height: 38px; padding: 0; border: 1px solid #ece9f2; border-radius: 50%; color: #6f32ff; background: white; cursor: pointer; }
+.user-profile .profile-actions button:hover, .user-profile .profile-actions button[aria-expanded="true"] { background: #f2edff; border-color: #cdbbf5; }
+.user-profile button:focus-visible, .profile-options-menu a:focus-visible { outline: 2px solid #9464ff; outline-offset: 2px; }
+.profile-widget { padding: 15px; margin: -14px 0 24px; border: 1px solid #ece9f2; border-radius: 12px; background: #fcfaff; font-size: 12px; overflow-wrap: anywhere; }
+.profile-widget header { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 12px; }
+.profile-widget h3 { margin: 0; font-size: 14px; }
+.profile-widget header button { display: grid; place-items: center; min-height: 26px; padding: 4px; border: 0; background: transparent; color: #77727f; }
+.profile-widget .profile-update-item { display: grid; width: 100%; gap: 5px; padding: 10px 0; border: 0; border-bottom: 1px solid #ece9f2; color: #5420d8; background: transparent; text-align: left; text-decoration: none; cursor: pointer; font: inherit; }
+.profile-widget small { color: #77727f; }
+.profile-widget time { font-size: 10px; color: #8a8393; }
+.profile-widget dl { margin: 0 0 14px; }
+.profile-widget dl > div { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 7px 0; }
+.profile-widget dd { margin: 0; font-size: 15px; font-weight: 700; color: #6f32ff; }
+.profile-widget > a { display: block; margin-top: 10px; color: #5420d8; }

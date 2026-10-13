@@ -7,7 +7,7 @@ const materials = [{ id: "notes", name: "course.txt", content: "Photosynthesis c
 const input = { materials, question: "What does photosynthesis do?", history: [] };
 const complete = (text) => ({ candidates: [{ finishReason: "STOP", content: { parts: [{ text }] } }] });
 const output = { questions: Array.from({ length: 5 }, (_, index) => ({ question: `Question ${index + 1}?`, options: ["Light", "Sound", "Heat", "Motion"], answerIndices: index % 2 ? [0, 2] : [0], explanation: "Light is described in the source. [S1]" })) };
-const flashcardOutput = { cards: Array.from({ length: 5 }, (_, index) => ({ front: `Term ${index + 1}`, back: `Explanation ${index + 1}`, source: "[S1]" })) };
+const flashcardOutput = { cards: Array.from({ length: 6 }, (_, index) => ({ front: `Term ${index + 1}`, back: `Explanation ${index + 1}`, source: "[S1]" })) };
 const reply = (text, status = 200, headers = {}) => new Response(typeof text === "string" ? text : JSON.stringify(text), { status, headers });
 const codeIs = (code) => (error) => error.code === code;
 
@@ -152,10 +152,15 @@ test("shared quiz marking uses exact sets, preserves legacy answers and shuffles
   assert.deepEqual(answerText(shuffled, correctIndices(shuffled)).split("; ").sort(), ["A", "C"]);
 });
 
-test("flashcard validation requires five unique cards with source labels", () => {
-  assert.equal(parseOutput("flashcards", complete(JSON.stringify(flashcardOutput))).cards.length, 5);
+test("flashcard validation requires six unique cards with source labels", () => {
+  assert.equal(parseOutput("flashcards", complete(JSON.stringify(flashcardOutput))).cards.length, 6);
+  const request = buildGeminiRequest("flashcards", validateRequest("flashcards", { materials }));
+  assert.match(request.contents.at(-1).parts[0].text, /exactly 6/);
+  assert.equal(request.generationConfig.responseSchema.properties.cards.minItems, 6);
+  assert.equal(request.generationConfig.responseSchema.properties.cards.maxItems, 6);
   for (const mutate of [
     (value) => { value.cards.pop(); },
+    (value) => { value.cards.push({ front: "Extra", back: "Extra card", source: "[S1]" }); },
     (value) => { value.cards[0].front = value.cards[1].front; },
     (value) => { value.cards[0].back = ""; },
     (value) => { value.cards[0].source = "course notes"; },

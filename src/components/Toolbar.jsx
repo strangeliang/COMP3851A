@@ -1,4 +1,4 @@
-import { ListFilter, Search } from "lucide-react";
+import { Search } from "lucide-react";
 
 export default function Toolbar({ value, onChange, placeholder }) {
   return (
@@ -12,9 +12,6 @@ export default function Toolbar({ value, onChange, placeholder }) {
           placeholder={placeholder}
         />
       </label>
-      <button className="filter-button" type="button" title="Filter">
-        <ListFilter size={20} />
-      </button>
     </div>
   );
 }

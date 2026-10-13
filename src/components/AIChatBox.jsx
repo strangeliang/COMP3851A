@@ -6,13 +6,16 @@ import { generateAIAnswer } from "../services/aiService";
 import { useAppData } from "../state/AppDataContext";
 import useAIRequest from "../hooks/useAIRequest";
 import useWorkspaceState from "../hooks/useWorkspaceState";
+import useStudyPreferences from "../hooks/useStudyPreferences";
+import { courseLabel } from "../utils/courseDisplay";
 import { limits, recentHistory, selectionError } from "../utils/studyScope";
 
 export default function AIChatBox({ selectedMaterials = [], currentCourse = null }) {
   const { addChatRecord, recordQAUse, currentChatRecords, scope, aiStatus, notify } = useAppData();
   const request = useAIRequest(scope.scopeKey);
   const sendLock = useRef(null);
-  const [answerStyle, setAnswerStyle] = useWorkspaceState(`qa-style:${scope.scopeKey}`, "simple");
+  const [preferences] = useStudyPreferences();
+  const [answerStyle, setAnswerStyle] = useWorkspaceState(`qa-style:${scope.scopeKey}`, preferences.answerStyle);
   const isTyping = request.pending;
   const materialNames = selectedMaterials.map((material) => material.name).join(", ");
   const inputError = selectionError(selectedMaterials);
@@ -109,7 +112,7 @@ export default function AIChatBox({ selectedMaterials = [], currentCourse = null
               </p>
               {currentCourse && (
                 <p style={{ margin: "8px 0 0 0", fontSize: "12px", color: "#64748b" }}>
-                  Course scope: {currentCourse.code} {currentCourse.name}
+                  Course scope: {courseLabel(currentCourse)}
                 </p>
               )}
             </div>

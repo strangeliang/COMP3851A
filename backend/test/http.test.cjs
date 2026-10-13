@@ -75,6 +75,11 @@ test("history isolates accounts and scores wrong-question practice without chang
   }
   assert.equal((await request("/history/1:mixed/review", { cookie: other, method: "POST", data: { answers: { 1: [0, 2] } } })).status, 404);
   assert.deepEqual(JSON.parse(records[1].payload).answers, { 1: [0], 2: 1 });
+  const full = await (await request("/history/1:mixed/review", { cookie, method: "POST", data: { mode: "all", answers: { 1: [0, 2], 2: 1 } } })).json();
+  assert.equal(full.mode, "all"); assert.equal(full.total, 2); assert.equal(full.score, 100);
+  assert.deepEqual(JSON.parse(records[1].payload).answers, { 1: [0], 2: 1 });
+  assert.equal((await request("/history/1:mixed/review", { cookie, method: "POST", data: { mode: "all", answers: { 1: [0, 2] } } })).status, 400);
+  assert.equal((await request("/history/1:mixed/review", { cookie, method: "POST", data: { mode: "invalid", answers: {} } })).status, 400);
   const clientId = 'retry-00000000-0000-0000-000000000001';
   const before = reviews.length;
   const retry = () => request('/history/1:mixed/review', { cookie, method: 'POST', data: { answers: { 1: [0, 2] }, clientId } });

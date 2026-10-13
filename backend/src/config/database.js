@@ -1,6 +1,7 @@
 const fs = require("fs");
 const path = require("path");
 const sqlite3 = require("sqlite3").verbose();
+const limits = require("../../../shared/studyLimits.json");
 
 const { createSchema, REQUIRED_TABLES } = require("./schema");
 const { seedDatabase } = require("./seed");
@@ -121,11 +122,17 @@ module.exports = {
   saveOriginal: (id, owner, key, hash) => run("INSERT INTO material_originals(material_id,storage_key,sha256) SELECT id,?,? FROM materials WHERE id=? AND owner_id=?", [key, hash, id, owner]),
   listOriginalsForCourse: (course, owner) => all("SELECT o.storage_key FROM material_originals o JOIN materials m ON m.id=o.material_id WHERE m.course_id=? AND m.owner_id=?", [course, owner]),
   saveHistory: (id, owner, kind, course, payload) => run("INSERT OR IGNORE INTO study_history(id,owner_id,kind,course_id,payload) SELECT ?,?,?,?,? WHERE EXISTS(SELECT 1 FROM courses WHERE id=? AND owner_id=?)", [id, owner, kind, course, JSON.stringify(payload), course, owner]),
-  listHistory: (owner) => all("SELECT * FROM study_history WHERE owner_id=? ORDER BY created_at DESC,rowid DESC", [owner]),
-  getHistory: (id, owner) => get("SELECT * FROM study_history WHERE id=? AND owner_id=?", [id, owner]),
+  listHistory: (owner) => all("SELECT h.* FROM study_history h WHERE h.owner_id=? AND NOT EXISTS(SELECT 1 FROM study_history_deletions d WHERE d.record_id=h.id) ORDER BY h.created_at DESC,h.rowid DESC", [owner]),
+  getHistory: (id, owner) => get("SELECT h.* FROM study_history h WHERE h.id=? AND h.owner_id=? AND NOT EXISTS(SELECT 1 FROM study_history_deletions d WHERE d.record_id=h.id)", [id, owner]),
+  getHistoryIncludingDeleted: (id, owner) => get("SELECT * FROM study_history WHERE id=? AND owner_id=?", [id, owner]),
+  listDeletedHistory: (owner) => all("SELECT h.*,d.deleted_at FROM study_history h JOIN study_history_deletions d ON d.record_id=h.id WHERE h.owner_id=? ORDER BY d.deleted_at DESC,d.rowid DESC", [owner]),
+  deleteHistory: (id, owner) => run("INSERT INTO study_history_deletions(record_id,owner_id) SELECT id,owner_id FROM study_history WHERE id=? AND owner_id=? ON CONFLICT(record_id) DO NOTHING", [id, owner]),
+  restoreHistory: (id, owner) => run("DELETE FROM study_history_deletions WHERE record_id=? AND owner_id=?", [id, owner]),
+  deleteAllHistory: (owner) => run("INSERT OR IGNORE INTO study_history_deletions(record_id,owner_id) SELECT id,owner_id FROM study_history WHERE owner_id=?", [owner]),
+  restoreAllHistory: (owner) => run("DELETE FROM study_history_deletions WHERE owner_id=? AND EXISTS(SELECT 1 FROM study_history h JOIN courses c ON c.id=h.course_id WHERE h.id=study_history_deletions.record_id AND c.owner_id=?)", [owner, owner]),
   saveReview: (id, owner, record, payload) => run("INSERT OR IGNORE INTO review_attempts(id,owner_id,record_id,payload) VALUES(?,?,?,?)", [id, owner, record, JSON.stringify(payload)]),
   getReview: (id, owner) => get("SELECT * FROM review_attempts WHERE id=? AND owner_id=?", [id, owner]),
-  listReviews: (owner) => all("SELECT * FROM review_attempts WHERE owner_id=? ORDER BY created_at DESC,rowid DESC", [owner]),
+  listReviews: (owner) => all("SELECT r.* FROM review_attempts r WHERE r.owner_id=? AND NOT EXISTS(SELECT 1 FROM study_history_deletions d WHERE d.record_id=r.record_id) ORDER BY r.created_at DESC,r.rowid DESC", [owner]),
   db,
   databasePath,
   getDatabaseStatus,
@@ -163,8 +170,10 @@ module.exports = {
     const result = await run(
       `INSERT INTO materials (course_id, owner_id, name, type, size_bytes, status, content)
        SELECT id, owner_id, ?, ?, ?, 'Ready', ? FROM courses
-       WHERE id = ? AND owner_id = ?;`,
-      [name, type, sizeBytes, content, courseId, ownerId],
+       WHERE id = ? AND owner_id = ?
+       AND (SELECT COUNT(*) FROM materials WHERE course_id=? AND owner_id=?) < ?
+       AND (SELECT COUNT(*) FROM materials WHERE owner_id=?) < ?;`,
+      [name, type, sizeBytes, content, courseId, ownerId, courseId, ownerId, limits.maxFilesPerCourse, ownerId, limits.maxTotalFilesPerUser],
     );
     if (result.changes !== 1) return null;
     return get(

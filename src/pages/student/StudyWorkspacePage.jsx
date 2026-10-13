@@ -8,6 +8,8 @@ import {
   MessageCircleQuestion,
   RotateCcw,
   Sparkles,
+  Lightbulb,
+  MousePointerClick,
 } from "lucide-react";
 import { useMemo, useRef, useState } from "react";
 import { useSearchParams } from "react-router-dom";
@@ -16,6 +18,11 @@ import StudentLayout from "../../layouts/StudentLayout";
 import { useAppData } from "../../state/AppDataContext";
 import useAIRequest from "../../hooks/useAIRequest";
 import useWorkspaceState from "../../hooks/useWorkspaceState";
+import useStudyPreferences from "../../hooks/useStudyPreferences";
+import { useLanguage } from "../../state/LanguageContext";
+import "./QuizPanel.css";
+import "./FlashcardsPanel.css";
+import { courseLabel } from "../../utils/courseDisplay";
 import {
   generateAISummary,
   generateAIQuiz,
@@ -127,6 +134,9 @@ function SummaryPanel({ canUseAI, materialSourceLabel }) {
 
 function QuizPanel({ canUseAI, materialSourceLabel }) {
   const { selectedMaterials, saveQuizAttempt, scope } = useAppData();
+  const [preferences] = useStudyPreferences();
+  const { language } = useLanguage();
+  const t = (en, zh) => language === "zh" ? zh : en;
 
   const request = useAIRequest(scope.scopeKey, "quiz");
 
@@ -136,7 +146,7 @@ function QuizPanel({ canUseAI, materialSourceLabel }) {
   const [answers, setAnswers] = useWorkspaceState(`quiz-answers:${scope.scopeKey}`, {});
   const [submitted, setSubmitted] = useWorkspaceState(`quiz-submitted:${scope.scopeKey}`, false);
   const [warning, setWarning] = useState("");
-  const [difficulty, setDifficulty] = useWorkspaceState(`quiz-difficulty:${scope.scopeKey}`, "medium");
+  const [difficulty, setDifficulty] = useWorkspaceState(`quiz-difficulty:${scope.scopeKey}`, preferences.quizDifficulty);
   const [questionCount, setQuestionCount] = useWorkspaceState(`quiz-count:${scope.scopeKey}`, "5");
   const countValid = /^\d+$/.test(String(questionCount)) && Number(questionCount) >= 1 && Number(questionCount) <= 20;
 
@@ -159,7 +169,9 @@ function QuizPanel({ canUseAI, materialSourceLabel }) {
     ? Math.round((correct / questions.length) * 100)
     : 0;
 
-  const question = questions[index];
+  const activeIndex = Math.min(Math.max(Number.isInteger(index) ? index : 0, 0), Math.max(0, questions.length - 1));
+  const question = questions[activeIndex];
+  const answeredCount = questions.filter(item => validAnswer(item, answers[item.id])).length;
 
   function resetAnswers() {
     setIndex(0);
@@ -269,6 +281,7 @@ function QuizPanel({ canUseAI, materialSourceLabel }) {
         Choose 1–20 questions. Quizzes mix single-answer and multiple-answer questions when there is more than one question. Select all correct options; no partial credit. Check AI explanations against the sources.
       </p>
       {!countValid && <p className="form-error" role="alert">Enter a whole number of questions from 1 to 20.</p>}
+      {countValid && !questions.length && <p className="quiz-selection-count" data-react-i18n>{t(`Selected: ${questionCount} questions. Generate Quiz to begin.`, `已选择 ${questionCount} 道题，生成测验后即可开始。`)}</p>}
 
       {request.pending && (
         <div className="state-banner" role="status">
@@ -296,7 +309,7 @@ function QuizPanel({ canUseAI, materialSourceLabel }) {
       {question && !submitted && (
         <div className="quiz-card">
           <div className="quiz-counter">
-            Question {index + 1} of {questions.length}
+            Question {activeIndex + 1} of {questions.length}
           </div>
 
           <h3>{question.question}</h3>
@@ -339,27 +352,33 @@ function QuizPanel({ canUseAI, materialSourceLabel }) {
           )}
 
           <div className="quiz-actions">
+            <div className="quiz-navigation" data-react-i18n>
+              <p role="status">{t(`${answeredCount}/${questions.length} answered · ${questions.length - answeredCount} remaining`, `已答 ${answeredCount}/${questions.length} 题 · 剩余 ${questions.length - answeredCount} 题`)}</p>
+              <nav className="quiz-question-dots" aria-label={t("Jump to a question", "跳转到题目")}>{questions.map((item, questionIndex) => {
+                const answered = validAnswer(item, answers[item.id]);
+                return <button key={item.id} type="button" className={`quiz-question-dot${answered ? " answered" : ""}${questionIndex === activeIndex ? " current" : ""}`} aria-current={questionIndex === activeIndex ? "step" : undefined} aria-label={t(`Question ${questionIndex + 1}: ${answered ? "answered" : "not answered"}`, `第 ${questionIndex + 1} 题：${answered ? "已答" : "未答"}`)} title={t(`Question ${questionIndex + 1}: ${answered ? "answered" : "not answered"}`, `第 ${questionIndex + 1} 题：${answered ? "已答" : "未答"}`)} onClick={() => setIndex(questionIndex)}>{questionIndex + 1}</button>;
+              })}</nav>
+              <small>{t("Filled = answered · Outline = not answered. Click a number to jump.", "实心表示已答，空心表示未答，点击编号可跳转。")}</small>
+            </div>
+            <div className="quiz-navigation-actions">
             <button
               type="button"
-              disabled={index === 0}
+              disabled={activeIndex === 0}
               onClick={() =>
-                setIndex((current) => current - 1)
+                setIndex(activeIndex - 1)
               }
             >
               Previous
             </button>
 
-            <button
+            {activeIndex < questions.length - 1 && <button
               type="button"
-              disabled={
-                index === questions.length - 1
-              }
               onClick={() =>
-                setIndex((current) => current + 1)
+                setIndex(activeIndex + 1)
               }
             >
               Next
-            </button>
+            </button>}
 
             <button
               className="primary-button"
@@ -368,6 +387,7 @@ function QuizPanel({ canUseAI, materialSourceLabel }) {
             >
               Submit
             </button>
+            </div>
           </div>
         </div>
       )}
@@ -375,9 +395,9 @@ function QuizPanel({ canUseAI, materialSourceLabel }) {
       {submitted && (
         <div className="quiz-review">
           {questions.map((item, questionIndex) => (
-            <article key={item.id}>
+            <article key={item.id} className={`quiz-result-card ${isCorrect(item, answers[item.id]) ? "quiz-result-correct" : "quiz-result-incorrect"}`}>
               <h3>{questionIndex + 1}. {item.question}</h3>
-              <p><strong>{isCorrect(item, answers[item.id]) ? "Correct" : "Incorrect"}</strong></p>
+              <p className="quiz-result-status"><strong>{isCorrect(item, answers[item.id]) ? "Correct" : "Incorrect"}</strong></p>
 
               <p>
                 <strong>Your answer:</strong>{" "}
@@ -419,7 +439,8 @@ function FlashcardsPanel({
 
   const request = useAIRequest(scope.scopeKey, "flashcards");
 
-  const cards = request.data?.cards || [];
+  const legacyCards = Boolean(request.data?.cards && request.data.cards.length !== 6);
+  const cards = request.data?.cards?.length === 6 ? request.data.cards : [];
 
   const [flipped, setFlipped] =
     useWorkspaceState(`flashcards-flipped:${scope.scopeKey}`, {});
@@ -429,24 +450,26 @@ function FlashcardsPanel({
 
     setFlipped({});
 
-    const result = await request.run((signal) =>
-      generateAIFlashcards({
+    const result = await request.run(async (signal) => {
+      const generated = await generateAIFlashcards({
         materials: selectedMaterials,
         signal,
-      })
-    );
+      });
+      if (generated.cards?.length !== 6) throw new Error("The running backend returned an older Flashcards format. Restart the backend from COMP3851A, then generate six cards again.");
+      return generated;
+    });
     if (result) persistStudy("flashcards", result, scope);
   }
 
   return (
-    <section className="user-card workspace-panel">
+    <section className="user-card workspace-panel flashcards-panel">
       <div className="panel-title-row">
         <div>
           <p className="summary-source">
             {materialSourceLabel}
           </p>
 
-          <h2>AI Flashcards</h2>
+          <h2><Layers size={22} aria-hidden="true" /> AI Flashcards</h2>
         </div>
 
         <button
@@ -464,9 +487,10 @@ function FlashcardsPanel({
       </div>
 
       <p className="demo-warning">
-        Generate five revision cards from the selected
+        Generate six revision cards from the selected
         materials. Click a card to reveal its answer.
       </p>
+      {legacyCards && <p className="state-banner" role="status">These cards were generated by an older version. Generate Flashcards again to get six cards.</p>}
 
       {request.pending && (
         <div
@@ -509,7 +533,7 @@ function FlashcardsPanel({
             gap: "14px",
           }}
         >
-          {cards.map((card) => {
+          {cards.map((card, cardIndex) => {
             const isFlipped = Boolean(
               flipped[card.id]
             );
@@ -518,6 +542,7 @@ function FlashcardsPanel({
               <button
                 key={card.id}
                 type="button"
+                className={`revision-flashcard${isFlipped ? " is-flipped" : ""}`}
                 aria-pressed={isFlipped}
                 onClick={() =>
                   setFlipped((current) => ({
@@ -540,15 +565,16 @@ function FlashcardsPanel({
                   cursor: "pointer",
                 }}
               >
-                <span className="summary-source">
+                <span className="flashcard-topline"><span className="flashcard-number"><Layers size={14} aria-hidden="true" /> {cardIndex + 1} / {cards.length}</span><span className="summary-source">
                   {card.source}
-                </span>
+                </span></span>
 
                 <h3
                   style={{
                     margin: "12px 0 8px",
                   }}
                 >
+                  {isFlipped ? <Lightbulb size={18} aria-hidden="true" /> : <MessageCircleQuestion size={18} aria-hidden="true" />}
                   {isFlipped
                     ? "Back"
                     : "Front"}
@@ -560,6 +586,7 @@ function FlashcardsPanel({
                     margin: 0,
                   }}
                 >
+                  <MousePointerClick size={14} aria-hidden="true" />
                   {isFlipped
                     ? card.back
                     : card.front}
@@ -701,7 +728,7 @@ export default function StudyWorkspacePage() {
           <strong>Course</strong>
           <span>
             {currentCourse
-              ? `${currentCourse.code} ${currentCourse.name}`
+              ? courseLabel(currentCourse)
               : "Not selected"}
           </span>
         </div>
@@ -733,7 +760,7 @@ export default function StudyWorkspacePage() {
         title: "Study Workspace",
         initials: "AI",
         name:
-          currentCourse?.code ||
+          courseLabel(currentCourse) ||
           "Select Course",
         subtitle:
           "Summary, Q&A, Quiz, and Flashcards use selected course materials.",
@@ -830,8 +857,7 @@ export default function StudyWorkspacePage() {
                   key={course.id}
                   value={course.id}
                 >
-                  {course.code}{" "}
-                  {course.name}
+                  {courseLabel(course)}
                 </option>
               )
             )}

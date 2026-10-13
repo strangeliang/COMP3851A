@@ -1,0 +1,10 @@
+.student-profile-page { width: min(100%, 700px); margin: 0 auto; }
+.student-profile-page > .workspace-header { text-align: center; margin-bottom: 24px; }
+.profile-editor { padding: clamp(18px, 4vw, 32px); }
+.profile-avatar-preview { display: grid; justify-items: center; gap: 10px; text-align: center; }
+.profile-avatar-preview img { border-radius: 50%; box-shadow: 0 0 0 6px #eee7ff; }
+.profile-avatar-preview p { color: #77727f; font-size: 12px; margin: 0; }
+.profile-default-avatar { display: grid; place-items: center; width: 96px; height: 96px; border-radius: 50%; color: #5420d8; background: #eee7ff; font-size: 30px; font-weight: 700; }
+.profile-editor textarea { width: 100%; box-sizing: border-box; padding: 12px 14px; resize: vertical; min-height: 80px; border: 1px solid #e4dfed; border-radius: 10px; font: inherit; color: #27252d; }
+.profile-editor button:not(.primary-button) { padding: 10px 15px; border: 1px solid #ddd5eb; border-radius: 8px; background: #fff; color: #625870; cursor: pointer; }
+.profile-editor fieldset > div:last-child { flex-wrap: wrap; }

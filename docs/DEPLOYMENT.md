@@ -21,6 +21,16 @@ FRONTEND_URL, rather than silently creating a new database in a temporary defaul
 This checks configuration only: you must still attach the host's persistent disk
 and verify it survives a redeploy. A path by itself does not provide persistence.
 
+## Trusted proxy and login limits
+
+The app detects Render (`RENDER=true`) and trusts one ingress hop by default.
+Direct/local servers default to no trusted forwarded headers. Other deployments
+must set TRUST_PROXY to their actual trusted hop count (1–5), proxy IP/IPv4 subnet, or
+loopback for a local HTTPS proxy. Docker Compose forwards this variable and defaults
+to 0. Never set it to true or trust all clients. A hop count is safe only when all
+public requests go through that many proxy hops; use explicit proxy addresses when
+the backend can also be reached directly. TRUST_PROXY=0 disables the Render default.
+
 ## Docker
 
 Run docker compose --env-file backend/.env up -d --build.

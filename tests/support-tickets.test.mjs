@@ -9,12 +9,39 @@ const statuses=['Open','In progress','Resolved'];
 const initial={id:'ASK-demo',name:'Test Student',title:'Upload issue',description:'The file did not upload.',category:'upload',status:'Open',version:1,createdAt:'2026-09-22T00:00:00Z',updatedAt:'2026-09-22T00:00:00Z',resolvedAt:null,replies:[]};
 const text=node=>JSON.stringify(node.toJSON());
 
+test('older support pages append without duplicates, survive refresh and retry after a failed page request', async () => {
+  let renderer; let fail = true; const cursors = [];
+  const first = { ...initial, hasMessages: true }; const older = { ...initial, id: 'ASK-old', title: 'Older unresolved issue', updatedAt: '2026-09-01T00:00:00Z', hasMessages: true };
+  const { default: Inbox } = await loadSource("export {default} from './src/components/SupportTickets.jsx'", {
+    '../state/AppDataContext': { useAppData: () => ({ currentUser: { id: 1, role: 'Student' } }) },
+    '../state/LanguageContext': { useLanguage: () => ({ language: 'en' }) },
+    '../services/ticketApiService': { ticketCategories: categories, ticketStatuses: statuses, listServerTickets: async (_signal, cursor) => {
+      cursors.push(cursor || null);
+      if (cursor && fail) throw new Error('Older page unavailable');
+      return cursor ? { tickets: [first, older], hasMore: false, nextCursor: null } : { tickets: [first], hasMore: true, nextCursor: 'next-page' };
+    } },
+  });
+  try {
+    await act(async () => { renderer = create(React.createElement(Inbox)); });
+    const rows = () => renderer.root.findAll(node => node.type === 'button' && String(node.props.className).startsWith('support-ticket-row'));
+    await act(async () => renderer.root.findByProps({ className: 'support-load-older' }).props.onClick());
+    assert.equal(rows().length, 1); assert.match(text(renderer), /Older page unavailable/);
+    fail = false;
+    await act(async () => renderer.root.findByProps({ className: 'support-load-older' }).props.onClick());
+    assert.equal(rows().length, 2); assert.equal(renderer.root.findAllByProps({ className: 'support-load-older' }).length, 0);
+    await act(async () => renderer.root.findAllByType('button').find(button => button.children.includes('Refresh')).props.onClick());
+    assert.equal(rows().length, 2, 'Refreshing recent conversations preserves older loaded records');
+    assert.deepEqual(cursors, [null, 'next-page', 'next-page', null]);
+  } finally { if (renderer) await act(async () => renderer.unmount()); }
+});
+
 test('email reset retains its link in StrictMode, removes it from URL and waits for explicit matching-password submission',async()=>{
   const previousWindow=globalThis.window, previousForm=globalThis.FormData;
   let renderer; const calls=[]; const pending=deferred(); const token='a'.repeat(64);
   globalThis.window={location:{hash:`#token=${token}`,pathname:'/reset-password'},history:{replaceState(){globalThis.window.location.hash='';}}};
   globalThis.FormData=class {constructor(values){this.values=values;}get(key){return this.values[key];}};
   const {default:EmailPage}=await loadSource("export {default} from './src/pages/EmailAccessPage.jsx'",{
+    '../state/LanguageContext':{useLanguage:()=>({language:'en'})},
     '../hooks/useBodyClass':()=>{},
     '../services/apiClient':{apiRequest:async(path,options)=>{calls.push({path,...options});return pending.promise;}},
     'react-router-dom':{Link:({to,children})=>React.createElement('a',{href:to},children)},

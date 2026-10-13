@@ -53,9 +53,20 @@ function createTicketRoutes({database,authenticate,gemini}) {
     return result;
   }
   router.get('/tickets',async(req,res)=>{
-    const [regular,requests]=await Promise.all([repo.list(req.user),recovery.list(req.user)]);
+    let before = null;
+    if (req.query.cursor !== undefined) {
+      try {
+        if (typeof req.query.cursor !== 'string' || req.query.cursor.length > 700 || !/^[A-Za-z0-9_-]+$/.test(req.query.cursor)) throw new Error();
+        before = JSON.parse(Buffer.from(req.query.cursor, 'base64url').toString('utf8'));
+        if (!before || typeof before.time !== 'string' || before.time.length > 40 || !Number.isFinite(Date.parse(before.time)) || typeof before.id !== 'string' || !before.id || before.id.length > 160) throw new Error();
+      } catch { throw new StudyError(400, 'INVALID_CURSOR', 'Refresh the ticket list before loading older conversations.'); }
+    }
+    const [regular,requests]=await Promise.all([repo.list(req.user,before),recovery.list(req.user,before)]);
     const tickets=[...regular.tickets,...requests.tickets].sort((a,b)=>b.updatedAt.localeCompare(a.updatedAt)||a.id.localeCompare(b.id));
-    res.json({tickets:tickets.slice(0,200),hasMore:regular.hasMore||requests.hasMore||tickets.length>200});
+    const page = tickets.slice(0,200);
+    const hasMore = regular.hasMore||requests.hasMore||tickets.length>200;
+    const last = page.at(-1);
+    res.json({tickets:page,hasMore,nextCursor:hasMore && last ? Buffer.from(JSON.stringify({time:last.updatedAt,id:last.id})).toString('base64url') : null});
   });
   async function current(req) {
     if(req.user.role!=='Student')throw new StudyError(403,'FORBIDDEN','Only students have support login conversations.');

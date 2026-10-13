@@ -6,12 +6,14 @@ import {
   LogOut,
   MessageCircleQuestion,
   Settings,
+  UserRound,
   Sparkles,
   Upload,
   ChevronDown,
 } from "lucide-react";
 import { Link, NavLink, useLocation } from "react-router-dom";
 import { useAppData } from "../state/AppDataContext";
+import { useLanguage } from "../state/LanguageContext";
 import "./StudentSidebar.css";
 
 const links = [
@@ -27,6 +29,7 @@ const aiLinks = [
 
 export default function StudentSidebar() {
   const { logout } = useAppData();
+  const { language } = useLanguage();
   const location = useLocation();
   const currentMode = new URLSearchParams(location.search).get("mode") || "summary";
   const isAI = location.pathname === "/student/workspace" && aiLinks.some((item) => item.mode === currentMode);
@@ -76,9 +79,10 @@ export default function StudentSidebar() {
         <NavLink to="/student/review" className={({ isActive }) => isActive ? "active" : ""}><span className="nav-icon"><ListChecks size={15} /></span>Review Centre</NavLink>
       </nav>
       <div className="sidebar-spacer" />
-      <p className="nav-label">Settings</p>
+      <p className="nav-label" data-react-i18n>{language === "zh" ? "账户" : "Account"}</p>
       <div className="sidebar-footer">
-        <Link to="/student/profile"><span className="nav-icon"><Settings size={15} /></span>My Profile</Link>
+        <NavLink to="/student/settings"><span className="nav-icon"><Settings size={15} /></span>Settings</NavLink>
+        <Link to="/student/profile"><span className="nav-icon"><UserRound size={15} /></span>My Profile</Link>
         <NavLink className="logout" to="/" onClick={logout}>
           <span className="nav-icon"><LogOut size={15} /></span>Logout
         </NavLink>

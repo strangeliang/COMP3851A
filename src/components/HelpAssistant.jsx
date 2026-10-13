@@ -6,16 +6,19 @@ import { containsSecret } from '../services/helpChat';
 import SupportTickets from './SupportTickets';
 import './HelpAssistant.css';
 import { useLanguage } from '../state/LanguageContext';
+import useChatSize, { chatWindowSizes } from '../hooks/useChatSize';
 
 export default function HelpAssistant() {
   const { currentUser } = useAppData();
   return currentUser?.role === 'Student' ? <LoginChat key={currentUser.id} /> : null;
 }
 function LoginChat() {
-  const { language, toggleLanguage } = useLanguage();
+  const { language } = useLanguage();
+  const [chatSize, setChatSize] = useChatSize();
   const t = (en, zh) => language === 'zh' ? zh : en;
   const [open, setOpen] = useState(false);
   const [view, setView] = useState('chat');
+  const [supportId, setSupportId] = useState(null);
   const [ticket, setTicket] = useState(null);
   const [draft, setDraft] = useState('');
   const [notice, setNotice] = useState('');
@@ -31,6 +34,16 @@ function LoginChat() {
   const launcher = useRef(null);
   const closeButton = useRef(null);
   useEffect(() => { mounted.current = true; return () => { mounted.current = false; }; }, []);
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const openHelp = event => {
+      setView(event.detail?.view === 'history' ? 'history' : 'chat');
+      setSupportId(typeof event.detail?.ticketId === 'string' ? event.detail.ticketId : null);
+      setOpen(true);
+    };
+    window.addEventListener('study-open-help', openHelp);
+    return () => window.removeEventListener('study-open-help', openHelp);
+  }, []);
   useEffect(() => {
     if (!open || view !== 'chat') return;
     let cancelled = false, running = false, controller;
@@ -75,10 +88,11 @@ function LoginChat() {
   }
   const messages = ticket?.replies.filter(e => e.kind === 'reply') || [];
   return <aside className="help-assistant" data-react-i18n aria-label={t('Application help', '网站帮助')}>
-    {open && <section className="help-assistant-panel" id="help-assistant-panel" role="dialog" aria-labelledby="help-assistant-title" onKeyDown={e => { if (e.key === 'Escape') close(); }}>
-      <header className="help-assistant-header"><div><h2 id="help-assistant-title">Ask Me</h2><p>{t('Powered by Gemini · Website support', 'Gemini AI · 网站使用帮助')}</p></div><div className="help-assistant-header-actions"><button className="help-language" onClick={toggleLanguage} aria-label="Switch language">{language === 'en' ? '中文' : 'EN'}</button><button ref={closeButton} onClick={close} aria-label="Close help"><X size={20}/></button></div></header>
+    {open && <section className="help-assistant-panel" id="help-assistant-panel" style={{ '--help-chat-width': `${chatWindowSizes[chatSize].width}px`, '--help-chat-height': `${chatWindowSizes[chatSize].height}px` }} role="dialog" aria-labelledby="help-assistant-title" onKeyDown={e => { if (e.key === 'Escape' && e.target.tagName !== 'SELECT') close(); }}>
+      <header className="help-assistant-header"><div><h2 id="help-assistant-title">Ask Me</h2><p>{t('Powered by Gemini · Website support', 'Gemini AI · 网站使用帮助')}</p></div><div className="help-assistant-header-actions"><button ref={closeButton} onClick={close} aria-label={t('Close help', '关闭帮助')}><X size={20}/></button></div></header>
       <nav className="help-assistant-categories help-assistant-view-nav"><button aria-pressed={view === 'chat'} onClick={() => setView('chat')}>{t('This login', '本次会话')}</button><button aria-pressed={view === 'history'} onClick={() => setView('history')}>{t('Conversation history', '历史会话')}</button></nav>
-      {view === 'history' ? <div style={{overflowY:'auto',padding:12}}><SupportTickets onNewTicket={() => setView('chat')}/></div> : <>
+      <div className="help-assistant-size"><label htmlFor="help-chat-size">{t('Chat window size', '聊天窗口大小')}</label><select id="help-chat-size" value={chatSize} onChange={event => setChatSize(event.target.value)}>{Object.entries(chatWindowSizes).map(([value, labels]) => <option key={value} value={value}>{language === 'zh' ? labels.zh : labels.en}</option>)}</select></div>
+      {view === 'history' ? <div style={{flex:1,minHeight:0,overflowY:'auto',padding:12}}><SupportTickets key={supportId || 'all'} initialTicketId={supportId} onNewTicket={() => setView('chat')}/></div> : <>
         <p className="help-session-notice">{t('Messages and recent support context are sent to Google Gemini for replies, saved, and visible to support administrators. Each login has its own record. Private study chats and files are not included.', '消息及近期客服上下文会发送给 Google Gemini 生成回复，并保存供管理员查看。每次登录一条记录，不包含私人学习问答及文件。')}</p>
         {ticket && <p className="help-session-meta">{t('Started: ', '开始时间：')}{new Date(ticket.createdAt).toLocaleString(language === 'zh' ? 'zh-CN' : 'en-GB')} · {language === 'zh' ? ({Open:'待处理','In progress':'处理中',Resolved:'已解决'})[ticket.status] : ticket.status}</p>}
         <div className="help-assistant-log" ref={log} role="log" aria-live="polite" onScroll={() => { if (log.current) nearBottom.current = log.current.scrollHeight-log.current.scrollTop-log.current.clientHeight < 60; }}>

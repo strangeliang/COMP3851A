@@ -1,0 +1,19 @@
+/* Short, restrained motion. Route query changes do not remount study drafts. */
+@keyframes study-page-enter { from { opacity: .55; } to { opacity: 1; } }
+@keyframes study-panel-enter { from { opacity: .4; transform: translateY(6px); } to { opacity: 1; transform: translateY(0); } }
+.app-page-transition { animation: study-page-enter 200ms ease-out; }
+.user-main > :not([hidden]), .user-main div:not([hidden]) > .workspace-panel, .profile-widget, .profile-options-menu, .settings-language-menu { animation: study-panel-enter 180ms ease-out; }
+.user-app :is(button, .button-link, .user-nav a, .sidebar-footer a, input, select, textarea, .course-row, .quiz-options label) { transition: background-color 160ms ease, border-color 160ms ease, box-shadow 160ms ease, color 160ms ease; }
+.user-app button:not(:disabled):hover, .user-app .button-link:hover { filter: brightness(.985); }
+.user-app :is(input, select, textarea):focus-visible { outline: 2px solid #bba1ef; outline-offset: 2px; box-shadow: 0 0 0 4px rgba(111,50,255,.06); }
+.user-app :is(button,a,summary):focus-visible { outline: 2px solid #8d66de; outline-offset: 3px; }
+.user-app .history-record-row, .user-app .revision-flashcard { transition: background-color 180ms ease, border-color 180ms ease, box-shadow 180ms ease, transform 180ms ease; }
+.user-app .history-record-row:hover { box-shadow: 0 4px 15px rgba(60,42,102,.045); }
+.user-app .revision-flashcard:hover { transform: translateY(-2px); }
+.user-app .revision-flashcard:active { transform: translateY(0); }
+.user-app .revision-flashcard.is-flipped > p { animation: study-panel-enter 160ms ease-out; }
+.user-app details[open] > :not(summary) { animation: study-panel-enter 160ms ease-out; }
+@media(prefers-reduced-motion: reduce) {
+  .app-page-transition, .app-page-transition *, .user-app * { animation: none !important; transition: none !important; }
+  .user-app .revision-flashcard:hover { transform: none; }
+}

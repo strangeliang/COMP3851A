@@ -1,0 +1,11 @@
+.user-shell[data-reading-size="large"] .summary-result p,
+.user-shell[data-reading-size="large"] .key-concepts,
+.user-shell[data-reading-size="large"] .quiz-card p,
+.user-shell[data-reading-size="large"] .quiz-options label,
+.user-shell[data-reading-size="large"] .quiz-review article p,
+.user-shell[data-reading-size="large"] .history-record-row,
+.user-shell[data-reading-size="large"] .help-assistant-log,
+.user-shell[data-reading-size="large"] .cs-message__content,
+.user-shell[data-reading-size="large"] .quiz-result-card p { font-size: 17px !important; line-height: 1.7 !important; }
+.user-shell[data-reading-size="large"] .quiz-card h3,
+.user-shell[data-reading-size="large"] .quiz-result-card h3 { font-size: 21px; line-height: 1.5; }
