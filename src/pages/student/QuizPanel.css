@@ -1,4 +1,5 @@
 .quiz-selection-count { font-size: 12px; color: #77727f; }
+.panel-title-row:has(.quiz-type-field) { flex-wrap: wrap; }
 .quiz-card .quiz-actions { align-items: flex-end; justify-content: space-between; gap: 20px; flex-wrap: wrap; }
 .quiz-navigation { flex: 1; min-width: 180px; text-align: left; }
 .quiz-navigation > p { margin: 0 0 10px; font-size: 12px; font-weight: 700; color: #5420d8; }
