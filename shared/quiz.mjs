@@ -32,4 +32,17 @@ function shuffleOptions(question, random = Math.random) {
   delete rest.answerIndex;
   return { ...rest, options: order.map((i) => question.options[i]), answerIndices: order.flatMap((original, i) => answers.includes(original) ? [i] : []) };
 }
-export { indices, correctIndices, isMultiple, validIndices, validAnswer, isCorrect, toggleAnswer, answerText, shuffleOptions };
+// Retakes keep canonical indices for server marking and history. Only presentation changes.
+function createPracticeQuestions(questions, random = Math.random, previous = []) {
+  return questions.map(question => {
+    const order = question.options.map((_, i) => i);
+    for (let i = order.length - 1; i > 0; i--) {
+      const j = Math.floor(random() * (i + 1));
+      [order[i], order[j]] = [order[j], order[i]];
+    }
+    const last = previous.find(q => q.id === question.id)?.optionOrder || question.options.map((_, i) => i);
+    if (order.length > 1 && order.every((v, i) => v === last[i])) order.push(order.shift());
+    return { ...question, optionOrder: order };
+  });
+}
+export { indices, correctIndices, isMultiple, validIndices, validAnswer, isCorrect, toggleAnswer, answerText, shuffleOptions, createPracticeQuestions };

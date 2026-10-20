@@ -9,7 +9,7 @@ const statuses=['Open','In progress','Resolved'];
 const initial={id:'ASK-demo',name:'Test Student',title:'Upload issue',description:'The file did not upload.',category:'upload',status:'Open',version:1,createdAt:'2026-09-22T00:00:00Z',updatedAt:'2026-09-22T00:00:00Z',resolvedAt:null,replies:[]};
 const text=node=>JSON.stringify(node.toJSON());
 
-test('older support pages append without duplicates, survive refresh and retry after a failed page request', async () => {
+test('older matching pages append without duplicates, retry safely and refresh resets pagination', async () => {
   let renderer; let fail = true; const cursors = [];
   const first = { ...initial, hasMessages: true }; const older = { ...initial, id: 'ASK-old', title: 'Older unresolved issue', updatedAt: '2026-09-01T00:00:00Z', hasMessages: true };
   const { default: Inbox } = await loadSource("export {default} from './src/components/SupportTickets.jsx'", {
@@ -30,9 +30,56 @@ test('older support pages append without duplicates, survive refresh and retry a
     await act(async () => renderer.root.findByProps({ className: 'support-load-older' }).props.onClick());
     assert.equal(rows().length, 2); assert.equal(renderer.root.findAllByProps({ className: 'support-load-older' }).length, 0);
     await act(async () => renderer.root.findAllByType('button').find(button => button.children.includes('Refresh')).props.onClick());
-    assert.equal(rows().length, 2, 'Refreshing recent conversations preserves older loaded records');
+    assert.equal(rows().length, 1, 'Refresh resets to the first matching page so stale filter results are removed');
     assert.deepEqual(cursors, [null, 'next-page', 'next-page', null]);
   } finally { if (renderer) await act(async () => renderer.unmount()); }
+});
+
+test('server search includes reply-only hits and sends date and human queue filters',async()=>{
+  let renderer;const calls=[];
+  const hit={...initial,title:'No matching title',description:'No matching description',humanSupport:'Waiting',hasMessages:true};
+  const {default:Inbox}=await loadSource("export {default} from './src/components/SupportTickets.jsx'",{
+    '../state/AppDataContext':{useAppData:()=>({currentUser:{id:2,role:'Admin'}})},
+    '../state/LanguageContext':{useLanguage:()=>({language:'en'})},
+    '../services/ticketApiService':{ticketCategories:categories,ticketStatuses:statuses,listServerTickets:async(signal,cursor,filters)=>{calls.push({cursor,filters});return{tickets:[hit],hasMore:false};}},
+  });
+  try{
+    await act(async()=>{renderer=create(React.createElement(Inbox));});
+    await act(async()=>renderer.root.findByProps({type:'search'}).props.onChange({target:{value:'reply-only-word'}}));
+    assert.match(text(renderer),/No matching title/,'Client must not remove a server body-text match');
+    await act(async()=>{
+      renderer.root.findByProps({'aria-label':'Created from (UTC)'}).props.onChange({target:{value:'2026-10-07'}});
+      renderer.root.findByProps({'aria-label':'Created through (UTC)'}).props.onChange({target:{value:'2026-10-20'}});
+      renderer.root.findByProps({className:'support-human-filter'}).findByType('input').props.onChange({target:{checked:true}});
+    });
+    assert.equal(calls.at(-1).filters.q,'reply-only-word');assert.equal(calls.at(-1).filters.humanOnly,true);
+    assert.equal(calls.at(-1).filters.from,'2026-10-07');assert.equal(calls.at(-1).filters.to,'2026-10-20');
+    assert.equal(calls.at(-1).cursor,null);
+  }finally{if(renderer)await act(async()=>renderer.unmount());}
+});
+
+test('student human request shows failures, retries with same ID and displays waiting state',async()=>{
+  let renderer;const calls=[];let fail=true;
+  const {default:Help}=await loadSource("export {default} from './src/components/HelpAssistant.jsx'",{
+    '../state/AppDataContext':{useAppData:()=>({currentUser:{id:1,role:'Student'}})},
+    '../state/LanguageContext':{useLanguage:()=>({language:'en'})},
+    './SupportTickets':{default:()=>null},
+    '../services/ticketApiService':{
+      getLoginConversation:async()=>({ticket:initial}),
+      requestHumanSupport:async(id,clientId)=>{calls.push({id,clientId});if(fail)throw Error('Offline');return{ticket:{...initial,humanSupport:'Waiting'}};},
+    },
+  });
+  try{
+    await act(async()=>{renderer=create(React.createElement(Help));});
+    await act(async()=>renderer.root.findByProps({className:'help-assistant-launcher'}).props.onClick());
+    const requestButton=()=>renderer.root.findAllByType('button').find(b=>b.children.includes('Request human support'));
+    await act(async()=>requestButton().props.onClick());
+    assert.match(text(renderer),/Offline/);assert.doesNotMatch(text(renderer),/Waiting for human support/);
+    fail=false;
+    await act(async()=>requestButton().props.onClick());
+    assert.equal(calls[0].clientId,calls[1].clientId);
+    assert.match(text(renderer),/Waiting for human support/);assert.equal(requestButton().props.disabled,true);
+  }finally{if(renderer)await act(async()=>renderer.unmount());}
 });
 
 test('email reset retains its link in StrictMode, removes it from URL and waits for explicit matching-password submission',async()=>{

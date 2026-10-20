@@ -106,6 +106,37 @@ const SCHEMA_SQL = `
     UNIQUE(ticket_id,author_id,client_id)
   );
   CREATE INDEX IF NOT EXISTS idx_support_owner ON support_tickets(owner_id,updated_at);
+  CREATE TABLE IF NOT EXISTS support_handoffs (
+    ticket_id TEXT PRIMARY KEY REFERENCES support_tickets(id) ON DELETE CASCADE,
+    state TEXT NOT NULL CHECK(state IN ('Waiting','In progress','Resolved')),
+    requested_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+  );
+  CREATE TRIGGER IF NOT EXISTS support_human_request AFTER INSERT ON support_events
+  WHEN NEW.kind='status' AND NEW.body='Human support requested'
+    AND (SELECT role FROM users WHERE id=NEW.author_id)='Student'
+  BEGIN
+    INSERT INTO support_handoffs(ticket_id,state,requested_at,updated_at)
+      VALUES(NEW.ticket_id,'Waiting',NEW.created_at,NEW.created_at)
+      ON CONFLICT(ticket_id) DO UPDATE SET state='Waiting',requested_at=excluded.requested_at,updated_at=excluded.updated_at;
+    UPDATE support_tickets SET status='Open',resolved_at=NULL,updated_by=NEW.author_id,
+      updated_at=NEW.created_at,version=version+1 WHERE id=NEW.ticket_id;
+  END;
+  CREATE TRIGGER IF NOT EXISTS support_human_reply AFTER INSERT ON support_events
+  WHEN NEW.kind='reply' AND (SELECT role FROM users WHERE id=NEW.author_id)='Admin'
+  BEGIN
+    UPDATE support_handoffs SET state='In progress',updated_at=NEW.created_at
+      WHERE ticket_id=NEW.ticket_id AND state='Waiting';
+    UPDATE support_tickets SET status='In progress',updated_by=NEW.author_id
+      WHERE id=NEW.ticket_id AND status='Open'
+      AND EXISTS(SELECT 1 FROM support_handoffs WHERE ticket_id=NEW.ticket_id);
+  END;
+  CREATE TRIGGER IF NOT EXISTS support_human_status AFTER UPDATE OF status ON support_tickets
+  WHEN NEW.status<>OLD.status
+  BEGIN
+    UPDATE support_handoffs SET state=CASE NEW.status WHEN 'Open' THEN 'Waiting' ELSE NEW.status END,
+      updated_at=NEW.updated_at WHERE ticket_id=NEW.id;
+  END;
   CREATE TABLE IF NOT EXISTS support_faq_replies (
     event_id TEXT PRIMARY KEY REFERENCES support_events(id) ON DELETE CASCADE,
     body TEXT NOT NULL

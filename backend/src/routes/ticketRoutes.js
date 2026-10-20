@@ -53,20 +53,42 @@ function createTicketRoutes({database,authenticate,gemini}) {
     return result;
   }
   router.get('/tickets',async(req,res)=>{
+    const filters={};
+    const invalid=()=>{throw new StudyError(400,'INVALID_FILTER','Choose valid search filters and a creation-date range (UTC).');};
+    if(Object.keys(req.query).some(k=>!['cursor','q','status','category','from','to','hideEmpty','needsReply','humanOnly','sort'].includes(k)))invalid();
+    for(const value of Object.values(req.query))if(typeof value!=='string')invalid();
+    if(req.query.q!==undefined){if(req.query.q.length>200)invalid();filters.q=req.query.q.trim();}
+    for(const [key,allowed] of [['status',statuses],['category',categories],['sort',['newest','oldest']]]){
+      if(req.query[key]!==undefined){if(!allowed.includes(req.query[key]))invalid();filters[key]=req.query[key];}
+    }
+    for(const key of ['hideEmpty','needsReply','humanOnly']){
+      if(req.query[key]!==undefined){if(!['true','false'].includes(req.query[key]))invalid();filters[key]=req.query[key]==='true';}
+    }
+    for(const key of ['from','to']){
+      if(req.query[key]!==undefined){
+        const value=req.query[key];
+        if(!/^\d{4}-\d{2}-\d{2}$/.test(value)||!Number.isFinite(Date.parse(value))||new Date(value).toISOString().slice(0,10)!==value)invalid();
+        if(key==='from')filters.from=`${value}T00:00:00.000Z`;
+        else filters.until=new Date(Date.parse(value)+86400000).toISOString();
+      }
+    }
+    if(filters.from && filters.until && filters.from>=filters.until)invalid();
+    const filterKey=JSON.stringify(filters);
     let before = null;
     if (req.query.cursor !== undefined) {
       try {
-        if (typeof req.query.cursor !== 'string' || req.query.cursor.length > 700 || !/^[A-Za-z0-9_-]+$/.test(req.query.cursor)) throw new Error();
+        if (typeof req.query.cursor !== 'string' || req.query.cursor.length > 2500 || !/^[A-Za-z0-9_-]+$/.test(req.query.cursor)) throw new Error();
         before = JSON.parse(Buffer.from(req.query.cursor, 'base64url').toString('utf8'));
         if (!before || typeof before.time !== 'string' || before.time.length > 40 || !Number.isFinite(Date.parse(before.time)) || typeof before.id !== 'string' || !before.id || before.id.length > 160) throw new Error();
+        if(before.filters!==filterKey)throw new Error();
       } catch { throw new StudyError(400, 'INVALID_CURSOR', 'Refresh the ticket list before loading older conversations.'); }
     }
-    const [regular,requests]=await Promise.all([repo.list(req.user,before),recovery.list(req.user,before)]);
-    const tickets=[...regular.tickets,...requests.tickets].sort((a,b)=>b.updatedAt.localeCompare(a.updatedAt)||a.id.localeCompare(b.id));
+    const [regular,requests]=await Promise.all([repo.list(req.user,before,filters),recovery.list(req.user,before,filters)]);
+    const tickets=[...regular.tickets,...requests.tickets].sort((a,b)=>(filters.sort==='oldest'?a.createdAt.localeCompare(b.createdAt):b.updatedAt.localeCompare(a.updatedAt))||a.id.localeCompare(b.id));
     const page = tickets.slice(0,200);
     const hasMore = regular.hasMore||requests.hasMore||tickets.length>200;
     const last = page.at(-1);
-    res.json({tickets:page,hasMore,nextCursor:hasMore && last ? Buffer.from(JSON.stringify({time:last.updatedAt,id:last.id})).toString('base64url') : null});
+    res.json({tickets:page,hasMore,nextCursor:hasMore && last ? Buffer.from(JSON.stringify({time:filters.sort==='oldest'?last.createdAt:last.updatedAt,id:last.id,filters:filterKey})).toString('base64url') : null});
   });
   async function current(req) {
     if(req.user.role!=='Student')throw new StudyError(403,'FORBIDDEN','Only students have support login conversations.');
@@ -108,6 +130,13 @@ function createTicketRoutes({database,authenticate,gemini}) {
     } finally {generating.delete(req.user.id);}
   });
   router.get('/tickets/:id',async(req,res)=>res.json({ticket:await owned(req)}));
+  router.post('/tickets/:id/human-support',async(req,res)=>{
+    if(req.user.role!=='Student')throw new StudyError(403,'FORBIDDEN','Only students can request human support.');
+    await owned(req);
+    const b=body(req,['clientId']);
+    const ticket=await repo.requestHuman(req.params.id,`human-${clientId(b.clientId)}`,req.user);
+    res.json({ticket});
+  });
   router.post('/tickets',async(req,res)=>{
     if(req.user.role!=='Student')throw new StudyError(403,'FORBIDDEN','Only students can submit support tickets.');
     const b=body(req,['clientId','category','title','description']);

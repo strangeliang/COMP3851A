@@ -136,7 +136,11 @@ test('support tickets: permissions, replies, status audit, idempotency and real 
     reviewed=(await json(recoveryUrl+'/status',admin,'PATCH',{status:'Resolved',version:reviewed.version})).ticket;
     assert.equal(reviewed.replies.at(-1).kind,'status');
     await login(); // Existing password still works: resolving a request cannot modify it.
+    const handoffId=(await json('/tickets/current-session',student)).ticket.id;
+    const handoff=(await json('/tickets/'+handoffId+'/human-support',student,'POST',{clientId:randomUUID()})).ticket;
+    assert.equal(handoff.humanSupport,'Waiting');
     await stop();await start();admin=await login('admin@example.com','admin123');student=await login();
+    assert.deepEqual((await json('/tickets/'+handoffId,student)).ticket,handoff,'Human request and audit event survive a real backend restart');
     assert.deepEqual((await json(recoveryUrl,admin)).ticket,reviewed,'Recovery notes and status survive restart');
     assert.equal((await request(recoveryUrl,student)).status,404);
     await request('/auth/logout',student,'POST');assert.equal((await request(url,student)).status,401);

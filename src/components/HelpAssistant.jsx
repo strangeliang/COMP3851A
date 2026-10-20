@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { MessageCircleQuestion, X } from 'lucide-react';
 import { useAppData } from '../state/AppDataContext';
-import { getLoginConversation, sendLoginMessage } from '../services/ticketApiService';
+import { getLoginConversation, sendLoginMessage, requestHumanSupport } from '../services/ticketApiService';
 import { containsSecret } from '../services/helpChat';
 import SupportTickets from './SupportTickets';
 import './HelpAssistant.css';
@@ -26,6 +26,8 @@ function LoginChat() {
   const [aiFailure, setAiFailure] = useState(null);
   const [retry, setRetry] = useState(0);
   const attempt = useRef(null);
+  const handoffAttempt = useRef(null);
+  const [requestingHuman, setRequestingHuman] = useState(false);
   const lock = useRef(false);
   const mounted = useRef(false);
   const epoch = useRef(0);
@@ -68,6 +70,16 @@ function LoginChat() {
   useEffect(() => { if (open) closeButton.current?.focus(); }, [open]);
   useEffect(() => { if (nearBottom.current && log.current) log.current.scrollTop = log.current.scrollHeight; }, [ticket, open]);
   function close() { setOpen(false); launcher.current?.focus(); }
+  async function requestHuman() {
+    if(!ticket || lock.current)return;
+    lock.current=true;epoch.current++;setRequestingHuman(true);setNotice('');
+    if(handoffAttempt.current?.id!==ticket.id)handoffAttempt.current={id:ticket.id,clientId:crypto.randomUUID()};
+    try{
+      const result=await requestHumanSupport(ticket.id,handoffAttempt.current.clientId);
+      if(mounted.current){setTicket(result.ticket);handoffAttempt.current=null;}
+    }catch(e){if(mounted.current)setNotice(e.message);}
+    finally{lock.current=false;if(mounted.current)setRequestingHuman(false);}
+  }
   async function send(value) {
     const text = value.trim();
     if (!text || !ticket || lock.current) return;
@@ -101,6 +113,12 @@ function LoginChat() {
           {saving && <p role="status" className="help-assistant-answer">{t('Gemini is replying…', 'Gemini 正在回复…')}</p>}
         </div>
         <div className="help-assistant-options">
+          <div className="help-human-support">
+            <button type="button" disabled={!ticket || saving || requestingHuman || ['Waiting','In progress'].includes(ticket?.humanSupport)} onClick={requestHuman}>
+              {requestingHuman ? t('Requesting…','正在申请…') : t('Request human support','转人工客服')}
+            </button>
+            {ticket?.humanSupport && <p role="status">{({Waiting:t('Waiting for human support. AI replies do not close this request.','等待人工处理。AI 回复不会结束此申请。'),'In progress':t('An administrator is handling your request.','管理员正在处理你的申请。'),Resolved:t('Human support resolved this request. You can request help again.','人工申请已解决。如需帮助，可以再次申请。')})[ticket.humanSupport]}</p>}
+          </div>
           <div className="help-assistant-categories">{(language === 'zh' ? ['登录帮助','上传帮助','Quiz 帮助','学习历史'] : ['Login help','Upload help','Quiz help','Study history']).map(q => <button key={q} disabled={saving || !ticket} onClick={() => send(q)}>{q}</button>)}</div>
           {notice && <p role="status">{notice} <button onClick={() => setRetry(n => n+1)}>{t('Refresh', '刷新')}</button></p>}
           {aiFailure && <p role="alert">{t('Your message is saved, but Gemini could not reply. You can retry or wait for an administrator. ', '消息已保存，但 Gemini 暂时无法回复。可重试或等待管理员处理。')}{aiFailure.message} <button disabled={saving} onClick={()=>send(aiFailure.text)}>{t('Retry AI reply','重试 AI 回复')}</button></p>}
