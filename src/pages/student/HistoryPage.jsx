@@ -7,7 +7,7 @@ import "./HistoryPage.css";
 import "./QuizPanel.css";
 import { BookOpenText, History, Layers, ListChecks, MessageCircleQuestion, RefreshCw, RotateCcw, Trash2, Upload } from "lucide-react";
 import { courseLabel } from "../../utils/courseDisplay";
-import { indices, correctIndices, isMultiple, isCorrect, validAnswer, toggleAnswer, answerText } from "../../../shared/quiz.mjs";
+import { indices, correctIndices, isMultiple, isCorrect, validAnswer, toggleAnswer, answerText, createPracticeQuestions } from "../../../shared/quiz.mjs";
 
 export default function HistoryPage({ review = false }) {
   const { studentCourses, summaryRecords, currentChatRecords, quizAttempts, refreshStudyHistory } = useAppData();
@@ -26,6 +26,7 @@ export default function HistoryPage({ review = false }) {
   const [lastDeleted, setLastDeleted] = useState(null);
   const [notice, setNotice] = useState("");
   const [practiceMode, setPracticeMode] = useState("wrong");
+  const [practiceQuestions, setPracticeQuestions] = useState([]);
   const saving = useRef(false);
   const attemptId = useRef(null);
   const mounted = useRef(true);
@@ -33,7 +34,13 @@ export default function HistoryPage({ review = false }) {
   useEffect(() => { mounted.current = true; const controller = new AbortController(); apiRequest("/history", { signal: controller.signal }).then((value) => { setData(value); setLoaded(true); }).catch((e) => { if (!controller.signal.aborted) setError(e.message); }); return () => { mounted.current = false; controller.abort(); }; }, []);
   const wrong = (r) => r.kind === "quiz" ? r.payload.questions.filter((q) => !isCorrect(q, r.payload.answers[q.id])) : [];
   const records = data.records.filter((r) => (course === "All" || r.course_id === course) && (review ? r.kind === "quiz" && (practiceMode === "all" || wrong(r).length > 0) : kind === "All" || r.kind === kind));
-  const practiceQuestions = selected ? practiceMode === "all" ? selected.payload.questions || [] : wrong(selected) : [];
+  function startPractice(record) {
+    setSelected(record); setAnswers({}); setResult(null); setError(""); attemptId.current = null;
+    setPracticeQuestions(previous => createPracticeQuestions(
+      record.kind === "quiz" ? practiceMode === "all" ? record.payload.questions || [] : wrong(record) : [],
+      Math.random, selected?.id === record.id ? previous : [],
+    ));
+  }
   const deletedRecords = data.deletedRecords || [];
   const kindIcon = { summary: BookOpenText, qa: MessageCircleQuestion, quiz: ListChecks, flashcards: Layers };
   async function bulkHistory(action) {
@@ -130,17 +137,17 @@ export default function HistoryPage({ review = false }) {
       </div>
       {loaded && <p className="history-record-count" data-react-i18n>{t(`${records.length} ${review ? "quizzes available for practice" : "study records shown"}`, `${records.length} ${review ? "份测验可供练习" : "条学习记录"}`)}</p>}
       {loaded && !records.length && <p>{review ? practiceMode === "all" ? t("No saved quizzes for this filter.", "当前筛选条件下没有测验记录。") : t("No saved wrong questions for this filter.", "当前筛选条件下没有错题记录。") : t("No saved records for this filter yet.", "当前筛选条件下暂无学习记录。")}</p>}
-      {records.map((r) => { const Icon = kindIcon[r.kind] || History; return <div key={r.id} className={`history-record-row history-kind-${r.kind}${selected?.id === r.id ? " is-selected" : ""}`}><div><button className="history-record-open" type="button" data-react-i18n aria-pressed={selected?.id === r.id} disabled={pending} onClick={() => { setSelected(r); setAnswers({}); setResult(null); setError(''); attemptId.current = null; }}><Icon size={17} aria-hidden="true" />{kindLabel(r.kind)} · {r.created_at} · {courseLabel(studentCourses.find((c) => c.id === r.course_id)) || t("Archived course", "已归档课程")}{r.kind === "quiz" ? ` · ${r.payload.score}% · ${wrong(r).length} ${t("wrong", "道错题")}` : ""}</button>{review && <small className="history-practice-count">{t(`${data.reviews.filter((a) => a.record_id === r.id).length} practice attempt(s)`, `已练习 ${data.reviews.filter((a) => a.record_id === r.id).length} 次`)}</small>}</div>{!review && <button type="button" className="history-delete-button" data-react-i18n disabled={pending} aria-label={`${t("Delete", "删除")} ${kindLabel(r.kind)} · ${r.created_at}`} onClick={() => deleteRecord(r)}><Trash2 size={14} aria-hidden="true" />{t("Delete", "删除")}</button>}</div>; })}
+      {records.map((r) => { const Icon = kindIcon[r.kind] || History; return <div key={r.id} className={`history-record-row history-kind-${r.kind}${selected?.id === r.id ? " is-selected" : ""}`}><div><button className="history-record-open" type="button" data-react-i18n aria-pressed={selected?.id === r.id} disabled={pending} onClick={() => startPractice(r)}><Icon size={17} aria-hidden="true" />{kindLabel(r.kind)} · {r.created_at} · {courseLabel(studentCourses.find((c) => c.id === r.course_id)) || t("Archived course", "已归档课程")}{r.kind === "quiz" ? ` · ${r.payload.score}% · ${wrong(r).length} ${t("wrong", "道错题")}` : ""}</button>{review && <small className="history-practice-count">{t(`${data.reviews.filter((a) => a.record_id === r.id).length} practice attempt(s)`, `已练习 ${data.reviews.filter((a) => a.record_id === r.id).length} 次`)}</small>}</div>{!review && <button type="button" className="history-delete-button" data-react-i18n disabled={pending} aria-label={`${t("Delete", "删除")} ${kindLabel(r.kind)} · ${r.created_at}`} onClick={() => deleteRecord(r)}><Trash2 size={14} aria-hidden="true" />{t("Delete", "删除")}</button>}</div>; })}
       {!review && deletedRecords.length > 0 && <details className="history-deleted-records" data-react-i18n><summary>{t("Deleted records", "已删除的记录")} ({deletedRecords.length})</summary><p>{t("Undo restores the record and its saved practice attempts. Records cannot be restored after their course or source material is deleted.", "撤销会恢复原记录及关联练习。课程或来源材料被删除后，对应记录无法恢复。")}</p>{deletedRecords.map(r => <div className="history-record-row" key={r.id}><span>{kindLabel(r.kind)} · {r.created_at}</span><button type="button" disabled={pending} aria-label={`${t("Undo deletion of", "撤销删除")} ${kindLabel(r.kind)} · ${r.created_at}`} onClick={() => restoreRecord(r)}>{t("Undo", "撤销")}</button></div>)}</details>}
       {selected && <section className="history-details"><h2>{review ? practiceMode === "all" ? t("Retake Quiz", "重新练习全部题目") : t("Wrong question practice", "错题练习") : t("Record details", "记录详情")}</h2>
         {selected.kind === "quiz" ? <form onSubmit={submitPractice}>
-          {(review ? practiceQuestions : selected.payload.questions).map((q) => <article key={q.id} className={(!review || result) ? `quiz-result-card ${isCorrect(q, (result?.answers || selected.payload.answers)[q.id]) ? "quiz-result-correct" : "quiz-result-incorrect"}` : undefined} style={{ marginBottom: 20 }}><h3>{selected.payload.questions.indexOf(q) + 1}. {q.question}</h3>
+          {(review ? practiceQuestions : selected.payload.questions).map((q) => <article key={q.id} className={(!review || result) ? `quiz-result-card ${isCorrect(q, (result?.answers || selected.payload.answers)[q.id]) ? "quiz-result-correct" : "quiz-result-incorrect"}` : undefined} style={{ marginBottom: 20 }}><h3>{selected.payload.questions.findIndex(original => original.id === q.id) + 1}. {q.question}</h3>
             <p>{isMultiple(q) ? t("Multiple answers — select all that apply", "多选题——请选择所有正确选项") : t("Single answer — select one option", "单选题——请选择一个选项")}</p>
             {(!review || result) && <p className="quiz-result-status"><strong>{isCorrect(q, (result?.answers || selected.payload.answers)[q.id]) ? t("Correct", "正确") : t("Incorrect", "错误")}</strong></p>}
             {review && <p>{t("Original answer:", "原始答案：")} {answerText(q, selected.payload.answers[q.id])}</p>}
-            {review && !result ? q.options.map((o, i) => <label key={i} style={{ display: "block", padding: 6 }}><input disabled={pending} required={!isMultiple(q)} type={isMultiple(q) ? "checkbox" : "radio"} name={String(q.id)} checked={indices(answers[q.id]).includes(i)} onChange={() => { attemptId.current = null; setAnswers((current) => ({ ...current, [q.id]: toggleAnswer(q, current[q.id], i) })); }} /> {o}</label>) : <><p>{t("Your answer:", "你的答案：")} {answerText(q, (result?.answers || selected.payload.answers)[q.id])}</p><p>{t("Correct answer:", "正确答案：")} {answerText(q, correctIndices(q))}</p><p>{q.explanation}</p></>}
+            {review && !result ? q.optionOrder.map(i => <label key={i} style={{ display: "block", padding: 6 }}><input disabled={pending} required={!isMultiple(q)} type={isMultiple(q) ? "checkbox" : "radio"} name={String(q.id)} checked={indices(answers[q.id]).includes(i)} onChange={() => { attemptId.current = null; setAnswers((current) => ({ ...current, [q.id]: toggleAnswer(q, current[q.id], i) })); }} /> {q.options[i]}</label>) : <><p>{t("Your answer:", "你的答案：")} {answerText(q, (result?.answers || selected.payload.answers)[q.id])}</p><p>{t("Correct answer:", "正确答案：")} {answerText(q, correctIndices(q))}</p><p>{q.explanation}</p></>}
           </article>)}
-          {review && !result && <button className="primary-button" disabled={pending}>{t("Submit practice", "提交练习")}</button>}{result && <><p role="status">{t(`Saved: ${result.correct}/${result.total} correct (${result.score}%).`, `已保存：答对 ${result.correct}/${result.total} 题（${result.score}%）。`)}</p><button type="button" disabled={pending} onClick={() => { setAnswers({}); setResult(null); attemptId.current = null; }}>{t("Practise again", "再次练习")}</button></>}
+          {review && !result && <button className="primary-button" disabled={pending}>{t("Submit practice", "提交练习")}</button>}{result && <><p role="status">{t(`Saved: ${result.correct}/${result.total} correct (${result.score}%).`, `已保存：答对 ${result.correct}/${result.total} 题（${result.score}%）。`)}</p><button type="button" disabled={pending} onClick={() => startPractice(selected)}>{t("Practise again", "再次练习")}</button></>}
           {data.reviews.filter((a) => a.record_id === selected.id).map((a) => <details key={a.id}><summary>{t("Practice", "练习")} · {a.created_at} · {a.payload.correct}/{a.payload.total} {t("correct", "题正确")}</summary>
             {(a.payload.mode === "all" ? selected.payload.questions : wrong(selected)).map((q) => <div key={q.id}><h4>{selected.payload.questions.indexOf(q) + 1}. {q.question}</h4>
               <p>{isCorrect(q, a.payload.answers[q.id]) ? t('Correct', '正确') : t('Incorrect', '错误')} · {t("Your answer:", "你的答案：")} {answerText(q, a.payload.answers[q.id])}</p>

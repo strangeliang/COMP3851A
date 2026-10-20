@@ -14,12 +14,17 @@ but are no longer imported or routed. Student learning pages are unchanged.
    calls the real backend Gemini API, and saves its reply. There is no draft approval
    or separate ticket submission. A visible notice explains that recent support
    messages are sent to Google Gemini and administrators can read the conversation.
-3. The admin opens Support Tickets, searches or filters the inbox, reads the issue,
+3. Students can choose **Request human support** in Ask Me. The request persists
+   as Waiting, appears in the administrator's **Human support waiting queue**,
+   and remains waiting even if Gemini replies. Duplicate clicks/retries do not
+   create duplicate requests. An administrator reply or In progress status moves
+   it to In progress. Resolved closes it; the student can request help again.
+4. The admin opens Support Tickets, searches or filters the inbox, reads the issue,
    replies, and sets Open, In progress, or Resolved. Resolved records can be reopened.
-4. The student uses This login or Conversation history to read and reply. The admin
+5. The student uses This login or Conversation history to read and reply. The admin
    inbox and open chats poll every eight seconds while visible, with manual refresh
    available. Draft text is retained during polling. This is not a live WebSocket chat.
-5. Conversation distinguishes student, Gemini AI, legacy preset FAQ, and administrator messages with timestamps.
+6. Conversation distinguishes student, Gemini AI, legacy preset FAQ, and administrator messages with timestamps.
    Login record shows when that conversation began; Status history shows changes.
    Older tickets retain their original submitted transcript. Private AI study chats
    and unsent drafts are never automatically copied into support.
@@ -30,7 +35,7 @@ may review and re-submit an unresolved issue. No email notifications are sent.
 
 ## Storage and permissions
 
-`support_tickets`, `support_events`, `support_ai_replies`, and legacy `support_faq_replies` are additive SQLite tables initialized on
+`support_tickets`, `support_events`, `support_handoffs`, `support_ai_replies`, and legacy `support_faq_replies` are additive SQLite tables initialized on
 backend startup. The existing `STUDY_DATABASE_PATH` selects their persistent database.
 Status events and replies record author and time; updates also store resolution time.
 Back up this database with the rest of the application data before deployment.
@@ -48,8 +53,16 @@ new login. Existing sessions without the ID must sign out and back in after upgr
 Login fails without issuing a new auth cookie if the conversation cannot be saved.
 
 Creation and replies use idempotent request IDs. Status changes use a version check
-so a stale admin page cannot silently overwrite newer updates. The inbox currently
-shows the latest 200 tickets and labels counts/filters as applying to that loaded set.
+so a stale admin page cannot silently overwrite newer updates. Search runs on the
+server across all authorized records before pagination. It includes title,
+description, student name, ID, student/admin replies, AI/FAQ replies, and
+administrator-only recovery notes. Literal `%` and `_` are not wildcard operators.
+Creation-date filters use inclusive UTC calendar dates, as labelled in the UI.
+Status, category, awaiting-reply and human-waiting filters also run before paging.
+Each page holds up to 200 matches. Counts refer only to loaded matches.
+Changing filters resets pagination and cancels stale requests. Refresh returns
+to the first matching page. Automatic inbox polling pauses after loading older
+pages so it does not discard the user's position; detail polling continues.
 
 ## Run and verify
 
@@ -95,4 +108,16 @@ Recovery requests appear in the administrator's Support Tickets inbox under Acco
 The Admin inbox can hide empty login conversations, filter tickets awaiting a staff reply,
 and sort by recent updates or oldest creation time. A student message requires attention
 until a staff member replies or resolves the ticket; automatic AI replies do not count
-as staff replies. Counts and filters still apply to the latest 200 loaded tickets.
+as staff replies. Counts apply to loaded matches; filters apply to the full database.
+
+## Search and handoff API
+
+`GET /api/tickets` accepts `q` (up to 200 characters), `status`, `category`,
+`from` and `to` (YYYY-MM-DD, UTC), `hideEmpty`, `needsReply`, `humanOnly`
+(true/false), `sort` (newest/oldest) and an opaque `cursor`.
+Keep the same filters for subsequent pages. A cursor from another filter is rejected.
+
+`POST /api/tickets/:id/human-support` accepts `{clientId: "<UUID>"}`.
+Only the authenticated student who owns that conversation can request help.
+The response contains `ticket.humanSupport` and `ticket.humanRequestedAt`.
+Status history records the request. AI has no route for resolving it.

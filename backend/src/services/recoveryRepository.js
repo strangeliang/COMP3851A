@@ -28,9 +28,25 @@ function createRecoveryRepository(db) {
         SELECT ?,?,?,?,?,? WHERE (SELECT COUNT(*) FROM account_recovery_requests WHERE email=? AND created_at>?)<3
         ON CONFLICT(client_id) DO NOTHING`, [id, clientId, accountName, email, now, now, email, new Date(Date.now() - 3600000).toISOString()]);
     },
-    async list(user, before = null) {
+    async list(user, before = null, filters = {}) {
       if (user.role !== 'Admin') return { tickets: [], hasMore: false };
-      const rows = await all(`SELECT * FROM account_recovery_requests${before ? ' WHERE (updated_at<? OR (updated_at=? AND id>?))' : ''} ORDER BY updated_at DESC,id ASC LIMIT 201`, before ? [before.time, before.time, before.id] : []);
+      if(filters.humanOnly || (filters.category && filters.category!=='account'))return {tickets:[],hasMore:false};
+      const conditions=['1=1']; const args=[];
+      const add=(sql,...values)=>{conditions.push(sql);args.push(...values);};
+      if(filters.q){
+        const term=`%${filters.q.replace(/[\\%_]/g,'\\$&')}%`;
+        add(`(t.id LIKE ? ESCAPE '\\' OR t.account_name LIKE ? ESCAPE '\\' OR t.email LIKE ? ESCAPE '\\'
+          OR 'Password reset request account' LIKE ? ESCAPE '\\'
+          OR EXISTS(SELECT 1 FROM account_recovery_events e WHERE e.ticket_id=t.id AND e.body LIKE ? ESCAPE '\\'))`,...Array(5).fill(term));
+      }
+      if(filters.status)add('t.status=?',filters.status);
+      if(filters.from)add('t.created_at>=?',filters.from);
+      if(filters.until)add('t.created_at<?',filters.until);
+      if(filters.needsReply)add("t.status<>'Resolved'");
+      const column=filters.sort==='oldest'?'t.created_at':'t.updated_at';
+      const ascending=filters.sort==='oldest';
+      if(before)add(`(${column}${ascending?'>':'<'}? OR (${column}=? AND t.id>?))`,before.time,before.time,before.id);
+      const rows=await all(`SELECT t.* FROM account_recovery_requests t WHERE ${conditions.join(' AND ')} ORDER BY ${column} ${ascending?'ASC':'DESC'},t.id ASC LIMIT 201`,args);
       return { tickets: rows.slice(0, 200).map(map), hasMore: rows.length > 200 };
     },
     async reply(id, { eventId, clientId, text }, user) {

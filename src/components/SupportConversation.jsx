@@ -10,7 +10,7 @@ export default function SupportConversation({ ticket, admin, zh, reply, setReply
   const messages = ticket.replies.filter(e => e.kind === 'reply');
   const updates = ticket.replies.filter(e => e.kind === 'status');
   const date = value => new Date(value).toLocaleString(zh ? 'zh-CN' : 'en-GB', { dateStyle: 'medium', timeStyle: 'short' });
-  const status = value => zh ? ({Open:'待处理','In progress':'处理中',Resolved:'已解决'})[value] || value : value;
+  const status = value => zh ? ({Open:'待处理','In progress':'处理中',Resolved:'已解决','Human support requested':'已申请人工客服'})[value] || value : value;
   useEffect(() => {
     if (tab !== 'chat') return;
     if (atBottom.current && log.current) { log.current.scrollTop = log.current.scrollHeight; setUnseen(false); }
