@@ -25,6 +25,12 @@ const quizDifficultyPrompts = {
   hard: "Use challenging application and comparison questions, while keeping every answer supported by the sources.",
 };
 
+const quizTypePrompts = {
+  single: "Every question must be single-answer, with exactly one correct option.",
+  multiple: "Every question must be multiple-answer, with two or three correct options.",
+  mixed: "Include at least one single-answer and at least one multiple-answer question.",
+};
+
 function validateRequest(mode, body = {}) {
   if (!["qa", "summary", "quiz", "flashcards"].includes(mode)) invalid("Unknown study mode.");
   if (!body || typeof body !== "object") invalid("The request is invalid.");
@@ -64,7 +70,11 @@ function validateRequest(mode, body = {}) {
   if (mode === "quiz" && (typeof difficulty !== "string" || !quizDifficultyPrompts[difficulty])) invalid("Select a valid quiz difficulty.");
   const questionCount = body.questionCount === undefined ? 5 : body.questionCount;
   if (mode === "quiz" && (!Number.isInteger(questionCount) || questionCount < 1 || questionCount > 20)) invalid("Enter a whole number of questions from 1 to 20.");
-  return { materials: sources, question, history: messages, answerStyle, difficulty, questionCount };
+  // Older clients omitted the type, including for one-question quizzes.
+  const quizType = body.quizType === undefined ? (questionCount === 1 ? "single" : "mixed") : body.quizType;
+  if (mode === "quiz" && (typeof quizType !== "string" || !Object.hasOwn(quizTypePrompts, quizType))) invalid("Select a valid quiz type.");
+  if (mode === "quiz" && quizType === "mixed" && questionCount < 2) invalid("Mixed quizzes need at least 2 questions.");
+  return { materials: sources, question, history: messages, answerStyle, difficulty, questionCount, quizType };
 }
 
 const systemInstruction = [
@@ -140,6 +150,10 @@ function buildGeminiRequest(mode, request) {
       const count = request.questionCount ?? 5;
       generationConfig.responseSchema.properties.questions.minItems = count;
       generationConfig.responseSchema.properties.questions.maxItems = count;
+      const answerSchema = generationConfig.responseSchema.properties.questions.items.properties.answerIndices;
+      const type = request.quizType ?? (count === 1 ? "single" : "mixed");
+      answerSchema.minItems = type === "multiple" ? 2 : 1;
+      answerSchema.maxItems = type === "single" ? 1 : 3;
       generationConfig.maxOutputTokens = 16384;
       generationConfig.temperature = 0.6;
     }
@@ -147,7 +161,7 @@ function buildGeminiRequest(mode, request) {
   const taskPrompt = mode === "qa"
     ? `${modePrompts.qa} ${answerStylePrompts[request.answerStyle]}`
     : mode === "quiz"
-      ? `${modePrompts.quiz} Create exactly ${request.questionCount ?? 5} questions. ${(request.questionCount ?? 5) > 1 ? "Include at least one single-answer and at least one multiple-answer question." : "Choose either a single-answer or a multiple-answer question."} Difficulty: ${request.difficulty}. ${quizDifficultyPrompts[request.difficulty]}`
+      ? `${modePrompts.quiz} Create exactly ${request.questionCount ?? 5} questions. ${quizTypePrompts[request.quizType ?? ((request.questionCount ?? 5) === 1 ? "single" : "mixed")]} Difficulty: ${request.difficulty}. ${quizDifficultyPrompts[request.difficulty]}`
       : modePrompts[mode];
   return {
     systemInstruction: { parts: [{ text: systemInstruction }] },
@@ -160,7 +174,7 @@ function checkedText(value, maximum = 20000) {
   return typeof value === "string" && value.trim().length > 0 && value.length <= maximum;
 }
 
-function parseOutput(mode, data, { questionCount = 5, materials } = {}) {
+function parseOutput(mode, data, { questionCount = 5, quizType = questionCount === 1 ? "single" : "mixed", materials } = {}) {
   const candidate = data?.candidates?.[0];
   if (candidate?.finishReason === "MAX_TOKENS") throw new StudyError(502, "OUTPUT_TRUNCATED", "The AI response was cut short. Try fewer materials or a shorter question.");
   if (!candidate || candidate.finishReason !== "STOP") throw new StudyError(502, "INCOMPLETE_RESPONSE", "The AI did not return a complete answer. Please try again or rephrase the request.");
@@ -203,8 +217,10 @@ function parseOutput(mode, data, { questionCount = 5, materials } = {}) {
     questionTexts.add(question.question.trim().toLowerCase());
     return shuffleOptions({ id: index + 1, question: question.question, options: question.options, answerIndices: question.answerIndices, explanation: question.explanation });
   });
-  if (questionCount > 1 && (!questions.some((q) => q.answerIndices.length === 1) || !questions.some((q) => q.answerIndices.length > 1))) badOutput();
-  return { questions, mode: "api" };
+  if (quizType === "single" && questions.some((q) => q.answerIndices.length !== 1)) badOutput();
+  if (quizType === "multiple" && questions.some((q) => q.answerIndices.length < 2)) badOutput();
+  if (quizType === "mixed" && (!questions.some((q) => q.answerIndices.length === 1) || !questions.some((q) => q.answerIndices.length > 1))) badOutput();
+  return { questions, quizType, mode: "api" };
 }
 
 module.exports = { limits, StudyError, validateRequest, buildGeminiRequest, parseOutput };

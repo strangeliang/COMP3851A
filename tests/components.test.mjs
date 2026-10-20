@@ -1441,6 +1441,61 @@ test("quiz accepts custom counts, toggles multiple answers and preserves them ac
   assert.ok(JSON.stringify(app.renderer.toJSON()).includes("C; A"));
 });
 
+test("quiz type selection sends all modes, blocks one-question mixed quizzes and preserves the generated type in history", async (t) => {
+  const app = await harness(t, { workspace: true, ai: async (_url, body) => jsonReply({
+    quizType: body.quizType, mode: "api",
+    questions: Array.from({ length: body.questionCount }, (_, i) => ({
+      id: i + 1, question: `Fact ${i}?`, options: ["A", "B", "C", "D"],
+      answerIndices: body.quizType === "single" || (body.quizType === "mixed" && i === 0) ? [0] : [0, 2], explanation: "Source [S1]",
+    })),
+  }) });
+  await act(async () => button(app.renderer, "Quiz").props.onClick());
+  const type = () => app.renderer.root.findByProps({ "aria-label": "Question type" });
+  const count = () => app.renderer.root.findByProps({ "aria-label": "Number of questions (1–20)" });
+  const generate = () => app.renderer.root.findAllByType("button").find(n => /Generate (New )?Quiz/.test(n.children.join("")));
+  assert.equal(type().props.value, "mixed");
+  assert.deepEqual(type().findAllByType("option").map(n => n.props.value), ["single", "multiple", "mixed"]);
+  await act(async () => count().props.onChange({ target: { value: "1" } }));
+  assert.equal(generate().props.disabled, true);
+  assert.equal(count().props["aria-invalid"], true);
+  assert.ok(JSON.stringify(app.renderer.toJSON()).includes("Mixed quizzes need at least 2 questions"));
+  await act(async () => generate().props.onClick());
+  assert.equal(app.requests.filter(r => r.url === "/api/ai/quiz").length, 0);
+  for (const quizType of ["single", "multiple", "mixed"]) {
+    await act(async () => { type().props.onChange({ target: { value: quizType } }); count().props.onChange({ target: { value: quizType === "mixed" ? "2" : "1" } }); });
+    assert.equal(generate().props.disabled, false);
+    await act(async () => generate().props.onClick());
+    assert.equal(app.requests.filter(r => r.url === "/api/ai/quiz").at(-1).body.quizType, quizType);
+    assert.equal(app.renderer.root.findAllByType("input").filter(n => n.props.name === "question-1" && n.props.type === (quizType === "multiple" ? "checkbox" : "radio")).length, 4);
+  }
+  await act(async () => type().props.onChange({ target: { value: "single" } }));
+  await act(async () => button(app.renderer, "Q&A").props.onClick());
+  await act(async () => button(app.renderer, "Quiz").props.onClick());
+  assert.equal(type().props.value, "single");
+  // The selector controls the next generation, not the current mixed quiz.
+  await act(async () => app.renderer.root.findAllByType("input").filter(n => n.props.type === "radio")[0].props.onChange());
+  await act(async () => button(app.renderer, "Next").props.onClick());
+  const checks = () => app.renderer.root.findAllByType("input").filter(n => n.props.type === "checkbox" && n.props.name === "question-2");
+  await act(async () => { checks()[0].props.onChange(); });
+  await act(async () => { checks()[2].props.onChange(); });
+  await act(async () => button(app.renderer, "Submit").props.onClick());
+  assert.equal(app.data.quizAttempts[0].score, 100);
+  assert.equal(app.data.quizAttempts[0].quizType, "mixed");
+});
+
+test("quiz type is locked while generating and failed generation creates no history", async (t) => {
+  const waiting = deferred();
+  const app = await harness(t, { workspace: true, ai: () => waiting.promise });
+  await act(async () => button(app.renderer, "Quiz").props.onClick());
+  let generation;
+  await act(async () => { generation = button(app.renderer, "Generate Quiz").props.onClick(); });
+  assert.equal(app.renderer.root.findByProps({ "aria-label": "Question type" }).props.disabled, true);
+  await act(async () => { waiting.resolve(jsonReply({ code: "INVALID_AI_OUTPUT", message: "The AI returned an invalid result. Please generate it again." }, 502)); await generation; });
+  assert.equal(app.renderer.root.findByProps({ "aria-label": "Question type" }).props.disabled, false);
+  assert.ok(JSON.stringify(app.renderer.toJSON()).includes("The AI returned an invalid result"));
+  assert.equal(app.data.quizAttempts.length, 0);
+});
+
 test("study defaults persist, synchronize and initialize Q&A and Quiz without overriding drafts", async (t) => {
   const window = memoryWindow({ "study-interface-preferences": JSON.stringify({ answerStyle: "unknown", quizDifficulty: "easy", readingSize: "large" }) });
   const { default: usePreferences } = await loadSource("export { default } from './src/hooks/useStudyPreferences.js';", {}, { window });

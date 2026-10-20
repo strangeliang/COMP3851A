@@ -148,7 +148,11 @@ function QuizPanel({ canUseAI, materialSourceLabel }) {
   const [warning, setWarning] = useState("");
   const [difficulty, setDifficulty] = useWorkspaceState(`quiz-difficulty:${scope.scopeKey}`, preferences.quizDifficulty);
   const [questionCount, setQuestionCount] = useWorkspaceState(`quiz-count:${scope.scopeKey}`, "5");
+  const [quizType, setQuizType] = useWorkspaceState(`quiz-type:${scope.scopeKey}`, "mixed");
   const countValid = /^\d+$/.test(String(questionCount)) && Number(questionCount) >= 1 && Number(questionCount) <= 20;
+  const typeValid = ["single", "multiple", "mixed"].includes(quizType);
+  const mixedCountValid = quizType !== "mixed" || Number(questionCount) >= 2;
+  const settingsValid = countValid && typeValid && mixedCountValid;
 
   const submittedRef = useRef(submitted);
 
@@ -183,7 +187,7 @@ function QuizPanel({ canUseAI, materialSourceLabel }) {
 
   async function generate() {
     if (!canUseAI || request.pending) return;
-    if (!countValid) return;
+    if (!settingsValid) return;
     resetAnswers();
 
     await request.run((signal) =>
@@ -191,6 +195,7 @@ function QuizPanel({ canUseAI, materialSourceLabel }) {
         materials: selectedMaterials,
         difficulty,
         questionCount: Number(questionCount),
+        quizType,
         signal,
       })
     );
@@ -215,6 +220,7 @@ function QuizPanel({ canUseAI, materialSourceLabel }) {
         correct,
         answers,
         questions,
+        quizType: request.data?.quizType,
         mode: "api",
       },
       scope
@@ -239,9 +245,19 @@ function QuizPanel({ canUseAI, materialSourceLabel }) {
         <label className="user-field" style={{ minWidth: 140 }}>
           Number of questions (1–20)
           <input type="number" min="1" max="20" step="1" required
-            aria-label="Number of questions (1–20)" aria-invalid={!countValid}
+            aria-label="Number of questions (1–20)" aria-invalid={!countValid || !mixedCountValid}
             value={questionCount} disabled={request.pending}
             onChange={(event) => setQuestionCount(event.target.value)} />
+        </label>
+
+        <label className="user-field quiz-type-field" style={{ minWidth: 170 }} data-react-i18n>
+          {t("Question type", "题型")}
+          <select aria-label="Question type" value={quizType} disabled={request.pending}
+            onChange={(event) => setQuizType(event.target.value)}>
+            <option value="single">{t("Single answer", "单选题")}</option>
+            <option value="multiple">{t("Multiple answers", "多选题")}</option>
+            <option value="mixed">{t("Mixed", "混合题型")}</option>
+          </select>
         </label>
 
         <label
@@ -267,7 +283,7 @@ function QuizPanel({ canUseAI, materialSourceLabel }) {
           className="primary-button"
           type="button"
           onClick={generate}
-          disabled={!canUseAI || request.pending || !countValid}
+          disabled={!canUseAI || request.pending || !settingsValid}
         >
           {request.pending
             ? "Generating…"
@@ -277,11 +293,12 @@ function QuizPanel({ canUseAI, materialSourceLabel }) {
         </button>
       </div>
 
-      <p className="demo-warning">
-        Choose 1–20 questions. Quizzes mix single-answer and multiple-answer questions when there is more than one question. Select all correct options; no partial credit. Check AI explanations against the sources.
+      <p className="demo-warning" data-react-i18n>
+        {t("Choose a question type and 1–20 questions (at least 2 for Mixed). Single-answer questions have one correct option; multiple-answer questions have two or three. Select all correct options; no partial credit. Check AI explanations against the sources.", "请选择题型和 1–20 道题（混合题型至少 2 道）。单选题有 1 个正确答案，多选题有 2–3 个正确答案。多选题必须选全且无错选才得分。请对照原资料核对 AI 解析。")}
       </p>
       {!countValid && <p className="form-error" role="alert">Enter a whole number of questions from 1 to 20.</p>}
-      {countValid && !questions.length && <p className="quiz-selection-count" data-react-i18n>{t(`Selected: ${questionCount} questions. Generate Quiz to begin.`, `已选择 ${questionCount} 道题，生成测验后即可开始。`)}</p>}
+      {countValid && !mixedCountValid && <p className="form-error" role="alert" data-react-i18n>{t("Mixed quizzes need at least 2 questions. Choose Single answer or Multiple answers for a one-question quiz.", "混合题型至少需要 2 道题。生成 1 道题时，请选择单选题或多选题。")}</p>}
+      {settingsValid && !questions.length && <p className="quiz-selection-count" data-react-i18n>{t(`Selected: ${questionCount} questions. Generate Quiz to begin.`, `已选择 ${questionCount} 道题，生成测验后即可开始。`)}</p>}
 
       {request.pending && (
         <div className="state-banner" role="status">

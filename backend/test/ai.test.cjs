@@ -137,6 +137,62 @@ test("quiz counts 1 through 20 reach the provider and parser without changing th
   }
 });
 
+test("quiz type reaches the provider schema, parser and marking for every supported mode", async () => {
+  const { isCorrect, correctIndices, answerText } = require("../../shared/quiz.mjs");
+  for (const quizType of ["single", "multiple", "mixed"]) {
+    for (const questionCount of quizType === "mixed" ? [2, 7, 20] : [1, 2, 20]) {
+      const questions = Array.from({ length: questionCount }, (_, i) => ({
+        ...output.questions[0], question: `Type ${quizType} fact ${i}?`,
+        answerIndices: quizType === "single" || (quizType === "mixed" && i % 2 === 0) ? [0] : [0, 2],
+      }));
+      const service = createGeminiService({ apiKey: "test-key", fetchImpl: async (_url, options) => {
+        const request = JSON.parse(options.body);
+        const schema = request.generationConfig.responseSchema.properties.questions;
+        assert.equal(schema.minItems, questionCount);
+        assert.equal(schema.maxItems, questionCount);
+        assert.equal(schema.items.properties.answerIndices.minItems, quizType === "multiple" ? 2 : 1);
+        assert.equal(schema.items.properties.answerIndices.maxItems, quizType === "single" ? 1 : 3);
+        const prompt = request.contents.at(-1).parts[0].text;
+        assert.ok(prompt.includes(quizType === "mixed" ? "Include at least one single-answer and at least one multiple-answer" : `Every question must be ${quizType === "single" ? "single" : "multiple"}-answer`));
+        return reply(complete(JSON.stringify({ questions })));
+      } });
+      const original = structuredClone(questions);
+      const result = await service.generate("quiz", { materials, quizType, questionCount });
+      assert.equal(result.quizType, quizType);
+      result.questions.forEach((q, i) => {
+        assert.equal(isCorrect(q, correctIndices(q)), true);
+        assert.equal(answerText(q, correctIndices(q)).split("; ").sort().join(), answerText(original[i], original[i].answerIndices).split("; ").sort().join());
+        if (q.answerIndices.length > 1) assert.equal(isCorrect(q, [q.answerIndices[0]]), false);
+      });
+      assert.deepEqual(questions, original);
+    }
+  }
+  assert.equal(buildGeminiRequest("quiz", validateRequest("quiz", { materials })).generationConfig.responseSchema.properties.questions.items.properties.answerIndices.maxItems, 3);
+});
+
+test("invalid quiz types and one-question mixed requests are rejected before calling AI", async () => {
+  let calls = 0;
+  const service = createGeminiService({ apiKey: "test-key", fetchImpl: async () => { calls++; return reply(complete(JSON.stringify(output))); } });
+  for (const quizType of ["unknown", "", null, 1, ["single"], {}, "__proto__", "constructor"]) {
+    await assert.rejects(service.generate("quiz", { materials, quizType }), codeIs("INVALID_INPUT"));
+  }
+  await assert.rejects(service.generate("quiz", { materials, quizType: "mixed", questionCount: 1 }), codeIs("INVALID_INPUT"));
+  assert.equal(calls, 0);
+  assert.equal(validateRequest("quiz", { materials }).quizType, "mixed");
+  assert.equal(validateRequest("quiz", { materials, questionCount: 1 }).quizType, "single");
+});
+
+test("AI results with the wrong requested quiz type never become successful results", async () => {
+  for (const [quizType, answerSets] of [
+    ["single", [[0], [0, 2]]], ["multiple", [[0, 2], [0]]],
+    ["mixed", [[0], [1]]], ["mixed", [[0, 2], [1, 3]]],
+  ]) {
+    const questions = answerSets.map((answerIndices, i) => ({ ...output.questions[i], answerIndices }));
+    const service = createGeminiService({ apiKey: "test-key", fetchImpl: async () => reply(complete(JSON.stringify({ questions }))) });
+    await assert.rejects(service.generate("quiz", { materials, quizType, questionCount: 2 }), codeIs("INVALID_AI_OUTPUT"));
+  }
+});
+
 test("shared quiz marking uses exact sets, preserves legacy answers and shuffles answer mappings", () => {
   const { isCorrect, toggleAnswer, shuffleOptions, answerText, correctIndices } = require("../../shared/quiz.mjs");
   const question = { options: ["A", "B", "C", "D"], answerIndices: [0, 2] };
