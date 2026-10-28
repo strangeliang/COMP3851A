@@ -13,6 +13,8 @@ function validateHistory(kind, payload) {
       || payload.summary.concepts.some((c) => !text(c, 5000))) invalid();
   } else if (kind === 'qa') {
     if (!['User', 'AI'].includes(payload.role) || !text(payload.text)) invalid();
+    if (payload.conversationId !== undefined && (typeof payload.conversationId !== 'string' || !/^[a-f0-9-]{36}$/i.test(payload.conversationId)
+      || !text(payload.scopeKey, 1000) || !Number.isSafeInteger(payload.messageOrder) || payload.messageOrder < 0)) invalid();
   } else if (kind === 'flashcards') {
     if (!Array.isArray(payload.cards) || !payload.cards.length || payload.cards.length > 100
       || payload.cards.some((c) => !object(c) || !text(c.front, 5000) || !text(c.back, 10000)

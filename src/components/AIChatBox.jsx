@@ -35,11 +35,11 @@ export default function AIChatBox({ selectedMaterials = [], currentCourse = null
     sendLock.current = token;
     const capturedScope = scope;
     const history = recentHistory(currentChatRecords);
-    addChatRecord("User", question, { scope: capturedScope, mode: "api" });
+    const savedQuestion = addChatRecord("User", question, { scope: capturedScope, mode: "api" });
     recordQAUse(capturedScope);
     try {
       const result = await request.run((signal) => generateAIAnswer({ materials: selectedMaterials, question, history, answerStyle, signal }));
-      if (result) addChatRecord("AI", result.answer, { scope: capturedScope, mode: "api" });
+      if (result) addChatRecord("AI", result.answer, { scope: capturedScope, mode: "api", conversationId: savedQuestion?.conversationId, replyTo: savedQuestion?.id });
     } finally { if (sendLock.current === token) sendLock.current = null; }
   }
 

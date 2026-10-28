@@ -114,13 +114,17 @@ function createStudyRoutes({ database, gemini, mailer, sessions = createSessionS
   router.delete("/history/:id", authenticate, async (req, res) => {
     const record = await database.getHistoryIncludingDeleted(req.params.id, req.user.id);
     if (!record) throw new StudyError(404, "NOT_FOUND", "This study record is unavailable.");
-    await database.deleteHistory(record.id, req.user.id);
+    const payload = JSON.parse(record.payload);
+    if (record.kind === 'qa' && payload.conversationId && payload.scopeKey) await database.deleteQAConversation(record, req.user.id, payload);
+    else await database.deleteHistory(record.id, req.user.id);
     res.json({ ok: true });
   });
   router.post("/history/:id/restore", authenticate, async (req, res) => {
     const record = await database.getHistoryIncludingDeleted(req.params.id, req.user.id);
     if (!record || !await database.courseBelongsToOwner(record.course_id, req.user.id)) throw new StudyError(404, "NOT_FOUND", "This study record or its course is unavailable.");
-    await database.restoreHistory(record.id, req.user.id);
+    const payload = JSON.parse(record.payload);
+    if (record.kind === 'qa' && payload.conversationId && payload.scopeKey) await database.restoreQAConversation(record, req.user.id, payload);
+    else await database.restoreHistory(record.id, req.user.id);
     const restored = await database.getHistory(record.id, req.user.id);
     if (!restored) throw new StudyError(404, "NOT_FOUND", "This study record is unavailable.");
     res.json({ record: { ...restored, payload: JSON.parse(restored.payload) },
@@ -138,8 +142,10 @@ function createStudyRoutes({ database, gemini, mailer, sessions = createSessionS
         if (!material || String(material.course_id) !== String(courseId)) throw new StudyError(403, 'MATERIAL_NOT_FOUND', 'A source material is no longer available in this course.');
       }
     }
-    await database.saveHistory(`${req.user.id}:${id}`, req.user.id, kind, courseId, payload);
+    if (kind === 'qa' && payload.conversationId) await database.saveQAMessage(`${req.user.id}:${id}`, req.user.id, courseId, payload);
+    else await database.saveHistory(`${req.user.id}:${id}`, req.user.id, kind, courseId, payload);
     const saved = await database.getHistory(`${req.user.id}:${id}`, req.user.id);
+    if (!saved && kind === 'qa' && payload.conversationId && await database.hasDeletedQAConversation(req.user.id, courseId, payload)) throw new StudyError(409, 'HISTORY_DELETED', 'This conversation was deleted. Use Undo in Study History to restore it.');
     if (!saved && await database.getHistoryIncludingDeleted?.(`${req.user.id}:${id}`, req.user.id)) throw new StudyError(409, 'HISTORY_DELETED', 'This record was deleted. Use Undo in Study History to restore it.');
     if (!saved) throw new StudyError(404, 'COURSE_NOT_FOUND', 'The course was removed before the record could be saved.');
     if (saved.kind !== kind || saved.course_id !== courseId || saved.payload !== JSON.stringify(payload)) {

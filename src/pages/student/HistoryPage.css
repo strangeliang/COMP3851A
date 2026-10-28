@@ -40,3 +40,6 @@
 .history-details form > details { padding: 12px; margin-top: 10px; background: #f8f7fb; border-radius: 8px; }
 .history-details details summary { cursor: pointer; color: #625870; }
 @media(max-width: 640px) { .history-filters { grid-template-columns: 1fr; gap: 12px; }.history-bulk-actions { margin-left: 0; width: 100%; }.history-record-row { align-items: flex-start; }.history-heading { gap: 12px; } }
+.history-qa-message { padding: 14px 16px; margin: 10px 0; border: 1px solid #e8e3f6; border-radius: 12px; }
+.history-qa-message strong { color: #6333ce; }
+.history-qa-message p { margin: 8px 0 0; }

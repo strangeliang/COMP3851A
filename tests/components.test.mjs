@@ -864,6 +864,12 @@ test(
       app.data.currentChatRecords.length,
       4
     );
+    const conversation = app.data.currentChatRecords;
+    assert.equal(new Set(conversation.map(message => message.conversationId)).size, 1);
+    assert.ok(conversation[0].conversationId);
+    assert.deepEqual(conversation.map(message => message.messageOrder), [0, 1, 2, 3]);
+    const savedMessages = app.requests.filter(request => request.url === '/api/history' && request.options.method === 'POST' && request.body.kind === 'qa');
+    assert.equal(new Set(savedMessages.map(request => request.body.payload.conversationId)).size, 1);
   }
 );
 

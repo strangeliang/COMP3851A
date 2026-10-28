@@ -528,9 +528,15 @@ export function AppDataProvider({ children }) {
   function addChatRecord(role, text, details = {}) {
     const scope = details.scope || scopeNow();
     if (!scopeIsCurrent(scope) || !["User", "AI"].includes(role) || typeof text !== "string") return;
-    const id = persistStudy("qa", { role, text }, scope);
+    const workspaceSession = workspaceSessionId();
+    const previous = dataRef.current.chatRecords.filter(record => recordScopeKey(record) === scope.scopeKey && record.workspaceSession === workspaceSession);
+    if (details.replyTo && !previous.some(record => record.id === details.replyTo)) return;
+    const conversationId = details.conversationId || previous.findLast(record => record.conversationId)?.conversationId || newId();
+    const messageOrder = previous.filter(record => record.conversationId === conversationId).reduce((max, record) => Math.max(max, record.messageOrder ?? -1), -1) + 1;
+    const id = persistStudy("qa", { role, text, conversationId, messageOrder }, scope);
     updateData((current) => ({ ...current, chatRecords: [...current.chatRecords,
-      { id, syncId: id, ...scope, workspaceSession: workspaceSessionId(), role, text, mode: details.mode || "api", createdAt: now() }] }));
+      { id, syncId: id, ...scope, workspaceSession, conversationId, messageOrder, role, text, mode: details.mode || "api", createdAt: now() }] }));
+    return { id, conversationId };
   }
 
   function saveQuizAttempt(attempt, scope = scopeNow()) {

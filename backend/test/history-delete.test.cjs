@@ -96,6 +96,28 @@ test('history deletion is owner-scoped, persistent, reversible and preserves pra
   assert.equal(bulkRestored.reviews.length, 1, 'Bulk Undo preserves practice attempts');
   assert.deepEqual(bulkRestored.records.find(record => record.id === id).payload.answers, { 1: 1 });
   assert.equal((await (await request('/history/restore-all', cookie, 'POST')).json()).count, 0);
+  // New Q&A messages remain immutable/idempotent but delete/undo as one conversation.
+  const conversationId = 'a'.repeat(36);
+  const qa = (id, role, messageOrder, scopeKey = 'qa-scope') => ({ id, kind:'qa', courseId:'history-course', payload:{ role, text:role==='User'?'Question':'Answer', conversationId, messageOrder, scopeKey } });
+  const question = qa('qa-question','User',0), answer = qa('qa-answer','AI',1);
+  for (const entry of [question, answer, qa('separate-scope','User',0,'different')]) assert.equal((await request('/history',cookie,'POST',entry)).status,200);
+  assert.equal((await request('/history',cookie,'POST',answer)).status,200,'Retrying a saved message must not duplicate it');
+  assert.equal((await request('/history',other,'POST',{...question,courseId:'other-course'})).status,200);
+  const qaUrl=`/history/${encodeURIComponent(`${user.id}:qa-question`)}`;
+  assert.equal((await request(qaUrl,other,'DELETE')).status,404);
+  assert.equal((await request(qaUrl,cookie,'DELETE')).status,200);
+  let qaHistory=await (await request('/history',cookie)).json();
+  assert.equal(qaHistory.records.filter(r=>r.payload.conversationId===conversationId&&r.payload.scopeKey==='qa-scope').length,0);
+  assert.equal(qaHistory.records.some(r=>r.id===`${user.id}:separate-scope`),true);
+  assert.equal(qaHistory.deletedRecords.filter(r=>r.payload.conversationId===conversationId).length,2);
+  assert.equal((await request('/history',cookie,'POST',qa('late-answer','AI',2))).status,409,'A late reply cannot resurrect a deleted conversation');
+  assert.equal((await (await request('/history',other)).json()).records.some(r=>r.id===`${otherUser.id}:qa-question`),true);
+  assert.equal((await request(`${qaUrl}/restore`,cookie,'POST')).status,200);
+  qaHistory=await (await request('/history',cookie)).json();
+  assert.equal(qaHistory.records.filter(r=>r.payload.conversationId===conversationId&&r.payload.scopeKey==='qa-scope').length,2);
+  assert.equal((await request('/history',cookie,'POST',qa('follow-up','User',2))).status,200);
+  assert.equal((await request('/history',cookie,'POST',{...question,id:'bad',payload:{...question.payload,messageOrder:-1}})).status,400);
+  assert.equal((await request('/history',cookie,'POST',{...question,id:'bad-scope',payload:{...question.payload,scopeKey:undefined}})).status,400);
   await request(url, cookie, 'DELETE');
   await database.deleteCourse('history-course', user.id);
   assert.equal((await request(`${url}/restore`, cookie, 'POST')).status, 404);
