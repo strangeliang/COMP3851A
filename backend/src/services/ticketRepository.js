@@ -13,9 +13,11 @@ function createTicketRepository(db) {
     const ticket=await get(`${select} WHERE t.id=? AND (?=1 OR t.owner_id=?)`,[id,...scope(user)]);
     if (!ticket) return null;
     const replies=await all(`SELECT e.id,e.kind,e.body AS text,e.created_at AS createdAt,u.name,u.role,f.body AS faq,
-      a.body AS ai,a.model AS aiModel,a.created_at AS aiCreatedAt
+      a.body AS ai,a.model AS aiModel,a.created_at AS aiCreatedAt,
+      n.state AS emailState,n.last_error AS emailError
       FROM support_events e JOIN users u ON u.id=e.author_id LEFT JOIN support_faq_replies f ON f.event_id=e.id
       LEFT JOIN support_ai_replies a ON a.event_id=e.id
+      LEFT JOIN support_email_outbox n ON n.event_id=e.id
       WHERE e.ticket_id=? ORDER BY e.created_at,e.rowid`,[id]);
     return {...map(ticket),replies:replies.flatMap(({faq,ai,aiModel,aiCreatedAt,...event})=>ai
       ? [event,{id:`ai-${event.id}`,kind:'reply',text:ai,createdAt:aiCreatedAt,name:'Ask Me · Gemini',role:'AI',model:aiModel}]
@@ -66,8 +68,8 @@ function createTicketRepository(db) {
         (SELECT author.role FROM support_events e JOIN users author ON author.id=e.author_id
         WHERE e.ticket_id=t.id AND e.kind='reply' ORDER BY e.created_at DESC,e.rowid DESC LIMIT 1)='Student'
         OR (t.id NOT LIKE 'SESSION-%' AND NOT EXISTS(SELECT 1 FROM support_events e WHERE e.ticket_id=t.id AND e.kind='reply')))`);
-      const column=filters.sort==='oldest'?'t.created_at':'t.updated_at';
-      const ascending=filters.sort==='oldest';
+      const column=filters.sort==='requested'?'h.requested_at':filters.sort==='oldest'?'t.created_at':'t.updated_at';
+      const ascending=filters.sort==='oldest'||filters.sort==='requested';
       if(before)add(`(${column}${ascending?'>':'<'}? OR (${column}=? AND t.id>?))`,before.time,before.time,before.id);
       const rows=await all(`${select} WHERE ${conditions.join(' AND ')} ORDER BY ${column} ${ascending?'ASC':'DESC'},t.id ASC LIMIT 201`,args);
       return {tickets:rows.slice(0,200).map(map),hasMore:rows.length>200};

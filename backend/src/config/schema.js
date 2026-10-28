@@ -112,6 +112,29 @@ const SCHEMA_SQL = `
     requested_at TEXT NOT NULL,
     updated_at TEXT NOT NULL
   );
+  CREATE INDEX IF NOT EXISTS idx_support_waiting ON support_handoffs(state,requested_at,ticket_id);
+  CREATE TABLE IF NOT EXISTS support_email_outbox (
+    event_id TEXT PRIMARY KEY REFERENCES support_events(id) ON DELETE CASCADE,
+    state TEXT NOT NULL DEFAULT 'pending' CHECK(state IN ('pending','sending','sent','failed','skipped')),
+    attempts INTEGER NOT NULL DEFAULT 0,
+    next_attempt_at INTEGER NOT NULL DEFAULT 0,
+    lease_until INTEGER NOT NULL DEFAULT 0,
+    lease_token TEXT,
+    sent_at TEXT,
+    last_error TEXT
+  );
+  CREATE INDEX IF NOT EXISTS idx_support_mail_due ON support_email_outbox(state,next_attempt_at);
+  CREATE TRIGGER IF NOT EXISTS support_queue_reply_email AFTER INSERT ON support_events
+  WHEN NEW.kind='reply' AND (SELECT role FROM users WHERE id=NEW.author_id)='Admin'
+  BEGIN
+    INSERT INTO support_email_outbox(event_id) VALUES(NEW.id);
+  END;
+  CREATE TRIGGER IF NOT EXISTS support_new_issue_handoff AFTER INSERT ON support_tickets
+  WHEN NEW.id LIKE 'ASK-%'
+  BEGIN
+    INSERT INTO support_events(id,ticket_id,author_id,client_id,kind,body,created_at)
+      VALUES(lower(hex(randomblob(16))),NEW.id,NEW.owner_id,'initial-handoff','status','Human support requested',NEW.created_at);
+  END;
   CREATE TRIGGER IF NOT EXISTS support_human_request AFTER INSERT ON support_events
   WHEN NEW.kind='status' AND NEW.body='Human support requested'
     AND (SELECT role FROM users WHERE id=NEW.author_id)='Student'
@@ -136,6 +159,13 @@ const SCHEMA_SQL = `
   BEGIN
     UPDATE support_handoffs SET state=CASE NEW.status WHEN 'Open' THEN 'Waiting' ELSE NEW.status END,
       updated_at=NEW.updated_at WHERE ticket_id=NEW.id;
+  END;
+  CREATE TRIGGER IF NOT EXISTS support_student_followup AFTER INSERT ON support_events
+  WHEN NEW.kind='reply' AND (SELECT role FROM users WHERE id=NEW.author_id)='Student'
+    AND EXISTS(SELECT 1 FROM support_handoffs WHERE ticket_id=NEW.ticket_id AND state IN ('In progress','Resolved'))
+  BEGIN
+    UPDATE support_handoffs SET state='Waiting',requested_at=NEW.created_at,updated_at=NEW.created_at WHERE ticket_id=NEW.ticket_id;
+    UPDATE support_tickets SET status='Open',resolved_at=NULL,updated_by=NEW.author_id WHERE id=NEW.ticket_id;
   END;
   CREATE TABLE IF NOT EXISTS support_faq_replies (
     event_id TEXT PRIMARY KEY REFERENCES support_events(id) ON DELETE CASCADE,

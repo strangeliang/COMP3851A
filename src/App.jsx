@@ -14,11 +14,13 @@ import QAPage from "./pages/student/QAPage";
 import AdminSupportPage from "./pages/admin/AdminSupportPage";
 import ProtectedRoute from "./components/ProtectedRoute";
 import StudyWorkspacePage from "./pages/student/StudyWorkspacePage";
+import SupportPage from "./pages/student/SupportPage";
 
 export default function App() {
   const location = useLocation();
   return (<div className="app-page-transition" key={location.pathname}>
     <Routes>
+      <Route path="/student/support/:ticketId" element={<ProtectedRoute role="Student"><SupportPage /></ProtectedRoute>} />
       <Route path="/admin/support" element={<ProtectedRoute role="Admin"><AdminSupportPage /></ProtectedRoute>} />
       <Route path="/register" element={<RegisterPage />} />
       <Route path="/student/history" element={<ProtectedRoute role="Student"><HistoryPage key="history" /></ProtectedRoute>} />

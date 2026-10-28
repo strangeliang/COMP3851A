@@ -2,6 +2,11 @@
 .support-tickets h3 { margin: 14px 0 8px; }
 .support-tickets button, .support-tickets input, .support-tickets select, .support-tickets textarea { font: inherit; }
 .support-tickets label { display: grid; gap: 5px; margin: 12px 0; }
+.support-tickets input[type="checkbox"] { width: auto; justify-self: start; }
+.support-request-form { padding: 16px; background: #faf8ff; border: 1px solid #e5daf5; border-radius: 12px; }
+.support-request-form fieldset { border: 0; padding: 0; margin: 0; min-width: 0; }
+.support-ticket-row .support-id { font-size: 11px; overflow-wrap: anywhere; }
+.support-email-state { display: block; margin-top: 8px; font-size: 11px; color: #665079; }
 .support-tickets input, .support-tickets select, .support-tickets textarea { box-sizing: border-box; width: 100%; min-width: 0; padding: 9px; color: #27252d; border: 1px solid #cbbedd; border-radius: 8px; background: white; }
 .support-tickets textarea { resize: vertical; }
 .support-tickets button { cursor: pointer; padding: 8px 12px; border: 1px solid #d8c9f7; border-radius: 8px; background: white; color: #5420d8; }

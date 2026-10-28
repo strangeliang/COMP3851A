@@ -1,9 +1,10 @@
 import { useEffect, useRef, useState } from 'react';
 import { MessageCircleQuestion, X } from 'lucide-react';
 import { useAppData } from '../state/AppDataContext';
-import { getLoginConversation, sendLoginMessage, requestHumanSupport } from '../services/ticketApiService';
+import { getLoginConversation, sendLoginMessage } from '../services/ticketApiService';
 import { containsSecret } from '../services/helpChat';
 import SupportTickets from './SupportTickets';
+import SupportRequestForm from './SupportRequestForm';
 import './HelpAssistant.css';
 import { useLanguage } from '../state/LanguageContext';
 import useChatSize, { chatWindowSizes } from '../hooks/useChatSize';
@@ -26,8 +27,6 @@ function LoginChat() {
   const [aiFailure, setAiFailure] = useState(null);
   const [retry, setRetry] = useState(0);
   const attempt = useRef(null);
-  const handoffAttempt = useRef(null);
-  const [requestingHuman, setRequestingHuman] = useState(false);
   const lock = useRef(false);
   const mounted = useRef(false);
   const epoch = useRef(0);
@@ -70,16 +69,6 @@ function LoginChat() {
   useEffect(() => { if (open) closeButton.current?.focus(); }, [open]);
   useEffect(() => { if (nearBottom.current && log.current) log.current.scrollTop = log.current.scrollHeight; }, [ticket, open]);
   function close() { setOpen(false); launcher.current?.focus(); }
-  async function requestHuman() {
-    if(!ticket || lock.current)return;
-    lock.current=true;epoch.current++;setRequestingHuman(true);setNotice('');
-    if(handoffAttempt.current?.id!==ticket.id)handoffAttempt.current={id:ticket.id,clientId:crypto.randomUUID()};
-    try{
-      const result=await requestHumanSupport(ticket.id,handoffAttempt.current.clientId);
-      if(mounted.current){setTicket(result.ticket);handoffAttempt.current=null;}
-    }catch(e){if(mounted.current)setNotice(e.message);}
-    finally{lock.current=false;if(mounted.current)setRequestingHuman(false);}
-  }
   async function send(value) {
     const text = value.trim();
     if (!text || !ticket || lock.current) return;
@@ -104,7 +93,7 @@ function LoginChat() {
       <header className="help-assistant-header"><div><h2 id="help-assistant-title">Ask Me</h2><p>{t('Powered by Gemini · Website support', 'Gemini AI · 网站使用帮助')}</p></div><div className="help-assistant-header-actions"><button ref={closeButton} onClick={close} aria-label={t('Close help', '关闭帮助')}><X size={20}/></button></div></header>
       <nav className="help-assistant-categories help-assistant-view-nav"><button aria-pressed={view === 'chat'} onClick={() => setView('chat')}>{t('This login', '本次会话')}</button><button aria-pressed={view === 'history'} onClick={() => setView('history')}>{t('Conversation history', '历史会话')}</button></nav>
       <div className="help-assistant-size"><label htmlFor="help-chat-size">{t('Chat window size', '聊天窗口大小')}</label><select id="help-chat-size" value={chatSize} onChange={event => setChatSize(event.target.value)}>{Object.entries(chatWindowSizes).map(([value, labels]) => <option key={value} value={value}>{language === 'zh' ? labels.zh : labels.en}</option>)}</select></div>
-      {view === 'history' ? <div style={{flex:1,minHeight:0,overflowY:'auto',padding:12}}><SupportTickets key={supportId || 'all'} initialTicketId={supportId} onNewTicket={() => setView('chat')}/></div> : <>
+      {view === 'new' ? <div className="help-request-panel"><SupportRequestForm zh={language === 'zh'} onCancel={() => setView('chat')} onCreated={created => { setSupportId(created.id); setView('history'); }} /></div> : view === 'history' ? <div style={{flex:1,minHeight:0,overflowY:'auto',padding:12}}><SupportTickets key={supportId || 'all'} initialTicketId={supportId} onNewTicket={() => setView('chat')}/></div> : <>
         <p className="help-session-notice">{t('Messages and recent support context are sent to Google Gemini for replies, saved, and visible to support administrators. Each login has its own record. Private study chats and files are not included.', '消息及近期客服上下文会发送给 Google Gemini 生成回复，并保存供管理员查看。每次登录一条记录，不包含私人学习问答及文件。')}</p>
         {ticket && <p className="help-session-meta">{t('Started: ', '开始时间：')}{new Date(ticket.createdAt).toLocaleString(language === 'zh' ? 'zh-CN' : 'en-GB')} · {language === 'zh' ? ({Open:'待处理','In progress':'处理中',Resolved:'已解决'})[ticket.status] : ticket.status}</p>}
         <div className="help-assistant-log" ref={log} role="log" aria-live="polite" onScroll={() => { if (log.current) nearBottom.current = log.current.scrollHeight-log.current.scrollTop-log.current.clientHeight < 60; }}>
@@ -114,9 +103,10 @@ function LoginChat() {
         </div>
         <div className="help-assistant-options">
           <div className="help-human-support">
-            <button type="button" disabled={!ticket || saving || requestingHuman || ['Waiting','In progress'].includes(ticket?.humanSupport)} onClick={requestHuman}>
-              {requestingHuman ? t('Requesting…','正在申请…') : t('Request human support','转人工客服')}
+            <button type="button" disabled={!ticket || saving} onClick={() => setView('new')}>
+              {t('Request human support','转人工客服')}
             </button>
+            <p>{t('Human support is not live chat. Submit one issue per ticket; you do not need to stay online.', '人工支持不是实时聊天。每个问题提交一张工单，无需一直在线等待。')}</p>
             {ticket?.humanSupport && <p role="status">{({Waiting:t('Waiting for human support. AI replies do not close this request.','等待人工处理。AI 回复不会结束此申请。'),'In progress':t('An administrator is handling your request.','管理员正在处理你的申请。'),Resolved:t('Human support resolved this request. You can request help again.','人工申请已解决。如需帮助，可以再次申请。')})[ticket.humanSupport]}</p>}
           </div>
           <div className="help-assistant-categories">{(language === 'zh' ? ['登录帮助','上传帮助','Quiz 帮助','学习历史'] : ['Login help','Upload help','Quiz help','Study history']).map(q => <button key={q} disabled={saving || !ticket} onClick={() => send(q)}>{q}</button>)}</div>

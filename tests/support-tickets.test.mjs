@@ -9,6 +9,61 @@ const statuses=['Open','In progress','Resolved'];
 const initial={id:'ASK-demo',name:'Test Student',title:'Upload issue',description:'The file did not upload.',category:'upload',status:'Open',version:1,createdAt:'2026-09-22T00:00:00Z',updatedAt:'2026-09-22T00:00:00Z',resolvedAt:null,replies:[]};
 const text=node=>JSON.stringify(node.toJSON());
 
+test('admin starts in FIFO human queue and status selection exits the queue',async()=>{
+  let renderer;const calls=[];
+  const late={...initial,id:'ASK-late',humanSupport:'Waiting',humanRequestedAt:'2026-10-28T10:00:00Z'};
+  const early={...initial,id:'ASK-early',humanSupport:'Waiting',humanRequestedAt:'2026-10-28T09:00:00Z'};
+  const {default:Inbox}=await loadSource("export {default} from './src/components/SupportTickets.jsx'",{
+    '../state/AppDataContext':{useAppData:()=>({currentUser:{id:2,role:'Admin'}})},
+    '../state/LanguageContext':{useLanguage:()=>({language:'en'})},
+    '../services/ticketApiService':{ticketCategories:categories,ticketStatuses:statuses,listServerTickets:async(signal,cursor,filters)=>{calls.push(filters);return{tickets:[late,early],hasMore:false};}},
+  });
+  try{
+    await act(async()=>{renderer=create(React.createElement(Inbox));});
+    assert.equal(calls[0].humanOnly,true);assert.equal(calls[0].sort,'requested');
+    const rows=renderer.root.findAll(n=>n.type==='button'&&String(n.props.className).startsWith('support-ticket-row'));
+    assert.match(rows[0].findByProps({className:'support-id'}).children.join(''),/ASK-early/);
+    assert.equal(renderer.root.findByProps({value:'requested'}).props.disabled,true);
+    assert.match(text(renderer),/Ticket ID: /);
+    await act(async()=>renderer.root.findAllByType('select').find(n=>n.props.value==='All').props.onChange({target:{value:'Resolved'}}));
+    assert.equal(calls.at(-1).humanOnly,false);assert.equal(calls.at(-1).status,'Resolved');
+    assert.equal(calls.at(-1).sort,'newest');
+  }finally{if(renderer)await act(async()=>renderer.unmount());}
+});
+
+test('problem form validates, locks duplicate submissions and preserves a retry ID',async()=>{
+  let renderer;let pending=deferred();const calls=[],created=[];
+  const {default:Form}=await loadSource("export {default} from './src/components/SupportRequestForm.jsx'",{
+    '../services/ticketApiService':{ticketCategories:categories,createServerTicket:async body=>{calls.push(body);return pending.promise;}},
+  });
+  try{
+    await act(async()=>{renderer=create(React.createElement(Form,{onCreated:t=>created.push(t),onCancel(){}}));});
+    const submit=()=>renderer.root.findByType('form').props.onSubmit({preventDefault(){}});
+    await act(async()=>submit());assert.equal(calls.length,0);assert.match(text(renderer),/at least 10/);
+    await act(async()=>{
+      for(const [name,value] of Object.entries({title:'Upload fails',problem:'My PDF upload fails after choosing a course.',steps:'Choose course then upload',environment:'Chrome desktop'}))
+        renderer.root.findByProps({name}).props.onChange({target:{value}});
+    });
+    await act(async()=>{submit();submit();});assert.equal(calls.length,1);
+    assert.equal(renderer.root.findByType('fieldset').props.disabled,true);
+    assert.match(calls[0].description,/Choose course then upload/);
+    await act(async()=>pending.reject(Error('Offline')));assert.match(text(renderer),/Offline/);
+    pending=deferred();await act(async()=>{submit();});
+    assert.equal(calls[0].clientId,calls[1].clientId);
+    await act(async()=>pending.resolve({ticket:initial}));assert.deepEqual(created,[initial]);
+  }finally{if(renderer)await act(async()=>renderer.unmount());}
+});
+
+test('email notification failures do not hide the saved reply or imply successful delivery',async()=>{
+  let renderer;
+  const {default:Conversation}=await loadSource("export {default} from './src/components/SupportConversation.jsx'");
+  try{
+    await act(async()=>{renderer=create(React.createElement(Conversation,{ticket:{...initial,replies:[{id:'mail-failed',kind:'reply',role:'Admin',name:'Support',text:'Please try uploading again.',createdAt:initial.createdAt,emailState:'failed'}]},admin:false,zh:false,reply:'',setReply(){},onSend(){}}));});
+    assert.match(text(renderer),/Please try uploading again/);assert.match(text(renderer),/Email failed; the reply is saved here/);
+    assert.doesNotMatch(text(renderer),/Email accepted/);
+  }finally{if(renderer)await act(async()=>renderer.unmount());}
+});
+
 test('older matching pages append without duplicates, retry safely and refresh resets pagination', async () => {
   let renderer; let fail = true; const cursors = [];
   const first = { ...initial, hasMessages: true }; const older = { ...initial, id: 'ASK-old', title: 'Older unresolved issue', updatedAt: '2026-09-01T00:00:00Z', hasMessages: true };
@@ -58,15 +113,16 @@ test('server search includes reply-only hits and sends date and human queue filt
   }finally{if(renderer)await act(async()=>renderer.unmount());}
 });
 
-test('student human request shows failures, retries with same ID and displays waiting state',async()=>{
+test('student human request collects a separate issue, retries with same ID and opens its saved history',async()=>{
   let renderer;const calls=[];let fail=true;
   const {default:Help}=await loadSource("export {default} from './src/components/HelpAssistant.jsx'",{
     '../state/AppDataContext':{useAppData:()=>({currentUser:{id:1,role:'Student'}})},
     '../state/LanguageContext':{useLanguage:()=>({language:'en'})},
-    './SupportTickets':{default:()=>null},
+    './SupportTickets':({initialTicketId})=>React.createElement('p',null,`Opened ${initialTicketId}`),
     '../services/ticketApiService':{
+      ticketCategories:categories,
       getLoginConversation:async()=>({ticket:initial}),
-      requestHumanSupport:async(id,clientId)=>{calls.push({id,clientId});if(fail)throw Error('Offline');return{ticket:{...initial,humanSupport:'Waiting'}};},
+      createServerTicket:async(payload)=>{calls.push(payload);if(fail)throw Error('Offline');return{ticket:{...initial,id:'ASK-new-issue',humanSupport:'Waiting'}};},
     },
   });
   try{
@@ -74,11 +130,19 @@ test('student human request shows failures, retries with same ID and displays wa
     await act(async()=>renderer.root.findByProps({className:'help-assistant-launcher'}).props.onClick());
     const requestButton=()=>renderer.root.findAllByType('button').find(b=>b.children.includes('Request human support'));
     await act(async()=>requestButton().props.onClick());
+    assert.equal(calls.length,0,'Opening the request form does not create an empty ticket');
+    await act(async()=>{
+      renderer.root.findByProps({name:'title'}).props.onChange({target:{value:'PDF upload problem'}});
+      renderer.root.findByProps({name:'problem'}).props.onChange({target:{value:'My PDF upload stops at the final step.'}});
+    });
+    const submit=()=>renderer.root.findByType('form').props.onSubmit({preventDefault(){}});
+    await act(async()=>submit());
     assert.match(text(renderer),/Offline/);assert.doesNotMatch(text(renderer),/Waiting for human support/);
     fail=false;
-    await act(async()=>requestButton().props.onClick());
+    await act(async()=>submit());
     assert.equal(calls[0].clientId,calls[1].clientId);
-    assert.match(text(renderer),/Waiting for human support/);assert.equal(requestButton().props.disabled,true);
+    assert.match(text(renderer),/Opened ASK-new-issue/);
+    assert.equal(calls[0].title,'PDF upload problem');
   }finally{if(renderer)await act(async()=>renderer.unmount());}
 });
 
@@ -108,7 +172,7 @@ test('email reset retains its link in StrictMode, removes it from URL and waits 
 
 test('admin inbox hides empty sessions and can focus on students awaiting staff',async()=>{
   let renderer;
-  const tickets=[{...initial,hasMessages:true,needsReply:true},{...initial,id:'SESSION-empty',title:'Empty session',hasMessages:false,needsReply:false}];
+  const tickets=[{...initial,humanSupport:'Waiting',hasMessages:true,needsReply:true},{...initial,id:'SESSION-empty',title:'Empty session',hasMessages:false,needsReply:false}];
   const {default:Inbox}=await loadSource("export {default} from './src/components/SupportTickets.jsx'",{
     '../state/AppDataContext':{useAppData:()=>({currentUser:{id:2,role:'Admin'}})},
     '../state/LanguageContext':{useLanguage:()=>({language:'en'})},
@@ -118,6 +182,7 @@ test('admin inbox hides empty sessions and can focus on students awaiting staff'
     await act(async()=>{renderer=create(React.createElement(Inbox));});
     const rows=()=>renderer.root.findAll(n=>n.type==='button' && String(n.props.className).startsWith('support-ticket-row'));
     assert.equal(rows().length,1);
+    await act(async()=>renderer.root.findByProps({className:'support-human-filter'}).findByType('input').props.onChange({target:{checked:false}}));
     await act(async()=>renderer.root.findAllByProps({type:'checkbox'})[0].props.onChange({target:{checked:false}}));
     assert.equal(rows().length,2);
     await act(async()=>renderer.root.findAllByProps({type:'checkbox'})[1].props.onChange({target:{checked:true}}));
@@ -180,7 +245,7 @@ test('administrator navigation is ticket-only',async()=>{
   } finally {if(renderer)await act(async()=>renderer.unmount());}
 });
 test('admin inbox uses server state, reports failed updates and renders Chinese status labels',async()=>{
-  let ticket=structuredClone(initial),fail=false,renderer;
+  let ticket={...structuredClone(initial),humanSupport:'Waiting'},fail=false,renderer;
   const updates=[];
   const {default:Inbox}=await loadSource("export {default} from './src/components/SupportTickets.jsx'",{
     '../state/AppDataContext':{useAppData:()=>({currentUser:{id:2,role:'Admin'}})},

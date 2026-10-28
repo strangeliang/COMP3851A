@@ -36,6 +36,11 @@ function createMailService({ apiKey = process.env.RESEND_API_KEY, from = process
   }
   return {
     configured,
+    async sendSupportReply(email, ticketId, eventId) {
+      const link = `${origin}/student/support/${encodeURIComponent(ticketId)}`;
+      await send(email, 'Study Companion support has replied',
+        `A support administrator has replied to your request.\nTicket: ${ticketId}\n\nSign in to your own account to read the reply:\n${link}\n\nYou do not need to keep the chat window open. Please do not reply to this email; continue in the ticket.\n\n管理员已回复你的问题。请登录原账号，通过上方链接查看回复。无需一直在线等待，请在工单内继续沟通。`, `support-${eventId}`);
+    },
     async sendRegistrationCode(email, code, requestId) {
       await send(email, 'Your Study Companion registration code',
         `Your registration verification code is: ${code}\n\nEnter it on the registration page to create your account. It expires in 10 minutes and can be used once. Do not share this code. If you did not request it, ignore this email.\n\n你的注册验证码是：${code}\n请在注册页面输入，10 分钟内有效且只能使用一次。请勿向他人提供验证码。若非本人操作，请忽略。`, `registration-${requestId}`);

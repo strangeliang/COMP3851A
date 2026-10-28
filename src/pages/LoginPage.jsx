@@ -24,9 +24,10 @@ export default function LoginPage() {
   const [form, setForm] = useState({ email: "", password: "", remember: false });
   const [error, setError] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const returnPath = typeof location.state?.from === 'string' && /^\/student\/support\/(ASK|SESSION)-[a-zA-Z0-9-]+$/.test(location.state.from) ? location.state.from : null;
 
   if (currentUser?.role === "Student") {
-    return <Navigate to="/student/dashboard" replace />;
+    return <Navigate to={returnPath || '/student/dashboard'} replace />;
   }
 
   if (currentUser?.role === "Admin") {
@@ -203,7 +204,7 @@ export default function LoginPage() {
               New here? <Link to="/register">Register a student account</Link>
             </p>
           </form>
-          <GoogleLogin />
+          <GoogleLogin returnPath={returnPath} />
         </section>
       </section>
     </main>

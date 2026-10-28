@@ -63,7 +63,7 @@ function createStudyRoutes({ database, gemini, mailer, sessions = createSessionS
     next();
   }
 
-  router.use(require('./ticketRoutes').createTicketRoutes({database,authenticate,gemini}));
+  router.use(require('./ticketRoutes').createTicketRoutes({database,authenticate,gemini,mailer}));
   router.use(require('./emailRoutes').createEmailRoutes({database,mailer}));
   router.use(require('./registrationRoutes').createRegistrationRoutes({database,mailer}));
 
