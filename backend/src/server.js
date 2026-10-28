@@ -14,9 +14,11 @@ async function startServer() {
     await database.initializeDatabase();
     const app = createApp({ database });
 
-    app.listen(PORT, process.env.HOST || "127.0.0.1", () => {
+    const server = app.listen(PORT, process.env.HOST || "127.0.0.1", () => {
       console.log(`Backend server is running on http://localhost:${PORT}`);
     });
+    const stopNotifications = require('./services/supportNotifications').startSupportNotificationWorker(database.db);
+    server.on('close', stopNotifications);
   } catch (error) {
     console.error("Failed to start the backend:", error.message);
 

@@ -72,7 +72,8 @@ test('support tickets: permissions, replies, status audit, idempotency and real 
     assert.equal((await request('/tickets',admin,'POST',data)).status,403);
     let {ticket}=await json('/tickets',student,'POST',data,201);
     const url='/tickets/'+ticket.id;
-    assert.equal(ticket.status,'Open'); assert.equal(ticket.version,1); assert.equal(ticket.replies.length,0);
+    assert.equal(ticket.status,'Open'); assert.equal(ticket.version,2); assert.equal(ticket.replies.length,1);
+    assert.equal(ticket.humanSupport,'Waiting');assert.equal(ticket.replies[0].text,'Human support requested');
     const again=await json('/tickets',student,'POST',data,201); assert.equal(again.ticket.id,ticket.id);
     assert.equal((await request('/tickets',student,'POST',{...data,title:'Different problem'})).status,409);
     assert.equal((await json('/tickets',other)).tickets.length,1);
@@ -83,12 +84,13 @@ test('support tickets: permissions, replies, status audit, idempotency and real 
     assert.equal((await request(url+'/replies',admin,'POST',{clientId:randomUUID(),text:'API key: sk-test-secret-value'})).status,400);
     const reply={clientId:randomUUID(),text:'Please retry with a smaller PDF and let us know the error message.'};
     ticket=(await json(url+'/replies',admin,'POST',reply,201)).ticket;
-    assert.equal(ticket.replies.length,1);assert.equal(ticket.version,2);assert.equal(ticket.replies[0].role,'Admin');
+    assert.equal(ticket.replies.filter(e=>e.kind==='reply').length,1);assert.equal(ticket.version,3);assert.equal(ticket.replies.find(e=>e.kind==='reply').role,'Admin');
+    assert.equal(ticket.humanSupport,'In progress');
     const repeated=(await json(url+'/replies',admin,'POST',reply,201)).ticket;
-    assert.equal(repeated.replies.length,1);assert.equal(repeated.version,2);
+    assert.deepEqual(repeated,ticket);
     assert.equal((await request(url+'/status',admin,'PATCH',{status:'Resolved',version:1})).status,409);
     ticket=(await json(url+'/status',admin,'PATCH',{status:'In progress',version:ticket.version})).ticket;
-    assert.equal(ticket.status,'In progress');assert.equal(ticket.replies.at(-1).kind,'status');assert.equal(ticket.resolvedAt,null);
+    assert.equal(ticket.status,'In progress');assert.ok(ticket.replies.some(e=>e.kind==='status' && e.text==='In progress'));assert.equal(ticket.resolvedAt,null);
     ticket=(await json(url+'/replies',student,'POST',{clientId:randomUUID(),text:'The smaller file worked. Thank you.'},201)).ticket;
     ticket=(await json(url+'/status',admin,'PATCH',{status:'Resolved',version:ticket.version})).ticket;
     assert.equal(ticket.status,'Resolved');assert.ok(ticket.resolvedAt);

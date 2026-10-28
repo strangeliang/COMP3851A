@@ -5,6 +5,7 @@ const {createRateLimiter}=require('../services/sessionService');
 const {createTicketRepository}=require('../services/ticketRepository');
 const {createRecoveryRepository}=require('../services/recoveryRepository');
 const {secretPattern}=require('../services/supportAiContracts');
+const {createSupportNotifications}=require('../services/supportNotifications');
 const categories=['account','upload','quiz','review','other'];
 const statuses=['Open','In progress','Resolved'];
 // Defence in depth. This rejects common credentials; it cannot detect every possible secret.
@@ -22,10 +23,11 @@ function clientId(value) {
   if(typeof value!=='string'||!/^[a-f0-9-]{36}$/i.test(value))throw new StudyError(400,'INVALID_TICKET','A valid request ID is required.');
   return value;
 }
-function createTicketRoutes({database,authenticate,gemini}) {
+function createTicketRoutes({database,authenticate,gemini,mailer}) {
   const router=express.Router();
   const repo=createTicketRepository(database.db);
   const recovery=createRecoveryRepository(database.db);
+  const notifications=createSupportNotifications(database.db,mailer);
   const recoveryLimit=createRateLimiter(5,10*60*1000);
   const repository=req=>req.params.id?.startsWith('RECOVERY-') ? recovery : repo;
   router.post('/auth/recovery-request',async(req,res)=>{
@@ -58,12 +60,13 @@ function createTicketRoutes({database,authenticate,gemini}) {
     if(Object.keys(req.query).some(k=>!['cursor','q','status','category','from','to','hideEmpty','needsReply','humanOnly','sort'].includes(k)))invalid();
     for(const value of Object.values(req.query))if(typeof value!=='string')invalid();
     if(req.query.q!==undefined){if(req.query.q.length>200)invalid();filters.q=req.query.q.trim();}
-    for(const [key,allowed] of [['status',statuses],['category',categories],['sort',['newest','oldest']]]){
+    for(const [key,allowed] of [['status',statuses],['category',categories],['sort',['newest','oldest','requested']]]){
       if(req.query[key]!==undefined){if(!allowed.includes(req.query[key]))invalid();filters[key]=req.query[key];}
     }
     for(const key of ['hideEmpty','needsReply','humanOnly']){
       if(req.query[key]!==undefined){if(!['true','false'].includes(req.query[key]))invalid();filters[key]=req.query[key]==='true';}
     }
+    if(filters.sort==='requested' && !filters.humanOnly)invalid();
     for(const key of ['from','to']){
       if(req.query[key]!==undefined){
         const value=req.query[key];
@@ -84,11 +87,11 @@ function createTicketRoutes({database,authenticate,gemini}) {
       } catch { throw new StudyError(400, 'INVALID_CURSOR', 'Refresh the ticket list before loading older conversations.'); }
     }
     const [regular,requests]=await Promise.all([repo.list(req.user,before,filters),recovery.list(req.user,before,filters)]);
-    const tickets=[...regular.tickets,...requests.tickets].sort((a,b)=>(filters.sort==='oldest'?a.createdAt.localeCompare(b.createdAt):b.updatedAt.localeCompare(a.updatedAt))||a.id.localeCompare(b.id));
+    const tickets=[...regular.tickets,...requests.tickets].sort((a,b)=>(filters.sort==='requested'?a.humanRequestedAt.localeCompare(b.humanRequestedAt):filters.sort==='oldest'?a.createdAt.localeCompare(b.createdAt):b.updatedAt.localeCompare(a.updatedAt))||a.id.localeCompare(b.id));
     const page = tickets.slice(0,200);
     const hasMore = regular.hasMore||requests.hasMore||tickets.length>200;
     const last = page.at(-1);
-    res.json({tickets:page,hasMore,nextCursor:hasMore && last ? Buffer.from(JSON.stringify({time:filters.sort==='oldest'?last.createdAt:last.updatedAt,id:last.id,filters:filterKey})).toString('base64url') : null});
+    res.json({tickets:page,hasMore,nextCursor:hasMore && last ? Buffer.from(JSON.stringify({time:filters.sort==='requested'?last.humanRequestedAt:filters.sort==='oldest'?last.createdAt:last.updatedAt,id:last.id,filters:filterKey})).toString('base64url') : null});
   });
   async function current(req) {
     if(req.user.role!=='Student')throw new StudyError(403,'FORBIDDEN','Only students have support login conversations.');
@@ -151,6 +154,13 @@ function createTicketRoutes({database,authenticate,gemini}) {
     const ticket=await repository(req).reply(req.params.id,{eventId:randomUUID(),clientId:clientId(b.clientId),text:text(b.text,1,2000)},req.user);
     if(!ticket)throw new StudyError(409,'REQUEST_CONFLICT','This reply request was already used.');
     res.status(201).json({ticket});
+  });
+  router.post('/tickets/:id/retry-email',async(req,res)=>{
+    if(req.user.role!=='Admin')throw new StudyError(403,'FORBIDDEN','Only administrators can retry notifications.');
+    await owned(req);
+    body(req,[]);
+    await notifications.retry(req.params.id);
+    res.json({ticket:await owned(req)});
   });
   router.patch('/tickets/:id/status',async(req,res)=>{
     if(req.user.role!=='Admin')throw new StudyError(403,'FORBIDDEN','Only administrators can change ticket status.');

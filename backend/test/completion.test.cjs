@@ -43,6 +43,10 @@ test('complete support search and explicit handoff lifecycle are scoped, durable
   assert.equal((await repo.find(current.id,student)).humanSupport,'Waiting','Schema initialization preserves handoffs');
   let ticket=(await json(url+'/replies',ac,'POST',{clientId:randomUUID(),text:'A staff member is reviewing your question'},201)).ticket;
   assert.equal(ticket.humanSupport,'In progress');assert.equal(ticket.status,'In progress');
+  assert.equal(ticket.replies.find(e=>e.role==='Admin').emailState,'pending');
+  assert.equal((await request(url+'/retry-email',sc,'POST',{})).status,403);
+  assert.equal((await request('/tickets/ASK-missing/retry-email',ac,'POST',{})).status,404);
+  await json(url+'/retry-email',ac,'POST',{});
   assert.equal((await json('/tickets?humanOnly=true',ac)).tickets.length,0);
   assert.equal((await json(url,sc)).ticket.replies.some(e=>e.role==='Admin'),true);
   ticket=(await json(url+'/status',ac,'PATCH',{status:'Resolved',version:ticket.version})).ticket;
@@ -79,5 +83,13 @@ test('complete support search and explicit handoff lifecycle are scoped, durable
   const last=await json('/tickets?sort=oldest&cursor='+encodeURIComponent(first.nextCursor),ac);
   assert.equal(new Set([...first.tickets,...last.tickets].map(x=>x.id)).size,208);
   assert.equal(last.hasMore,false);
+  // FIFO queue pagination is based on handoff time, not ticket creation time.
+  for(let i=0;i<205;i++)await repo.requestHuman(`SESSION-search-${String(i).padStart(3,'0')}`,randomUUID(),student);
+  const queue=await json('/tickets?humanOnly=true&sort=requested',ac);
+  const queueNext=await json('/tickets?humanOnly=true&sort=requested&cursor='+encodeURIComponent(queue.nextCursor),ac);
+  assert.equal(queue.tickets.length,200);
+  assert.equal(new Set([...queue.tickets,...queueNext.tickets].map(x=>x.id)).size,206);
+  assert.equal(queueNext.hasMore,false);
+  assert.equal((await request('/tickets?sort=requested',ac)).status,400);
   assert.equal((await request('/tickets?q=different&sort=oldest&cursor='+encodeURIComponent(first.nextCursor),ac)).status,400);
 });

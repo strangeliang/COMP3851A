@@ -27,3 +27,4 @@ export async function replyServerTicket(id, text, clientId) {
 }
 export const updateServerTicket = (id, status, version) => apiRequest(`/tickets/${encodeURIComponent(id)}/status`, { method: 'PATCH', body: { status, version } });
 export const requestHumanSupport = (id, clientId) => apiRequest(`/tickets/${encodeURIComponent(id)}/human-support`, { method: 'POST', body: { clientId } });
+export const retryTicketEmail = id => apiRequest(`/tickets/${encodeURIComponent(id)}/retry-email`, { method: 'POST', body: {} });

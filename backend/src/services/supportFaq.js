@@ -20,7 +20,7 @@ function supportFaq(text, language) {
   ];
   const rule = rules.find(([pattern]) => pattern.test(text));
   return rule ? rule[zh ? 2 : 1] : (zh
-    ? '这是预设帮助回复。请说明所在页面、操作步骤及错误，不要包含敏感信息。本客服会话已保存，管理员可查看和回复；目前没有邮件提醒，也不保证即时回复。'
-    : 'This is preset help. Describe the page, steps and error without sensitive information. This support conversation is saved for administrators to review and reply. There are no email notifications or guaranteed immediate replies.');
+    ? '这是预设帮助回复。请说明所在页面、操作步骤及错误，不要包含敏感信息。需要人工时，点击申请人工帮助并提交问题表单。提交后可离开，之后在工单历史查看回复；系统会尝试向已验证的账户邮箱发送回复通知，但不保证即时回复或邮件送达。'
+    : 'This is preset help. Describe the page, steps and error without sensitive information. For a person, select Request human support and submit the problem form. You can leave and check ticket history later. Staff replies trigger an email attempt to your verified account address; neither an immediate reply nor email delivery is guaranteed.');
 }
 module.exports = { supportFaq };

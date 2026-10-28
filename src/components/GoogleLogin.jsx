@@ -15,7 +15,7 @@ function loadGoogle() {
   });
   return sdk;
 }
-export default function GoogleLogin() {
+export default function GoogleLogin({ returnPath = null }) {
   const host = useRef(null);
   const [message, setMessage] = useState("Checking Google sign-in…");
   const [ready, setReady] = useState(false);
@@ -32,7 +32,7 @@ export default function GoogleLogin() {
         try {
           await apiRequest("/auth/google", { method: "POST", body: { credential } });
           resetWorkspaceSession();
-          if (active) window.location.assign("/");
+          if (active) window.location.assign(typeof returnPath === 'string' && /^\/student\/support\/(ASK|SESSION)-[a-zA-Z0-9-]+$/.test(returnPath) ? returnPath : '/');
         } catch (error) { if (active) setMessage(`${error.message} Refresh this page before retrying.`); }
       } });
       window.google.accounts.id.renderButton(host.current, { type: "standard", theme: "outline", size: "large", text: "signin_with", width: 280 });
@@ -40,7 +40,7 @@ export default function GoogleLogin() {
       setMessage("First-time Google users receive a new student account.");
     }).catch((error) => { if (active) setMessage(error.message); });
     return () => { active = false; };
-  }, []);
+  }, [returnPath]);
   return <section style={{ marginTop: 16 }} aria-label="Google sign-in">
     {!ready && <button type="button" disabled style={{ width: "100%", minHeight: 44, padding: "10px 16px", display: "flex", alignItems: "center", justifyContent: "center", gap: 12, background: "#fff", border: "1px solid #dadce0", borderRadius: 6, color: "#3c4043", fontSize: 14, fontWeight: 500, cursor: "not-allowed" }}>
       <svg width="20" height="20" viewBox="0 0 48 48" aria-hidden="true" style={{ flexShrink: 0 }}>
