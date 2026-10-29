@@ -37,7 +37,7 @@ export default function GoogleLogin({ returnPath = null }) {
       } });
       window.google.accounts.id.renderButton(host.current, { type: "standard", theme: "outline", size: "large", text: "signin_with", width: 280 });
       setReady(true);
-      setMessage("First-time Google users receive a new student account.");
+      setMessage("New Google users get a student account. Eligible existing student accounts sign in directly and keep their data.");
     }).catch((error) => { if (active) setMessage(error.message); });
     return () => { active = false; };
   }, [returnPath]);

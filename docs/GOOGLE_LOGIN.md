@@ -6,7 +6,11 @@
 4. Restart the backend and refresh the frontend. The official Google button replaces the not-configured message. If serving the production build, rebuild the frontend.
 5. Sign in with a permitted test Google account. A new identity gets a new Student account and its own empty course workspace. Existing demo-account materials are not copied.
 
-Existing email/password login remains available. An existing email is **not automatically linked**, particularly not to an administrator account. Such users must use their existing password and contact the administrator; self-service linking is not implemented. Google-only accounts do not have a usable local password. Google password recovery is handled by Google, not this app.
+Existing email/password login remains available. A verified Google identity can automatically link to an **active Student** account with the same email when Google is authoritative: a `@gmail.com` address, or a verified Google Workspace identity carrying an `hd` claim. The original user ID, password, profile, courses, uploads and history remain unchanged. Future sign-ins use the Google `sub` binding, not a fresh email match.
+
+Administrator accounts are never automatically linked. For existing accounts using third-party, non-Google-hosted email, use their existing sign-in method or the email password-reset flow to access the account; `email_verified=true` alone is not enough to prove current ownership of a third-party mailbox. This update does not include self-service Google linking for administrators or existing third-party-email accounts, and resetting a password does not itself link Google. An existing binding to a different Google subject is never overwritten. Disabled accounts remain blocked. A separately authorized/pre-existing binding continues to identify the same account by subject.
+
+Google-only accounts do not have a usable local password. Google password recovery is handled by Google, not this app. No new configuration variables or client secrets are needed for automatic Student linking.
 
 The server verifies the signed ID token and audience with Google's official library and checks a five-minute, single-use browser nonce and verified email. Google subject ID identifies the account. Disabled users are blocked; the application then issues its normal HttpOnly session cookie. No Drive/Gmail access is requested.
 

@@ -7,6 +7,7 @@ import "./HistoryPage.css";
 import "./QuizPanel.css";
 import { BookOpenText, History, Layers, ListChecks, MessageCircleQuestion, RefreshCw, RotateCcw, Trash2, Upload } from "lucide-react";
 import { courseLabel } from "../../utils/courseDisplay";
+import { groupQAHistory, qaMessages, historyRecordIds } from "../../utils/qaHistory";
 import { indices, correctIndices, isMultiple, isCorrect, validAnswer, toggleAnswer, answerText, createPracticeQuestions } from "../../../shared/quiz.mjs";
 
 export default function HistoryPage({ review = false }) {
@@ -33,7 +34,7 @@ export default function HistoryPage({ review = false }) {
   async function load() { setPending(true); setError(""); try { setData(await apiRequest("/history")); setLoaded(true); } catch (e) { setError(e.message); } finally { setPending(false); } }
   useEffect(() => { mounted.current = true; const controller = new AbortController(); apiRequest("/history", { signal: controller.signal }).then((value) => { setData(value); setLoaded(true); }).catch((e) => { if (!controller.signal.aborted) setError(e.message); }); return () => { mounted.current = false; controller.abort(); }; }, []);
   const wrong = (r) => r.kind === "quiz" ? r.payload.questions.filter((q) => !isCorrect(q, r.payload.answers[q.id])) : [];
-  const records = data.records.filter((r) => (course === "All" || r.course_id === course) && (review ? r.kind === "quiz" && (practiceMode === "all" || wrong(r).length > 0) : kind === "All" || r.kind === kind));
+  const records = groupQAHistory(data.records).filter((r) => (course === "All" || r.course_id === course) && (review ? r.kind === "quiz" && (practiceMode === "all" || wrong(r).length > 0) : kind === "All" || r.kind === kind));
   function startPractice(record) {
     setSelected(record); setAnswers({}); setResult(null); setError(""); attemptId.current = null;
     setPracticeQuestions(previous => createPracticeQuestions(
@@ -41,7 +42,7 @@ export default function HistoryPage({ review = false }) {
       Math.random, selected?.id === record.id ? previous : [],
     ));
   }
-  const deletedRecords = data.deletedRecords || [];
+  const deletedRecords = groupQAHistory(data.deletedRecords || []);
   const kindIcon = { summary: BookOpenText, qa: MessageCircleQuestion, quiz: ListChecks, flashcards: Layers };
   async function bulkHistory(action) {
     if (saving.current || pending) return;
@@ -63,10 +64,11 @@ export default function HistoryPage({ review = false }) {
     try {
       await apiRequest(`/history/${encodeURIComponent(record.id)}`, { method: "DELETE" });
       if (!mounted.current) return;
+      const ids = new Set(historyRecordIds(record));
       setData(current => ({ ...current,
-        records: current.records.filter(r => r.id !== record.id),
-        reviews: current.reviews.filter(r => r.record_id !== record.id),
-        deletedRecords: [record, ...(current.deletedRecords || []).filter(r => r.id !== record.id)],
+        records: current.records.filter(r => !ids.has(r.id)),
+        reviews: current.reviews.filter(r => !ids.has(r.record_id)),
+        deletedRecords: [...qaMessages(record), ...(current.deletedRecords || []).filter(r => !ids.has(r.id))],
       }));
       setSelected(current => current?.id === record.id ? null : current);
       setLastDeleted(record.id); setNotice(t("Study record deleted. You can undo this below.", "学习记录已删除，可在下方撤销。"));
@@ -79,8 +81,9 @@ export default function HistoryPage({ review = false }) {
     saving.current = true; setPending(true); setError(""); setNotice("");
     try {
       const restored = await apiRequest(`/history/${encodeURIComponent(record.id)}/restore`, { method: "POST" });
+      const latest = record.messageRecords ? await apiRequest('/history') : null;
       if (!mounted.current) return;
-      setData(current => ({ ...current,
+      setData(current => latest || ({ ...current,
         records: [restored.record, ...current.records.filter(r => r.id !== record.id)].sort((a, b) => b.created_at.localeCompare(a.created_at)),
         reviews: [...current.reviews.filter(r => r.record_id !== record.id), ...restored.reviews],
         deletedRecords: (current.deletedRecords || []).filter(r => r.id !== record.id),
@@ -153,7 +156,11 @@ export default function HistoryPage({ review = false }) {
               <p>{isCorrect(q, a.payload.answers[q.id]) ? t('Correct', '正确') : t('Incorrect', '错误')} · {t("Your answer:", "你的答案：")} {answerText(q, a.payload.answers[q.id])}</p>
               <p>{t("Correct answer:", "正确答案：")} {answerText(q, correctIndices(q))}</p></div>)}
           </details>)}
-        </form> : <div style={{ whiteSpace: "pre-wrap", overflowWrap: "anywhere" }}>{selected.kind === "qa" ? `${selected.payload.role}: ${selected.payload.text}` : selected.kind === "summary" ? <><p>{selected.payload.summary?.paragraph}</p><ul>{selected.payload.summary?.concepts?.map((c, i) => <li key={i}>{c}</li>)}</ul></> : selected.payload.cards?.map((c, i) => <details key={i}><summary>{c.front}</summary><p>{c.back}</p><small>{c.source}</small></details>)}</div>}
+        </form> : <div style={{ whiteSpace: "pre-wrap", overflowWrap: "anywhere" }}>{selected.kind === "qa" ? <>
+          {!selected.messageRecords && <p data-react-i18n>{t('Earlier message: this record has no conversation link, so it is kept separately to avoid mixing different chats.', '旧消息没有会话关联标记，保留单独显示，避免混入不同对话。')}</p>}
+          {qaMessages(selected).map(message => <article className="history-qa-message" key={message.id}><strong data-react-i18n>{message.payload.role === 'User' ? t('You', '你') : t('AI answer', 'AI 回答')}</strong><p>{message.payload.text}</p></article>)}
+          {selected.messageRecords && qaMessages(selected).at(-1)?.payload.role === 'User' && <p role="status" data-react-i18n>{t('No AI reply is saved for the last question yet. The question remains saved; this is not a successful AI answer.', '最后一个问题暂时没有已保存的 AI 回答。问题仍已保留，这不代表 AI 已成功回答。')}</p>}
+        </> : selected.kind === "summary" ? <><p>{selected.payload.summary?.paragraph}</p><ul>{selected.payload.summary?.concepts?.map((c, i) => <li key={i}>{c}</li>)}</ul></> : selected.payload.cards?.map((c, i) => <details key={i}><summary>{c.front}</summary><p>{c.back}</p><small>{c.source}</small></details>)}</div>}
       </section>}
     </div></div></StudentLayout>;
 }

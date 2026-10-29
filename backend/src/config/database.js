@@ -112,6 +112,9 @@ module.exports = {
     return get("SELECT id,name,email,role,status FROM users WHERE id=?", [result.id]);
   },
   getGoogleUser: (subject) => get("SELECT u.* FROM users u JOIN google_accounts g ON g.user_id=u.id WHERE g.subject=?", [subject]),
+  linkGoogleStudent: ({ subject, userId, email }) => run(`INSERT OR IGNORE INTO google_accounts(subject,user_id)
+    SELECT ?,id FROM users WHERE id=? AND email=? COLLATE NOCASE AND role='Student' AND status='Active'
+      AND NOT EXISTS(SELECT 1 FROM google_accounts WHERE user_id=users.id)`, [subject, userId, email]),
   createGoogleUser: async ({ subject, email, name, passwordHash }) => {
     const result = await run("INSERT INTO users(name,email,password_hash,role,status) VALUES(?,?,?,'Student','Active')", [name, email, passwordHash]);
     try { await run("INSERT INTO google_accounts(subject,user_id) VALUES(?,?)", [subject, result.id]); }
@@ -122,12 +125,28 @@ module.exports = {
   saveOriginal: (id, owner, key, hash) => run("INSERT INTO material_originals(material_id,storage_key,sha256) SELECT id,?,? FROM materials WHERE id=? AND owner_id=?", [key, hash, id, owner]),
   listOriginalsForCourse: (course, owner) => all("SELECT o.storage_key FROM material_originals o JOIN materials m ON m.id=o.material_id WHERE m.course_id=? AND m.owner_id=?", [course, owner]),
   saveHistory: (id, owner, kind, course, payload) => run("INSERT OR IGNORE INTO study_history(id,owner_id,kind,course_id,payload) SELECT ?,?,?,?,? WHERE EXISTS(SELECT 1 FROM courses WHERE id=? AND owner_id=?)", [id, owner, kind, course, JSON.stringify(payload), course, owner]),
+  saveQAMessage: (id, owner, course, payload) => run(`INSERT OR IGNORE INTO study_history(id,owner_id,kind,course_id,payload)
+    SELECT ?,?,'qa',?,? WHERE EXISTS(SELECT 1 FROM courses WHERE id=? AND owner_id=?)
+    AND NOT EXISTS(SELECT 1 FROM study_history h JOIN study_history_deletions d ON d.record_id=h.id
+      WHERE h.owner_id=? AND h.course_id=? AND h.kind='qa' AND json_extract(h.payload,'$.conversationId')=? AND json_extract(h.payload,'$.scopeKey')=?)`,
+  [id, owner, course, JSON.stringify(payload), course, owner, owner, course, payload.conversationId, payload.scopeKey]),
+  hasDeletedQAConversation: (owner, course, payload) => get(`SELECT 1 FROM study_history h JOIN study_history_deletions d ON d.record_id=h.id
+    WHERE h.owner_id=? AND h.course_id=? AND h.kind='qa' AND json_extract(h.payload,'$.conversationId')=? AND json_extract(h.payload,'$.scopeKey')=? LIMIT 1`,
+  [owner, course, payload.conversationId, payload.scopeKey]),
   listHistory: (owner) => all("SELECT h.* FROM study_history h WHERE h.owner_id=? AND NOT EXISTS(SELECT 1 FROM study_history_deletions d WHERE d.record_id=h.id) ORDER BY h.created_at DESC,h.rowid DESC", [owner]),
   getHistory: (id, owner) => get("SELECT h.* FROM study_history h WHERE h.id=? AND h.owner_id=? AND NOT EXISTS(SELECT 1 FROM study_history_deletions d WHERE d.record_id=h.id)", [id, owner]),
   getHistoryIncludingDeleted: (id, owner) => get("SELECT * FROM study_history WHERE id=? AND owner_id=?", [id, owner]),
   listDeletedHistory: (owner) => all("SELECT h.*,d.deleted_at FROM study_history h JOIN study_history_deletions d ON d.record_id=h.id WHERE h.owner_id=? ORDER BY d.deleted_at DESC,d.rowid DESC", [owner]),
   deleteHistory: (id, owner) => run("INSERT INTO study_history_deletions(record_id,owner_id) SELECT id,owner_id FROM study_history WHERE id=? AND owner_id=? ON CONFLICT(record_id) DO NOTHING", [id, owner]),
   restoreHistory: (id, owner) => run("DELETE FROM study_history_deletions WHERE record_id=? AND owner_id=?", [id, owner]),
+  deleteQAConversation: (record, owner, payload) => run(`INSERT OR IGNORE INTO study_history_deletions(record_id,owner_id)
+    SELECT id,owner_id FROM study_history WHERE owner_id=? AND course_id=? AND kind='qa'
+      AND json_extract(payload,'$.conversationId')=? AND json_extract(payload,'$.scopeKey')=?`,
+  [owner, record.course_id, payload.conversationId, payload.scopeKey]),
+  restoreQAConversation: (record, owner, payload) => run(`DELETE FROM study_history_deletions WHERE owner_id=? AND record_id IN (
+    SELECT id FROM study_history WHERE owner_id=? AND course_id=? AND kind='qa'
+      AND json_extract(payload,'$.conversationId')=? AND json_extract(payload,'$.scopeKey')=?)`,
+  [owner, owner, record.course_id, payload.conversationId, payload.scopeKey]),
   deleteAllHistory: (owner) => run("INSERT OR IGNORE INTO study_history_deletions(record_id,owner_id) SELECT id,owner_id FROM study_history WHERE owner_id=?", [owner]),
   restoreAllHistory: (owner) => run("DELETE FROM study_history_deletions WHERE owner_id=? AND EXISTS(SELECT 1 FROM study_history h JOIN courses c ON c.id=h.course_id WHERE h.id=study_history_deletions.record_id AND c.owner_id=?)", [owner, owner]),
   saveReview: (id, owner, record, payload) => run("INSERT OR IGNORE INTO review_attempts(id,owner_id,record_id,payload) VALUES(?,?,?,?)", [id, owner, record, JSON.stringify(payload)]),
