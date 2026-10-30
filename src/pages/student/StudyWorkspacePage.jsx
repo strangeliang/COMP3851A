@@ -378,15 +378,14 @@ function QuizPanel({ canUseAI, materialSourceLabel }) {
               <small>{t("Filled = answered · Outline = not answered. Click a number to jump.", "实心表示已答，空心表示未答，点击编号可跳转。")}</small>
             </div>
             <div className="quiz-navigation-actions">
-            <button
+            {activeIndex > 0 && <button
               type="button"
-              disabled={activeIndex === 0}
               onClick={() =>
                 setIndex(activeIndex - 1)
               }
             >
               Previous
-            </button>
+            </button>}
 
             {activeIndex < questions.length - 1 && <button
               type="button"
@@ -454,7 +453,7 @@ function FlashcardsPanel({
   const { selectedMaterials, scope, persistStudy } =
     useAppData();
 
-  const request = useAIRequest(scope.scopeKey, "flashcards");
+  const request = useAIRequest(scope.scopeKey, "flashcards", { retainData: true });
 
   const legacyCards = Boolean(request.data?.cards && request.data.cards.length !== 6);
   const cards = request.data?.cards?.length === 6 ? request.data.cards : [];
@@ -465,17 +464,19 @@ function FlashcardsPanel({
   async function generate() {
     if (!canUseAI || request.pending) return;
 
-    setFlipped({});
-
     const result = await request.run(async (signal) => {
       const generated = await generateAIFlashcards({
         materials: selectedMaterials,
+        previousCards: cards.map(({ front, back }) => ({ front, back })),
         signal,
       });
-      if (generated.cards?.length !== 6) throw new Error("The running backend returned an older Flashcards format. Restart the backend from COMP3851A, then generate six cards again.");
+      if (generated.cards?.length !== 6) throw new Error("The Flashcards service returned an outdated format. Please refresh the page or contact support.");
       return generated;
     });
-    if (result) persistStudy("flashcards", result, scope);
+    if (result) {
+      setFlipped({});
+      persistStudy("flashcards", result, scope);
+    }
   }
 
   return (

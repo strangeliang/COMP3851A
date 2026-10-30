@@ -134,6 +134,14 @@ module.exports = {
     WHERE h.owner_id=? AND h.course_id=? AND h.kind='qa' AND json_extract(h.payload,'$.conversationId')=? AND json_extract(h.payload,'$.scopeKey')=? LIMIT 1`,
   [owner, course, payload.conversationId, payload.scopeKey]),
   listHistory: (owner) => all("SELECT h.* FROM study_history h WHERE h.owner_id=? AND NOT EXISTS(SELECT 1 FROM study_history_deletions d WHERE d.record_id=h.id) ORDER BY h.created_at DESC,h.rowid DESC", [owner]),
+  getLatestFlashcards: (owner, materialIds) => get(`SELECT h.payload FROM study_history h
+    WHERE h.owner_id=? AND h.kind='flashcards'
+      AND json_array_length(h.payload,'$.selectedMaterialIds')=?
+      AND (SELECT COUNT(DISTINCT CAST(value AS TEXT)) FROM json_each(h.payload,'$.selectedMaterialIds'))=?
+      AND NOT EXISTS(SELECT 1 FROM json_each(h.payload,'$.selectedMaterialIds') selected
+        WHERE CAST(selected.value AS TEXT) NOT IN (SELECT value FROM json_each(?)))
+      AND NOT EXISTS(SELECT 1 FROM study_history_deletions d WHERE d.record_id=h.id)
+    ORDER BY h.created_at DESC,h.rowid DESC LIMIT 1`, [owner, materialIds.length, materialIds.length, JSON.stringify(materialIds.map(String))]),
   getHistory: (id, owner) => get("SELECT h.* FROM study_history h WHERE h.id=? AND h.owner_id=? AND NOT EXISTS(SELECT 1 FROM study_history_deletions d WHERE d.record_id=h.id)", [id, owner]),
   getHistoryIncludingDeleted: (id, owner) => get("SELECT * FROM study_history WHERE id=? AND owner_id=?", [id, owner]),
   listDeletedHistory: (owner) => all("SELECT h.*,d.deleted_at FROM study_history h JOIN study_history_deletions d ON d.record_id=h.id WHERE h.owner_id=? ORDER BY d.deleted_at DESC,d.rowid DESC", [owner]),

@@ -2,7 +2,7 @@ const express = require("express");
 const bcrypt = require("bcryptjs");
 const { randomUUID } = require("crypto");
 const { createSessionService, createRateLimiter } = require("../services/sessionService");
-const { StudyError, limits } = require("../services/studyContracts");
+const { StudyError, limits, validateRequest, normalizeFlashcardText } = require("../services/studyContracts");
 const { createOriginalStorage, validateOriginal } = require("../services/originalStorage");
 const path = require("node:path");
 const { startLogin } = require('../services/startLogin');
@@ -293,7 +293,27 @@ function createStudyRoutes({ database, gemini, mailer, sessions = createSessionS
     req.once("aborted", abort);
     res.once("close", abort);
     try {
-      const result = await gemini.generate(req.params.mode, req.body, { signal: controller.signal });
+      let input = req.body;
+      if (req.params.mode === "flashcards") {
+        const validated = validateRequest("flashcards", input);
+        const latest = await database.getLatestFlashcards(req.user.id, validated.materials.map((material) => material.id));
+        let saved = [];
+        // Older records may predate the six-card contract or have longer text.
+        // They must not prevent generating cards after a refresh or deployment.
+        try { saved = JSON.parse(latest?.payload || "{}").cards; } catch { /* Ignore unusable older comparison data. */ }
+        saved = Array.isArray(saved) ? saved.filter((card) => card && typeof card.front === "string"
+          && card.front.trim() && card.front.length <= 1000 && typeof card.back === "string"
+          && card.back.trim() && card.back.length <= 3000).slice(0, 6) : [];
+        const seen = new Set();
+        const previousCards = [...saved, ...validated.previousCards].filter((card) => {
+          const key = JSON.stringify([normalizeFlashcardText(card.front), normalizeFlashcardText(card.back)]);
+          if (seen.has(key)) return false;
+          seen.add(key);
+          return true;
+        }).slice(0, 12).map(({ front, back }) => ({ front, back }));
+        input = { ...input, previousCards };
+      }
+      const result = await gemini.generate(req.params.mode, input, { signal: controller.signal });
       if (!controller.signal.aborted) res.json(result);
     } finally {
       inFlight.delete(req.user.id);

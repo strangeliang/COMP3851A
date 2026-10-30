@@ -199,6 +199,7 @@ const SCHEMA_SQL = `
     kind TEXT NOT NULL, course_id TEXT NOT NULL, payload TEXT NOT NULL,
     created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
   );
+  CREATE INDEX IF NOT EXISTS idx_history_owner_kind_created ON study_history(owner_id,kind,created_at);
   CREATE TABLE IF NOT EXISTS review_attempts (
     id TEXT PRIMARY KEY, owner_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
     record_id TEXT NOT NULL REFERENCES study_history(id) ON DELETE CASCADE,
