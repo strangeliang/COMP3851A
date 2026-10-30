@@ -14,6 +14,22 @@ import {
 
 globalThis.IS_REACT_ACT_ENVIRONMENT = true;
 
+test('resuming a course restores only its requested sources and reports removed sources without claiming success', async t => {
+  const app = await harness(t);
+  let loaded;
+  await act(async () => { loaded = await app.data.selectCourse('inft3050', { preferredMaterialIds: [2] }); });
+  assert.equal(loaded, true);
+  assert.deepEqual(app.data.selectedMaterialIds, [2]);
+  app.server.materials = app.server.materials.filter(material => material.id !== 2);
+  await act(async () => { loaded = await app.data.selectCourse('inft3050', { preferredMaterialIds: [2] }); });
+  assert.equal(loaded, false);
+  assert.ok(!app.data.selectedMaterialIds.includes(2));
+  const previousCourse = app.data.currentCourseId;
+  await act(async () => { loaded = await app.data.selectCourse('unowned-course', { preferredMaterialIds: [3] }); });
+  assert.equal(loaded, false);
+  assert.equal(app.data.currentCourseId, previousCourse);
+});
+
 test('translation restores the latest React value, not stale dashboard counts or names', async () => {
   const { translatedValue } = await loadSource('src/utils/translationCache.js');
   const cache = new WeakMap(); const node = {};
@@ -198,10 +214,13 @@ test("workspace session restores generated results and answers after remount/rel
   await act(async () => { renderer.unmount(); });
 });
 
+function TestMessage(props) { return React.createElement("test-message", props, props.children); }
+TestMessage.Footer = "test-message-footer";
+
 const widgets = {
   ChatContainer: "test-chat",
   MainContainer: "test-main",
-  Message: "test-message",
+  Message: TestMessage,
   MessageInput: "test-input",
   MessageList: "test-list",
   TypingIndicator: "test-typing",
@@ -587,6 +606,7 @@ async function harness(
       "@chatscope/chat-ui-kit-react":
         widgets,
       "../../state/LanguageContext": { useLanguage: () => ({ language: "en" }) },
+      "../state/LanguageContext": { useLanguage: () => ({ language: "en" }) },
 
       "../../layouts/StudentLayout": ({
         children,
@@ -1219,7 +1239,7 @@ test("review shows original numbering, multiple selections, answers and repeat p
   await act(async () => renderer.root.findAllByType("button").find((b) => b.children.join("").includes("Quiz")).props.onClick());
   assert.equal(renderer.root.findByType("h3").children.join(""), "2. Choose both");
   assert.ok(JSON.stringify(renderer.toJSON()).includes("Beta"));
-  const inputs = renderer.root.findAllByType("input");
+  const inputs = renderer.root.findByType("form").findAllByType("input");
   assert.equal(inputs.length, 4); assert.equal(inputs[0].props.type, "checkbox");
   const displayedOptions = () => renderer.root.findAllByType("label").filter(label => label.findAllByType("input").length).map(label => label.children.at(-1));
   const firstOrder = displayedOptions();
@@ -1301,7 +1321,7 @@ test("profile actions open real navigation, support conversations and account-sc
     '../services/ticketApiService': { listServerTickets: async () => { ticketLoads++; return { tickets: [
       { id: 'ticket-1', status: 'Open', hasMessages: true }, { id: 'empty', status: 'Open', hasMessages: false },
     ] }; } },
-    '../services/apiClient': { apiRequest: async () => ({ records: historyRecords }) },
+    '../services/apiClient': { apiRequest: async () => ({ records: historyRecords, sourceMaterials: data.studentMaterials }) },
   }, { window, document: { hidden: false, addEventListener() {}, removeEventListener() {} } });
   let renderer;
   await act(async () => { renderer = create(React.createElement(MemoryRouter, null, React.createElement(React.Fragment, null, React.createElement(Profile), React.createElement(Help)))); });
@@ -1829,9 +1849,9 @@ test(
       },
     });
 
-    await act(async () =>
-      app.data.selectCourse("hci")
-    );
+    await act(async () => {
+      app.data.selectCourse("hci");
+    });
 
     const oldRequest =
       app.requests.find(
@@ -2182,9 +2202,9 @@ test(
       },
     });
 
-    await act(async () =>
-      app.data.selectCourse("hci")
-    );
+    await act(async () => {
+      app.data.selectCourse("hci");
+    });
 
     const request =
       app.requests.find(

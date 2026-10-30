@@ -134,6 +134,7 @@ module.exports = {
     WHERE h.owner_id=? AND h.course_id=? AND h.kind='qa' AND json_extract(h.payload,'$.conversationId')=? AND json_extract(h.payload,'$.scopeKey')=? LIMIT 1`,
   [owner, course, payload.conversationId, payload.scopeKey]),
   listHistory: (owner) => all("SELECT h.* FROM study_history h WHERE h.owner_id=? AND NOT EXISTS(SELECT 1 FROM study_history_deletions d WHERE d.record_id=h.id) ORDER BY h.created_at DESC,h.rowid DESC", [owner]),
+  listHistorySources: (owner) => all("SELECT id,course_id,name FROM materials WHERE owner_id=? ORDER BY id", [owner]),
   getLatestFlashcards: (owner, materialIds) => get(`SELECT h.payload FROM study_history h
     WHERE h.owner_id=? AND h.kind='flashcards'
       AND json_array_length(h.payload,'$.selectedMaterialIds')=?
@@ -157,7 +158,9 @@ module.exports = {
   [owner, owner, record.course_id, payload.conversationId, payload.scopeKey]),
   deleteAllHistory: (owner) => run("INSERT OR IGNORE INTO study_history_deletions(record_id,owner_id) SELECT id,owner_id FROM study_history WHERE owner_id=?", [owner]),
   restoreAllHistory: (owner) => run("DELETE FROM study_history_deletions WHERE owner_id=? AND EXISTS(SELECT 1 FROM study_history h JOIN courses c ON c.id=h.course_id WHERE h.id=study_history_deletions.record_id AND c.owner_id=?)", [owner, owner]),
-  saveReview: (id, owner, record, payload) => run("INSERT OR IGNORE INTO review_attempts(id,owner_id,record_id,payload) VALUES(?,?,?,?)", [id, owner, record, JSON.stringify(payload)]),
+  saveReview: (id, owner, record, payload) => run(`INSERT OR IGNORE INTO review_attempts(id,owner_id,record_id,payload)
+    SELECT ?,h.owner_id,h.id,? FROM study_history h WHERE h.id=? AND h.owner_id=? AND h.kind='quiz'
+      AND NOT EXISTS(SELECT 1 FROM study_history_deletions d WHERE d.record_id=h.id)`, [id, JSON.stringify(payload), record, owner]),
   getReview: (id, owner) => get("SELECT * FROM review_attempts WHERE id=? AND owner_id=?", [id, owner]),
   listReviews: (owner) => all("SELECT r.* FROM review_attempts r WHERE r.owner_id=? AND NOT EXISTS(SELECT 1 FROM study_history_deletions d WHERE d.record_id=r.record_id) ORDER BY r.created_at DESC,r.rowid DESC", [owner]),
   db,
@@ -183,8 +186,13 @@ module.exports = {
     );
   },
   deleteCourse: (id, ownerId) => run("DELETE FROM courses WHERE id = ? AND owner_id = ?;", [id, ownerId]),
+  updateCourseForOwner: async ({ id, ownerId, code, name }) => {
+    const result = await run("UPDATE courses SET code = ?, name = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ? AND owner_id = ?;", [code, name, id, ownerId]);
+    if (result.changes !== 1) return null;
+    return get("SELECT id, code, name, created_at, updated_at FROM courses WHERE id = ? AND owner_id = ?;", [id, ownerId]);
+  },
   listMaterialsByCourseOwner: (courseId, ownerId) => all(
-    `SELECT id, course_id, name, type, size_bytes, status, content, created_at, updated_at,
+    `SELECT id, course_id, name, type, size_bytes, status, content, reading_notes, created_at, updated_at,
      EXISTS(SELECT 1 FROM material_originals o WHERE o.material_id=materials.id) AS has_original
      FROM materials WHERE course_id = ? AND owner_id = ? ORDER BY created_at DESC, id DESC;`,
     [courseId, ownerId],
@@ -193,18 +201,18 @@ module.exports = {
     "SELECT id FROM courses WHERE id = ? AND owner_id = ?;",
     [courseId, ownerId],
   ),
-  createMaterialForOwner: async ({ courseId, ownerId, name, type, sizeBytes, content }) => {
+  createMaterialForOwner: async ({ courseId, ownerId, name, type, sizeBytes, content, readingNotes = "" }) => {
     const result = await run(
-      `INSERT INTO materials (course_id, owner_id, name, type, size_bytes, status, content)
-       SELECT id, owner_id, ?, ?, ?, 'Ready', ? FROM courses
+      `INSERT INTO materials (course_id, owner_id, name, type, size_bytes, status, content, reading_notes)
+       SELECT id, owner_id, ?, ?, ?, 'Ready', ?, ? FROM courses
        WHERE id = ? AND owner_id = ?
        AND (SELECT COUNT(*) FROM materials WHERE course_id=? AND owner_id=?) < ?
        AND (SELECT COUNT(*) FROM materials WHERE owner_id=?) < ?;`,
-      [name, type, sizeBytes, content, courseId, ownerId, courseId, ownerId, limits.maxFilesPerCourse, ownerId, limits.maxTotalFilesPerUser],
+      [name, type, sizeBytes, content, readingNotes, courseId, ownerId, courseId, ownerId, limits.maxFilesPerCourse, ownerId, limits.maxTotalFilesPerUser],
     );
     if (result.changes !== 1) return null;
     return get(
-      `SELECT id, course_id, name, type, size_bytes, status, content, created_at, updated_at
+      `SELECT id, course_id, name, type, size_bytes, status, content, reading_notes, created_at, updated_at
        FROM materials WHERE id = ? AND owner_id = ?;`,
       [result.id, ownerId],
     );

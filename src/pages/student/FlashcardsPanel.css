@@ -9,3 +9,13 @@
 .revision-flashcard.is-flipped h3 svg { color: #297d69; }
 .revision-flashcard small svg { vertical-align: -2px; margin-right: 5px; }
 .revision-flashcard > p { line-height: 1.65; }
+.flashcard-item { display: flex; flex-direction: column; min-width: 0; }
+.flashcard-item > .revision-flashcard { width: 100%; flex: 1; }
+.flashcard-progress { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; margin: 16px 0; }
+.flashcard-progress p { margin: 0; font-weight: 600; color: #4f3c6b; }
+.flashcard-progress label { display: inline-flex; align-items: center; gap: 8px; font-size: 13px; }
+.flashcard-progress input { width: 16px; height: 16px; min-height: 16px; accent-color: #6f32ff; }
+.flashcard-mastery-actions { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 10px 3px; color: #5e5470; font-size: 12px; }
+.flashcard-mastery-actions button { border: 1px solid #d9ccef; border-radius: 8px; background: #faf7ff; color: #6e42b2; padding: 7px 10px; font: inherit; cursor: pointer; }
+.flashcard-mastery-actions button[aria-pressed="true"] { color: #236c56; border-color: #b9dfd0; background: #f0faf5; }
+.flashcard-mastery-actions button:disabled { opacity: .6; cursor: wait; }

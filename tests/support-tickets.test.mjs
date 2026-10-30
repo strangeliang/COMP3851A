@@ -2,12 +2,173 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import React from 'react';
 import {create,act} from 'react-test-renderer';
-import {loadSource,deferred} from './helpers.mjs';
+import {loadSource,deferred,memoryWindow} from './helpers.mjs';
 globalThis.IS_REACT_ACT_ENVIRONMENT=true;
 const categories=['account','upload','quiz','review','other'];
 const statuses=['Open','In progress','Resolved'];
 const initial={id:'ASK-demo',name:'Test Student',title:'Upload issue',description:'The file did not upload.',category:'upload',status:'Open',version:1,createdAt:'2026-09-22T00:00:00Z',updatedAt:'2026-09-22T00:00:00Z',resolvedAt:null,replies:[]};
 const text=node=>JSON.stringify(node.toJSON());
+
+test('Ask Me collapses secondary guidance while preserving privacy, draft and a separate composer', async () => {
+  let renderer, reads = 0, sends = 0;
+  const { default: Help } = await loadSource("export {default} from './src/components/HelpAssistant.jsx'", {
+    '../state/AppDataContext': { useAppData: () => ({ currentUser: { id: 1, role: 'Student' } }) },
+    '../state/LanguageContext': { useLanguage: () => ({ language: 'en' }) },
+    './SupportTickets': () => null,
+    '../services/ticketApiService': { getLoginConversation: async () => { reads++; return { ticket: initial }; }, sendLoginMessage: async () => { sends++; return { ticket: initial }; } },
+  }, { window: memoryWindow() });
+  try {
+    await act(async () => { renderer = create(React.createElement(Help)); });
+    await act(async () => renderer.root.findByProps({ className: 'help-assistant-launcher' }).props.onClick());
+    const details = () => renderer.root.findAllByType('details');
+    assert.equal(details().length, 2); assert.ok(details().every(node => node.props.open === false));
+    assert.match(renderer.root.findByProps({ className: 'help-session-brief' }).children.join(''), /Gemini and support staff.*saved.*Never share/);
+    assert.match(text(renderer), /Private study chats and files are not included/);
+    const content = renderer.root.findByProps({ className: 'help-assistant-content' });
+    const composer = renderer.root.findByProps({ className: 'help-assistant-composer' });
+    assert.equal(content.findAllByType('form').length, 0, 'The composer must stay outside the scrolling and collapsible content');
+    assert.equal(composer.findAllByType('form').length, 1);
+    await act(async () => composer.findByType('input').props.onChange({ target: { value: 'Keep this question while reading help' } }));
+    for (const name of ['help-privacy-details', 'help-quick-details']) {
+      await act(async () => renderer.root.findByProps({ className: name }).props.onToggle({ currentTarget: { open: true } }));
+      assert.equal(renderer.root.findByProps({ className: name }).props.open, true);
+      await act(async () => renderer.root.findByProps({ className: name }).props.onToggle({ currentTarget: { open: false } }));
+    }
+    assert.equal(composer.findByType('input').props.value, 'Keep this question while reading help');
+    assert.equal(reads, 1); assert.equal(sends, 0, 'Opening guidance must not create a message or another conversation');
+  } finally { if (renderer) await act(async () => renderer.unmount()); }
+});
+
+test('Ask Me follows the visible keyboard viewport without remounting its composer and removes listeners on close', async () => {
+  let renderer, focused = 0;
+  const browser = memoryWindow(), listeners = new Map();
+  browser.innerHeight = 800;
+  browser.visualViewport = { height: 800, offsetTop: 0,
+    addEventListener(name, handler) { listeners.set(name, handler); },
+    removeEventListener(name, handler) { if (listeners.get(name) === handler) listeners.delete(name); },
+  };
+  const { default: Help } = await loadSource("export {default} from './src/components/HelpAssistant.jsx'", {
+    '../state/AppDataContext': { useAppData: () => ({ currentUser: { id: 1, role: 'Student' } }) },
+    '../state/LanguageContext': { useLanguage: () => ({ language: 'en' }) },
+    './SupportTickets': () => null,
+    '../services/ticketApiService': { getLoginConversation: async () => ({ ticket: initial }) },
+  }, { window: browser });
+  const field = () => renderer.root.findByProps({ 'aria-label': 'Describe your problem without credentials' });
+  try {
+    await act(async () => { renderer = create(React.createElement(Help), { createNodeMock: node => node.props['aria-label'] === 'Close help' ? { focus() { focused++; } } : null }); });
+    await act(async () => renderer.root.findByProps({ className: 'help-assistant-launcher' }).props.onClick());
+    await act(async () => field().props.onChange({ target: { value: 'A draft above the keyboard' } }));
+    const originalField = field();
+    browser.visualViewport.height = 320; browser.visualViewport.offsetTop = 20;
+    await act(async () => listeners.get('resize')());
+    const aside = renderer.root.findByType('aside');
+    assert.equal(aside.props.style['--help-viewport-height'], '320px');
+    assert.equal(aside.props.style['--help-keyboard-inset'], '460px');
+    assert.equal(aside.props['data-short-viewport'], true);
+    assert.equal(field(), originalField); assert.equal(field().props.value, 'A draft above the keyboard');
+    assert.equal(focused, 1, 'A viewport resize must not steal keyboard focus');
+    browser.visualViewport.offsetTop = 80;
+    await act(async () => listeners.get('scroll')());
+    assert.equal(renderer.root.findByType('aside').props.style['--help-keyboard-inset'], '400px');
+    await act(async () => renderer.root.findByProps({ 'aria-label': 'Close help' }).props.onClick());
+    assert.equal(listeners.size, 0); assert.equal(renderer.root.findByType('aside').props.style, undefined);
+  } finally { if (renderer) await act(async () => renderer.unmount()); }
+});
+
+test('ticket dates show explicit language prompts and validate calendar dates and ranges before filtering', async () => {
+  let renderer, language = 'en'; const calls = []; let pickerOpens = 0;
+  const { default: Inbox } = await loadSource("export {default} from './src/components/SupportTickets.jsx'", {
+    '../state/AppDataContext': { useAppData: () => ({ currentUser: { id: 1, role: 'Student' } }) },
+    '../state/LanguageContext': { useLanguage: () => ({ language }) },
+    '../services/ticketApiService': { ticketCategories: categories, ticketStatuses: statuses, listServerTickets: async (_signal, _cursor, filters) => { calls.push(filters); return { tickets: [], hasMore: false }; } },
+  });
+  const field = label => renderer.root.findByProps({ 'aria-label': label });
+  const type = async (label, value) => act(async () => field(label).props.onChange({ target: { value } }));
+  try {
+    await act(async () => { renderer = create(React.createElement(Inbox), { createNodeMock: node => node.props.type === 'date' ? { showPicker() { pickerOpens++; } } : null }); });
+    assert.equal(field('Created from (UTC)').props.type, 'text');
+    assert.equal(field('Created from (UTC)').props.placeholder, 'YYYY-MM-DD');
+    await type('Created from (UTC)', '2028-02-29');
+    assert.equal(calls.at(-1).from, '2028-02-29');
+    const count = calls.length;
+    for (const invalid of ['2026-02-29', '2028-02-30', '0000-01-01', '2028-0']) {
+      await type('Created from (UTC)', invalid);
+      assert.equal(field('Created from (UTC)').props['aria-invalid'], true);
+      assert.equal(calls.length, count, 'Invalid and partial dates must not change server filters');
+    }
+    await type('Created from (UTC)', '2028-02-29');
+    await type('Created through (UTC)', '2028-02-28');
+    assert.equal(calls.length, count, 'Reversed ranges must not reach the API');
+    assert.match(text(renderer), /Filters stay unchanged until both dates are valid/);
+    await type('Created through (UTC)', '2028-03-01');
+    assert.equal(calls.at(-1).to, '2028-03-01');
+    const nativeDates = renderer.root.findAllByProps({ type: 'date' });
+    assert.equal(nativeDates[0].props.max, '2028-03-01');
+    assert.equal(nativeDates[1].props.min, '2028-02-29');
+    await act(async () => field('Choose date: Created from (UTC)').props.onClick());
+    assert.equal(pickerOpens, 1);
+    await act(async () => nativeDates[0].props.onChange({ target: { value: '2028-02-27' } }));
+    assert.equal(field('Created from (UTC)').props.value, '2028-02-27');
+    assert.equal(calls.at(-1).from, '2028-02-27');
+    await type('Created from (UTC)', '');
+    assert.equal(calls.at(-1).from, '');
+    assert.equal(renderer.root.findAllByProps({ type: 'date' })[1].props.min, undefined);
+    language = 'zh'; await act(async () => renderer.update(React.createElement(Inbox)));
+    assert.equal(field('创建日期从（UTC）').props.placeholder, '年-月-日');
+    assert.equal(field('创建日期至（UTC）').props.value, '2028-03-01');
+  } finally { if (renderer) await act(async () => renderer.unmount()); }
+});
+
+test('ticket calendar fallback focuses the editable ISO field and explains manual entry', async () => {
+  let renderer, focusCount = 0;
+  const { default: Inbox } = await loadSource("export {default} from './src/components/SupportTickets.jsx'", {
+    '../state/AppDataContext': { useAppData: () => ({ currentUser: { id: 1, role: 'Student' } }) },
+    '../state/LanguageContext': { useLanguage: () => ({ language: 'en' }) },
+    '../services/ticketApiService': { ticketCategories: categories, ticketStatuses: statuses, listServerTickets: async () => ({ tickets: [], hasMore: false }) },
+  });
+  try {
+    await act(async () => { renderer = create(React.createElement(Inbox), { createNodeMock: node => node.props.type === 'text' ? { focus() { focusCount++; } } : {} }); });
+    const calendar = renderer.root.findByProps({ 'aria-label': 'Choose date: Created from (UTC)' });
+    assert.equal(calendar.props.type, 'button');
+    await act(async () => calendar.props.onClick());
+    assert.equal(focusCount, 1);
+    assert.match(text(renderer), /Calendar unavailable. Type a date above/);
+  } finally { if (renderer) await act(async () => renderer.unmount()); }
+});
+
+test('Ask Me resizing preserves draft and focus, Escape closes, and another account starts clean', async () => {
+  let renderer, user = { id: 1, role: 'Student' }, fetches = 0, closeFocus = 0, launcherFocus = 0;
+  const browser = memoryWindow();
+  const { default: Help } = await loadSource("export {default} from './src/components/HelpAssistant.jsx'", {
+    '../state/AppDataContext': { useAppData: () => ({ currentUser: user }) },
+    '../state/LanguageContext': { useLanguage: () => ({ language: 'en' }) },
+    './SupportTickets': { default: () => null },
+    '../services/ticketApiService': { getLoginConversation: async () => { fetches++; return { ticket: { ...initial, id: `ASK-${user.id}` } }; } },
+  }, { window: browser });
+  const launcher = () => renderer.root.findByProps({ className: 'help-assistant-launcher' });
+  const draft = () => renderer.root.findByProps({ 'aria-label': 'Describe your problem without credentials' });
+  try {
+    await act(async () => { renderer = create(React.createElement(Help), { createNodeMock: node => node.props['aria-label'] === 'Close help' ? { focus() { closeFocus++; } } : node.props.className === 'help-assistant-launcher' ? { focus() { launcherFocus++; } } : null }); });
+    await act(async () => launcher().props.onClick());
+    await act(async () => draft().props.onChange({ target: { value: 'Keep my unsent question' } }));
+    for (const size of ['compact', 'large', 'standard']) {
+      await act(async () => renderer.root.findByProps({ id: 'help-chat-size' }).props.onChange({ target: { value: size } }));
+      assert.equal(draft().props.value, 'Keep my unsent question');
+    }
+    assert.equal(fetches, 1, 'A size change must not recreate or refetch the conversation');
+    assert.equal(closeFocus, 1, 'Changing size must not move focus to the close button');
+    await act(async () => renderer.root.findByProps({ role: 'dialog' }).props.onKeyDown({ key: 'Escape', target: { tagName: 'SELECT' } }));
+    assert.equal(launcher().props['aria-expanded'], true);
+    await act(async () => renderer.root.findByProps({ role: 'dialog' }).props.onKeyDown({ key: 'Escape', target: { tagName: 'INPUT' } }));
+    assert.equal(launcher().props['aria-expanded'], false); assert.equal(launcherFocus, 1);
+    await act(async () => launcher().props.onClick());
+    assert.equal(draft().props.value, 'Keep my unsent question');
+    user = { id: 2, role: 'Student' }; await act(async () => renderer.update(React.createElement(Help)));
+    assert.equal(launcher().props['aria-expanded'], false);
+    await act(async () => launcher().props.onClick());
+    assert.equal(draft().props.value, '');
+  } finally { if (renderer) await act(async () => renderer.unmount()); }
+});
 
 test('admin starts in FIFO human queue and status selection exits the queue',async()=>{
   let renderer;const calls=[];

@@ -3,6 +3,15 @@ import assert from "node:assert/strict";
 import { deflateRawSync } from "node:zlib";
 import { loadSource, deferred } from "./helpers.mjs";
 
+test("small nonempty files display bytes and retain the KB and MB boundaries", async () => {
+  const { formatFileSize } = await loadSource("src/utils/fileTextExtractor.js");
+  assert.equal(formatFileSize(0), "0 B");
+  assert.equal(formatFileSize(467), "467 B");
+  assert.equal(formatFileSize(1023), "1023 B");
+  assert.equal(formatFileSize(1024), "1 KB");
+  assert.equal(formatFileSize(1024 * 1024), "1 MB");
+});
+
 function officeFile(name, entries, reportedSize) {
   const locals = []; const directory = []; let offset = 0;
   for (const [entryName, text] of entries) {
@@ -96,13 +105,69 @@ test("PDFs over the OCR or page limit fail explicitly instead of accepting only 
 });
 
 test("a stalled OCR worker initialization times out and releases a worker that finishes late", async () => {
-  const ready = deferred(); let terminated = false;
-  const { extractTextFromFile } = await loadSource("src/utils/fileTextExtractor.js", { "tesseract.js": { createWorker: () => ready.promise } }, {
+  const ready = deferred(); let terminated = false, logger;
+  const progress = [];
+  const { extractTextFromFile } = await loadSource("src/utils/fileTextExtractor.js", { "tesseract.js": { createWorker: (_languages, _engine, options) => { logger = options.logger; return ready.promise; } } }, {
     setTimeout: (callback) => setTimeout(callback, 15), clearTimeout,
     createImageBitmap: async () => ({ width: 10, height: 10, close() {} }),
   });
-  await assert.rejects(extractTextFromFile({ name: "scan.png" }), /longer than 3 minutes/);
+  await assert.rejects(extractTextFromFile({ name: "scan.png" }, { onProgress: value => progress.push(value) }), /longer than 3 minutes/);
+  const completedProgress = [...progress];
+  logger({ status: 'loading language', progress: 0.5 });
+  assert.deepEqual(progress, completedProgress, 'A timed-out task must not put the upload back into a pending state');
   ready.resolve({ terminate: async () => { terminated = true; } });
   await new Promise((resolve) => setImmediate(resolve));
   assert.equal(terminated, true);
+});
+
+test("cancelled image decoding closes a bitmap that resolves after cancellation without starting OCR", async () => {
+  for (const resolveBeforeAbort of [false, true]) {
+    const decoded = deferred(), controller = new AbortController();
+    let closed = 0, workers = 0;
+    const bitmap = { width: 100, height: 100, close() { closed++; } };
+    const { extractTextFromFile } = await loadSource("src/utils/fileTextExtractor.js", {
+      "tesseract.js": { createWorker: async () => { workers++; throw Error('Unexpected OCR'); } },
+    }, { createImageBitmap: () => decoded.promise });
+    const operation = extractTextFromFile({ name: "cancelled.png" }, { signal: controller.signal });
+    const cancelled = assert.rejects(operation, error => error.name === 'AbortError');
+    if (resolveBeforeAbort) decoded.resolve(bitmap);
+    controller.abort();
+    await cancelled;
+    if (!resolveBeforeAbort) decoded.resolve(bitmap);
+    await new Promise(resolve => setImmediate(resolve));
+    assert.equal(closed, 1); assert.equal(workers, 0);
+  }
+});
+
+test("oversized image validation closes its bitmap and never creates an OCR worker", async () => {
+  let closed = 0, workers = 0;
+  const { extractTextFromFile } = await loadSource("src/utils/fileTextExtractor.js", {
+    "tesseract.js": { createWorker: async () => { workers++; throw Error('Unexpected OCR'); } },
+  }, { createImageBitmap: async () => ({ width: 5000, height: 5000, close() { closed++; } }) });
+  await assert.rejects(extractTextFromFile({ name: "large.png" }), /20 million pixels/);
+  assert.equal(closed, 1); assert.equal(workers, 0);
+});
+
+test("failed PDF loading destroys its loading task while preserving the original error", async () => {
+  let destroyed = 0;
+  const { extractTextFromFile } = await loadSource("src/utils/fileTextExtractor.js", {
+    "pdfjs-dist": { GlobalWorkerOptions: {}, getDocument: () => ({ promise: Promise.reject(Error('Invalid PDF structure')),
+      destroy: async () => { destroyed++; } }) },
+  });
+  await assert.rejects(extractTextFromFile({ name: "broken.pdf", arrayBuffer: async () => new ArrayBuffer(1) }), /Invalid PDF structure/);
+  assert.equal(destroyed, 1);
+});
+
+test("cancelling PDF loading destroys the task once and tolerates a cleanup failure", async () => {
+  let destroyed = 0;
+  const loaded = deferred(), started = deferred(), controller = new AbortController();
+  const { extractTextFromFile } = await loadSource("src/utils/fileTextExtractor.js", {
+    "pdfjs-dist": { GlobalWorkerOptions: {}, getDocument: () => { started.resolve(); return { promise: loaded.promise,
+      destroy: async () => { destroyed++; loaded.reject(Error('Loading stopped')); throw Error('Worker cleanup failed'); } }; } },
+  });
+  const cancelled = assert.rejects(extractTextFromFile({ name: "loading.pdf", arrayBuffer: async () => new ArrayBuffer(1) }, { signal: controller.signal }), error => error.name === 'AbortError');
+  await started.promise; controller.abort();
+  await cancelled;
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(destroyed, 1);
 });

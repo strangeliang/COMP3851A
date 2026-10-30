@@ -1,7 +1,10 @@
-import { FileText, FolderOpen, Trash2, UploadCloud } from "lucide-react";
+import { Download, Eye, FileText, FolderOpen, Trash2, UploadCloud } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import Toolbar from "../../components/Toolbar";
 import StudentLayout from "../../layouts/StudentLayout";
+import MaterialSourcePreview from "../../components/MaterialSourcePreview";
+import { formatStudyDate } from "../../utils/dateTime";
+import "./UploadPage.css";
 import { limits } from "../../utils/studyScope";
 import { useAppData } from "../../state/AppDataContext";
 import { formatFileSize, getFileExtension, SUPPORTED_MATERIAL_EXTENSIONS } from "../../utils/fileTextExtractor";
@@ -13,6 +16,7 @@ export default function UploadPage() {
   const { language } = useLanguage();
   const t = (en, zh) => language === 'zh' ? zh : en;
   const {
+    currentUser,
     studentCourses,
     materials,
     currentCourse,
@@ -30,16 +34,20 @@ export default function UploadPage() {
   } = useAppData();
   const [selectedFiles, setSelectedFiles] = useState([]);
   const [search, setSearch] = useState("");
+  const [previewMaterialId, setPreviewMaterialId] = useState(null);
+  const previewMaterial = courseMaterials.find(item => String(item.id) === String(previewMaterialId));
   const [status, setStatus] = useState(null);
   const [dragging, setDragging] = useState(false);
   const dragDepth = useRef(0);
   const inputRef = useRef(null);
-  const pageScope = useRef(currentCourseId);
-  pageScope.current = currentCourseId;
+  const pageScope = useRef({ userId: currentUser?.id, courseId: currentCourseId });
+  if (pageScope.current.userId !== currentUser?.id || pageScope.current.courseId !== currentCourseId) {
+    pageScope.current = { userId: currentUser?.id, courseId: currentCourseId };
+  }
   useEffect(() => {
-    setSelectedFiles([]); setStatus(null); setDragging(false); dragDepth.current = 0;
+    setSelectedFiles([]); setStatus(null); setDragging(false); setPreviewMaterialId(null); dragDepth.current = 0;
     if (inputRef.current) inputRef.current.value = "";
-  }, [currentCourseId]);
+  }, [currentCourseId, currentUser?.id]);
 
   const visibleMaterials = useMemo(() => {
     const query = search.trim().toLowerCase();
@@ -89,9 +97,9 @@ export default function UploadPage() {
   }
 
   async function uploadAll() {
-    const courseId = currentCourseId;
-    const result = await addMaterials(selectedFiles, courseId);
-    if (pageScope.current !== courseId) return;
+    const scope = pageScope.current;
+    const result = await addMaterials(selectedFiles, scope.courseId);
+    if (pageScope.current !== scope) return;
     setStatus(result);
     if (result.ok) {
       setSelectedFiles([]);
@@ -100,9 +108,10 @@ export default function UploadPage() {
   }
 
   async function removeMaterial(material) {
-    if (!window.confirm(`Delete ${material.name} and the study records that use it?`)) return;
+    if (!window.confirm(t(`Delete ${material.name} and the study records that use it?`, `删除 ${material.name} 及使用该资料的学习记录？`))) return;
+    const scope = pageScope.current;
     const result = await deleteMaterial(material.id);
-    if (pageScope.current !== currentCourseId) return;
+    if (pageScope.current !== scope) return;
     setStatus(result);
   }
 
@@ -111,19 +120,19 @@ export default function UploadPage() {
       <div className="quick-stats profile-stack">
         <div className="quick-stat">
           <span className="stat-icon">{selectedFiles.length}</span>
-          <div><span>Selected</span><strong>{selectedFiles.length} file(s)</strong></div>
+          <div><span>{t("Selected", "已选择")}</span><strong>{t(`${selectedFiles.length} ${selectedFiles.length === 1 ? "file" : "files"}`, `${selectedFiles.length} 个文件`)}</strong></div>
         </div>
         <div className="quick-stat">
           <span className="stat-icon"><FolderOpen size={17} /></span>
-          <div><span>Current Course</span><strong>{courseMaterials.length}/{limits.maxFilesPerCourse}</strong></div>
+          <div><span>{t("Current Course", "当前课程")}</span><strong>{courseMaterials.length}/{limits.maxFilesPerCourse}</strong></div>
         </div>
       </div>
-      <h3 className="side-heading">Upload Rules</h3>
+      <h3 className="side-heading">{t("Upload Rules", "上传规则")}</h3>
       <div className="side-list">
-        <div className="side-item"><strong>Format</strong><span>TXT, MD, PDF, DOCX, PPTX, PNG, JPG, JPEG, WEBP, BMP</span></div>
-        <div className="side-item"><strong>Each upload</strong><span>{limits.maxFilesPerUpload} files maximum</span></div>
-        <div className="side-item"><strong>Single File</strong><span>{formatFileSize(limits.maxFileBytes)} maximum</span></div>
-        <div className="side-item"><strong>Your file limit</strong><span>{materials.length}/{limits.maxTotalFilesPerUser} total files</span></div>
+        <div className="side-item"><strong>{t("Format", "文件格式")}</strong><span>TXT, MD, PDF, DOCX, PPTX, PNG, JPG, JPEG, WEBP, BMP</span></div>
+        <div className="side-item"><strong>{t("Each upload", "每批上传")}</strong><span>{t(`${limits.maxFilesPerUpload} files maximum`, `最多 ${limits.maxFilesPerUpload} 个文件`)}</span></div>
+        <div className="side-item"><strong>{t("Single File", "单个文件")}</strong><span>{t(`${formatFileSize(limits.maxFileBytes)} maximum`, `最大 ${formatFileSize(limits.maxFileBytes)}`)}</span></div>
+        <div className="side-item"><strong>{t("Your file limit", "账号文件上限")}</strong><span>{t(`${materials.length}/${limits.maxTotalFilesPerUser} total files`, `共 ${materials.length}/${limits.maxTotalFilesPerUser} 个文件`)}</span></div>
       </div>
     </>
   );
@@ -131,35 +140,35 @@ export default function UploadPage() {
   return (
     <StudentLayout
       profileProps={{
-        title: "Upload Overview",
-        name: currentCourse ? courseLabel(currentCourse) : "No Course",
-        subtitle: "Files are stored under the selected course only.",
+        title: t("Upload Overview", "上传概览"),
+        name: currentCourse ? courseLabel(currentCourse) : t("No Course", "未选择课程"),
+        subtitle: t("Files are stored under the selected course only.", "文件只保存在所选课程中。"),
       }}
       profileContent={profileContent}
     >
-      <Toolbar value={search} onChange={setSearch} placeholder="Search current course materials..." />
-      {courseState.loading && <div className="state-banner" role="status">Loading your courses…</div>}
-      {courseState.error && <div className="state-banner error" role="alert">{courseState.error} <button type="button" onClick={retryCourses}>Retry</button></div>}
-      {materialState.loading && <div className="state-banner" role="status">Loading course materials…</div>}
-      {materialState.error && <div className="state-banner error" role="alert">{materialState.error} <button type="button" onClick={retryMaterials}>Retry</button></div>}
+      <Toolbar value={search} onChange={setSearch} placeholder={t("Search current course materials...", "搜索当前课程资料…")} />
+      {courseState.loading && <div className="state-banner" role="status">{t("Loading your courses…", "正在加载课程…")}</div>}
+      {courseState.error && <div className="state-banner error" role="alert">{courseState.error} <button type="button" onClick={retryCourses}>{t("Retry", "重试")}</button></div>}
+      {materialState.loading && <div className="state-banner" role="status">{t("Loading course materials…", "正在加载课程资料…")}</div>}
+      {materialState.error && <div className="state-banner error" role="alert">{materialState.error} <button type="button" onClick={retryMaterials}>{t("Retry", "重试")}</button></div>}
       <header className="workspace-header">
-        <h1>Upload Study Materials</h1>
-        <p>Upload text, PDF, Office, or image files. Files are grouped by the selected course.</p>
+        <h1>{t("Upload Study Materials", "上传学习资料")}</h1>
+        <p>{t("Upload text, PDF, Office, or image files. Files are grouped by the selected course.", "上传文本、PDF、Office 文档或图片，文件会归入所选课程。")}</p>
       </header>
 
       <div className="control-grid">
         <label className="user-field">
-          Current Course
+          {t("Current Course", "当前课程")}
           <select value={currentCourseId} onChange={(event) => selectCourse(event.target.value)} disabled={uploadState.pending || courseState.loading || !studentCourses.length}>
-            {!studentCourses.length && <option value="">Create a course first</option>}
+            {!studentCourses.length && <option value="">{t("Create a course first", "请先创建课程")}</option>}
             {studentCourses.map((course) => (
               <option key={course.id} value={course.id}>{courseLabel(course)}</option>
             ))}
           </select>
         </label>
         <div className="rule-card">
-          <strong>Course file limit</strong>
-          <span>{courseMaterials.length}/{limits.maxFilesPerCourse} files in this course</span>
+          <strong>{t("Course file limit", "课程文件上限")}</strong>
+          <span>{t(`${courseMaterials.length}/${limits.maxFilesPerCourse} files in this course`, `当前课程 ${courseMaterials.length}/${limits.maxFilesPerCourse} 个文件`)}</span>
         </div>
       </div>
 
@@ -172,8 +181,8 @@ export default function UploadPage() {
         <span className="upload-symbol"><UploadCloud size={28} /></span>
         <h2>{dragging ? t('Drop files here', '松开即可添加文件') : selectedFiles.length ? t(`${selectedFiles.length} file(s) selected`, `已选择 ${selectedFiles.length} 个文件`) : t('Choose study materials', '选择学习材料')}</h2>
         <p className="upload-drag-hint">{t('Drag files here, or choose files below. Then click Upload All to upload.', '将文件拖到此处，或点击下方选择文件。确认后点击“全部上传”。')}</p>
-        <p>Choose up to {limits.maxFilesPerUpload} files per upload. Each file must contain no more than {limits.maxStoredTextCharacters.toLocaleString()} extracted characters.</p>
-        <p>PDF: up to {limits.maxPDFPages} pages and {limits.maxPDFOCRPages} pages needing OCR. OCR supports English and Simplified Chinese.</p>
+        <p>{t(`Choose up to ${limits.maxFilesPerUpload} files per upload. Each file must contain no more than ${limits.maxStoredTextCharacters.toLocaleString()} extracted characters.`, `每批最多上传 ${limits.maxFilesPerUpload} 个文件，每个文件提取的文字不能超过 ${limits.maxStoredTextCharacters.toLocaleString()} 个字符。`)}</p>
+        <p>{t(`PDF: up to ${limits.maxPDFPages} pages and ${limits.maxPDFOCRPages} pages needing OCR. OCR supports English and Simplified Chinese.`, `PDF 最多 ${limits.maxPDFPages} 页，其中需要 OCR 识别的页面最多 ${limits.maxPDFOCRPages} 页；OCR 支持英语和简体中文。`)}</p>
         <label className="file-picker-modern">
           {t('Choose Files', '选择文件')}
           <input
@@ -200,42 +209,47 @@ export default function UploadPage() {
       </section>
 
       <div className="content-heading section-gap">
-        <h2>Current Course Materials</h2>
+        <h2>{t("Current Course Materials", "当前课程资料")}</h2>
         <button
           className="primary-button"
           type="button"
           onClick={uploadAll}
           disabled={!currentCourse || !selectedFiles.length || uploadState.pending || materialState.loading}
         >
-          {uploadState.pending ? "Reading files…" : "Upload All"}
+          {uploadState.pending ? t("Reading files…", "正在读取文件…") : t("Upload All", "全部上传")}
         </button>
       </div>
-      {uploadState.pending && <div className="state-banner" role="status">{uploadState.progress}<button type="button" onClick={cancelUpload}>Cancel upload</button></div>}
+      {uploadState.pending && <div className="state-banner" role="status">{uploadState.progress}<button type="button" onClick={cancelUpload}>{t("Cancel upload", "取消上传")}</button></div>}
       {status && <p role={status.ok ? "status" : "alert"} className={status.ok ? "state-banner success" : "state-banner error"}>{status.message}</p>}
 
       <div className="file-list-modern">
         {visibleMaterials.map((material) => (
-          <div className="user-card file-row-modern" key={material.id}>
-            <span className="file-type"><FileText size={16} /></span>
-            <div style={{ minWidth: 0 }}><strong>{material.name}</strong><small>{courseLabel(currentCourse)} · {material.type} · {material.content.length.toLocaleString()} characters</small>
-              {material.parseWarning && <p className="summary-source">{material.parseWarning}</p>}
-              {material.hasOriginal ? <p style={{ display: "flex", gap: 16, flexWrap: "wrap" }}>
-                {["PDF", "PNG", "JPG", "JPEG", "WEBP", "BMP"].includes(material.type) && <a href={`/api/materials/${material.id}/original?preview=1`} target="_blank" rel="noopener noreferrer">Preview original</a>}
-                <a href={`/api/materials/${material.id}/original`}>Download original</a>
-              </p> : <small>Original not saved — upload this file again to enable preview/download.</small>}
-              <details><summary>Review extracted text (first 2,000 characters)</summary><pre style={{ whiteSpace: "pre-wrap", overflowWrap: "anywhere", maxHeight: 240, overflow: "auto" }}>{material.content.slice(0, 2000)}</pre></details>
+          <article className="user-card upload-material-card" key={material.id} data-react-i18n>
+            <div className="upload-material-heading">
+              <span className="file-type"><FileText size={20} aria-hidden="true" /></span>
+              <div className="upload-material-title"><h3>{material.name}</h3>
+                <p className="upload-material-meta"><span>{material.type}</span><span>{formatFileSize(material.size || 0)}</span><span>{t(`${material.content.length.toLocaleString()} characters`, `${material.content.length.toLocaleString()} 字符`)}</span></p>
+              </div>
+              <span className="status-badge">{material.status === "Ready" ? t("Ready", "就绪") : material.status === "Ready with warning" ? t("Reading note", "有读取提示") : material.status}</span>
             </div>
-            <small>{material.updatedAt}</small>
-            <span className="status-badge">{material.status}</span>
-            <button className="icon-danger" type="button" title={`Delete ${material.name}`} onClick={() => removeMaterial(material)}><Trash2 size={16} /></button>
-          </div>
+            <div className="upload-material-footer">
+              <p className="upload-material-updated">{t("Updated", "更新于")} {formatStudyDate(material.updatedAt, language)}{!material.hasOriginal && <span>{t("Extracted text available", "可查看提取文字")}</span>}</p>
+              <div className="upload-material-actions">
+                <button type="button" onClick={() => setPreviewMaterialId(material.id)} aria-label={`${t("View material", "查看资料")} ${material.name}`}><Eye size={15} aria-hidden="true" />{t("View material", "查看资料")}</button>
+                {material.hasOriginal && <a href={`/api/materials/${encodeURIComponent(material.id)}/original`} aria-label={`${t("Download original", "下载原文件")} ${material.name}`}><Download size={15} aria-hidden="true" />{t("Download", "下载")}</a>}
+                <button className="upload-material-delete" type="button" title={`${t("Delete", "删除")} ${material.name}`} aria-label={`${t("Delete", "删除")} ${material.name}`} onClick={() => removeMaterial(material)}><Trash2 size={15} aria-hidden="true" />{t("Delete", "删除")}</button>
+              </div>
+            </div>
+          </article>
         ))}
         {!visibleMaterials.length && !materialState.loading && (
-          <div className="empty-state">
-            No materials in this course yet. Upload study files before using AI modes.
+          <div className="empty-state" data-react-i18n>
+            {search.trim() ? <><p>{t("No materials match your search.", "没有匹配的资料。")}</p><button type="button" onClick={() => setSearch("")}>{t("Clear search", "清除搜索")}</button></>
+              : <p>{currentCourse ? t("No materials in this course yet. Choose files above to begin.", "该课程还没有资料，请在上方选择文件开始上传。") : t("Select or create a course on Dashboard before uploading materials.", "请先在首页选择或创建课程，再上传资料。")}</p>}
           </div>
         )}
       </div>
+      {previewMaterial && <MaterialSourcePreview material={previewMaterial} onClose={() => setPreviewMaterialId(null)} />}
     </StudentLayout>
   );
 }

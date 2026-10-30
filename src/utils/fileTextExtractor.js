@@ -12,6 +12,7 @@ export function getFileExtension(fileName = "") {
 }
 
 export function formatFileSize(bytes) {
+  if (bytes < 1024) return `${Math.max(0, Math.round(bytes))} B`;
   if (bytes >= 1024 * 1024) {
     const value = bytes / 1024 / 1024;
     return `${Number(value).toFixed(bytes % (1024 * 1024) === 0 ? 0 : 1)} MB`;
@@ -154,7 +155,7 @@ async function createOcrWorker(onProgress, signal) {
   const { createWorker } = await import("tesseract.js");
   checkAbort(signal);
   const pending = createWorker(["eng", "chi_sim"], 1, { logger: (message) => {
-    if (message.status && Number.isFinite(message.progress)) onProgress?.(`${message.status} ${Math.round(message.progress * 100)}%`);
+    if (!signal?.aborted && message.status && Number.isFinite(message.progress)) onProgress?.(`${message.status} ${Math.round(message.progress * 100)}%`);
   } }).then(async (worker) => {
     if (signal?.aborted) { await worker.terminate(); throw abortError(); }
     return worker;
@@ -171,11 +172,18 @@ async function recognizeImage(blob, label, worker, signal, allowEmpty = false) {
 }
 
 async function validateImagePixels(blob, signal) {
+  checkAbort(signal);
   if (typeof createImageBitmap !== "function") return;
-  const bitmap = await abortable(createImageBitmap(blob), signal);
+  let bitmap;
+  const decoded = createImageBitmap(blob).then(result => {
+    if (signal?.aborted) { result.close(); return; }
+    bitmap = result;
+  });
   try {
+    await abortable(decoded, signal);
+    checkAbort(signal);
     if (bitmap.width * bitmap.height > studyLimits.maxImagePixels) throw new Error("This image exceeds 20 million pixels. Resize it and upload again.");
-  } finally { bitmap.close(); }
+  } finally { bitmap?.close(); }
 }
 
 async function renderPdfPage(page, signal) {
@@ -194,8 +202,12 @@ async function extractPdfText(file, signal, onProgress) {
   const pdfjs = await import("pdfjs-dist");
   pdfjs.GlobalWorkerOptions.workerSrc = pdfWorkerUrl;
   const data = new Uint8Array(await abortable(file.arrayBuffer(), signal));
+  checkAbort(signal);
   const loading = pdfjs.getDocument({ data });
-  const pdf = await abortable(loading.promise, signal, () => loading.destroy());
+  let cleanup, pdf;
+  const destroyLoading = () => cleanup ||= Promise.resolve().then(() => loading.destroy()).catch(() => {});
+  try { pdf = await abortable(loading.promise, signal, destroyLoading); }
+  catch (error) { await destroyLoading(); throw error; }
   if (pdf.numPages > studyLimits.maxPDFPages) {
     await pdf.destroy();
     throw new Error(`This PDF has ${pdf.numPages} pages. Split it into files of no more than ${studyLimits.maxPDFPages} pages.`);

@@ -54,6 +54,16 @@
 .support-search input { padding-left: 35px; }
 .support-filter-pair { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
 .support-filter-pair label { margin-top: 0; }
+.support-date-filters { padding: 0 18px 12px; }
+.support-date-field { min-width: 0; }
+.support-date-field label { margin: 0 0 5px; }
+.support-date-control { position: relative; display: flex; gap: 5px; align-items: center; }
+.support-date-control > input[type="text"] { padding: 10px 8px; font-variant-numeric: tabular-nums; }
+.support-tickets .support-date-control > button { flex-shrink: 0; padding: 9px 7px; }
+.support-tickets .support-native-date { position: absolute; right: 0; bottom: 0; width: 1px; height: 1px; padding: 0; border: 0; opacity: 0; pointer-events: none; }
+.support-date-hint { display: block; margin-top: 4px; font-size: 10px; font-weight: 400; color: #766885; }
+.support-date-error { display: block; margin-top: 5px; font-size: 11px; font-weight: 400; color: #a11c30; }
+.support-date-control > input[aria-invalid="true"] { border-color: #c6495c; }
 .support-list-heading { display: flex; justify-content: space-between; align-items: center; padding: 4px 18px 12px; border-bottom: 1px solid var(--support-line); }
 .support-list-heading h2 { font-size: 14px; margin: 0; }
 .support-list-heading > span { padding: 1px 8px; background: #f2ecfa; color: #7953a8; border-radius: 8px; font-size: 12px; }

@@ -73,9 +73,9 @@ function validateRequest(mode, body = {}) {
   });
   if (historyCharacters > limits.maxHistoryCharacters) invalid("The conversation history is too long.");
   const answerStyle = body.answerStyle === undefined ? "simple" : body.answerStyle;
-  if (mode === "qa" && (typeof answerStyle !== "string" || !answerStylePrompts[answerStyle])) invalid("Select a valid answer style.");
+  if (mode === "qa" && (typeof answerStyle !== "string" || !Object.hasOwn(answerStylePrompts, answerStyle))) invalid("Select a valid answer style.");
   const difficulty = body.difficulty === undefined ? "medium" : body.difficulty;
-  if (mode === "quiz" && (typeof difficulty !== "string" || !quizDifficultyPrompts[difficulty])) invalid("Select a valid quiz difficulty.");
+  if (mode === "quiz" && (typeof difficulty !== "string" || !Object.hasOwn(quizDifficultyPrompts, difficulty))) invalid("Select a valid quiz difficulty.");
   const questionCount = body.questionCount === undefined ? 5 : body.questionCount;
   if (mode === "quiz" && (!Number.isInteger(questionCount) || questionCount < 1 || questionCount > 20)) invalid("Enter a whole number of questions from 1 to 20.");
   // Older clients omitted the type, including for one-question quizzes.

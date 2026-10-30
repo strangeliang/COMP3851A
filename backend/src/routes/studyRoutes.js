@@ -39,6 +39,14 @@ function courseIdFromPath(value) {
   return value;
 }
 
+function historySourceId(value) {
+  if ((typeof value !== "number" && !(typeof value === "string" && /^[1-9]\d*$/.test(value)))
+    || !Number.isSafeInteger(Number(value)) || Number(value) < 1) {
+    throw new StudyError(400, "INVALID_HISTORY", "Invalid source material ID.");
+  }
+  return Number(value);
+}
+
 function rejectClientOwner(req) {
   if (Object.hasOwn(req.body || {}, "owner_id") || Object.hasOwn(req.body || {}, "ownerId")
     || Object.hasOwn(req.query || {}, "owner_id") || Object.hasOwn(req.query || {}, "ownerId")) {
@@ -102,6 +110,7 @@ function createStudyRoutes({ database, gemini, mailer, sessions = createSessionS
     records: (await database.listHistory(req.user.id)).map((r) => ({ ...r, payload: JSON.parse(r.payload) })),
     reviews: (await database.listReviews(req.user.id)).map((r) => ({ ...r, payload: JSON.parse(r.payload) })),
     deletedRecords: (await database.listDeletedHistory?.(req.user.id) || []).map((r) => ({ ...r, payload: JSON.parse(r.payload) })),
+    sourceMaterials: await database.listHistorySources?.(req.user.id) || [],
   }));
   router.post("/history/delete-all", authenticate, async (req, res) => {
     const result = await database.deleteAllHistory(req.user.id);
@@ -135,12 +144,15 @@ function createStudyRoutes({ database, gemini, mailer, sessions = createSessionS
     if (typeof id !== "string" || id.length > 100 || !id || !["summary", "qa", "quiz", "flashcards"].includes(kind) || !payload || typeof payload !== "object" || JSON.stringify(payload).length > 200000) throw new StudyError(400, "INVALID_HISTORY", "Invalid study record.");
     if (!await database.courseBelongsToOwner(courseId, req.user.id)) throw new StudyError(403, "COURSE_NOT_FOUND", "Course unavailable.");
     validateHistory(kind, payload);
+    const sourceIds = [];
     if (payload.selectedMaterialIds !== undefined) {
       if (!Array.isArray(payload.selectedMaterialIds) || payload.selectedMaterialIds.length > 3) throw new StudyError(400, 'INVALID_HISTORY', 'Invalid source materials.');
-      for (const id of payload.selectedMaterialIds) {
-        const material = Number.isSafeInteger(Number(id)) && await database.getMaterialForOwner(Number(id), req.user.id);
-        if (!material || String(material.course_id) !== String(courseId)) throw new StudyError(403, 'MATERIAL_NOT_FOUND', 'A source material is no longer available in this course.');
-      }
+      sourceIds.push(...payload.selectedMaterialIds.map(historySourceId));
+    }
+    if (payload.sourceFileId !== undefined && payload.sourceFileId !== "") sourceIds.push(historySourceId(payload.sourceFileId));
+    for (const id of new Set(sourceIds)) {
+      const material = await database.getMaterialForOwner(id, req.user.id);
+      if (!material || String(material.course_id) !== String(courseId)) throw new StudyError(403, 'MATERIAL_NOT_FOUND', 'A source material is no longer available in this course.');
     }
     if (kind === 'qa' && payload.conversationId) await database.saveQAMessage(`${req.user.id}:${id}`, req.user.id, courseId, payload);
     else await database.saveHistory(`${req.user.id}:${id}`, req.user.id, kind, courseId, payload);
@@ -168,10 +180,9 @@ function createStudyRoutes({ database, gemini, mailer, sessions = createSessionS
     const result = { answers: Object.fromEntries(questions.map((q) => [q.id, answers[q.id]])), correct, total: questions.length, score: Math.round(correct / questions.length * 100), mode };
     const reviewId = clientId ? `${req.user.id}:${clientId}` : randomUUID();
     await database.saveReview(reviewId, req.user.id, record.id, result);
-    if (clientId) {
-      const saved = await database.getReview(reviewId, req.user.id);
-      if (saved.record_id !== record.id || saved.payload !== JSON.stringify(result)) throw new StudyError(409, 'REVIEW_CONFLICT', 'This practice request has already been saved with different answers.');
-    }
+    const saved = await database.getReview(reviewId, req.user.id);
+    if (!saved) throw new StudyError(404, 'NOT_FOUND', 'This quiz was removed before the practice result could be saved.');
+    if (saved.record_id !== record.id || saved.payload !== JSON.stringify(result)) throw new StudyError(409, 'REVIEW_CONFLICT', 'This practice request has already been saved with different answers.');
     res.json(result);
   });
   router.patch("/auth/profile", authenticate, async (req, res) => {
@@ -193,11 +204,28 @@ function createStudyRoutes({ database, gemini, mailer, sessions = createSessionS
     res.json({ courses: await database.listCoursesByOwner(req.user.id) });
   });
   router.post("/courses", authenticate, async (req, res) => {
-    const code = requiredText(req.body?.code, "Course code", 32).toUpperCase();
-    const name = requiredText(req.body?.name, "Course name");
+    const code = requiredText(typeof req.body?.code === "string" ? req.body.code.toUpperCase() : req.body?.code, "Course code", 32);
+    const name = requiredText(req.body?.name, "Course name", 120);
     try {
       const course = await database.createCourse({ id: randomUUID(), ownerId: req.user.id, code, name });
       res.status(201).json({ course });
+    } catch (error) { mapDatabaseError(error); }
+  });
+  router.patch("/courses/:courseId", authenticate, async (req, res) => {
+    const id = courseIdFromPath(req.params.courseId);
+    if (!await database.courseBelongsToOwner(id, req.user.id)) {
+      throw new StudyError(404, "COURSE_NOT_FOUND", "This course does not exist or does not belong to you.");
+    }
+    rejectClientOwner(req);
+    if (Object.keys(req.body || {}).some(key => !["code", "name"].includes(key))) {
+      throw new StudyError(400, "INVALID_COURSE", "Only the course code and name can be edited.");
+    }
+    const code = requiredText(typeof req.body?.code === "string" ? req.body.code.toUpperCase() : req.body?.code, "Course code", 32);
+    const name = requiredText(req.body?.name, "Course name", 120);
+    try {
+      const course = await database.updateCourseForOwner({ id, ownerId: req.user.id, code, name });
+      if (!course) throw new StudyError(404, "COURSE_NOT_FOUND", "This course does not exist or does not belong to you.");
+      res.json({ course });
     } catch (error) { mapDatabaseError(error); }
   });
   router.delete("/courses/:courseId", authenticate, async (req, res) => {
@@ -222,8 +250,15 @@ function createStudyRoutes({ database, gemini, mailer, sessions = createSessionS
     rejectClientOwner(req);
     const name = requiredText(req.body?.name, "File name", 255);
     const type = requiredText(req.body?.type, "File type", 8).toUpperCase();
+    if (!["TXT", "MD", "PDF", "DOCX", "PPTX", "PNG", "JPG", "JPEG", "WEBP", "BMP"].includes(type)) {
+      throw new StudyError(400, "INVALID_MATERIAL", "Choose a supported document or image type.");
+    }
     const sizeBytes = req.body?.sizeBytes;
     const content = req.body?.content;
+    const readingNotes = req.body?.readingNotes === undefined ? "" : req.body.readingNotes;
+    if (typeof readingNotes !== "string" || readingNotes.length > 2000) {
+      throw new StudyError(400, "INVALID_READING_NOTES", "Reading notes must be text of at most 2,000 characters.");
+    }
     if (!Number.isInteger(sizeBytes) || sizeBytes < 0 || sizeBytes > 10 * 1024 * 1024 || (content !== null && typeof content !== "string")) {
       throw new StudyError(400, "INVALID_MATERIAL", "Material size or content is invalid.");
     }
@@ -231,7 +266,7 @@ function createStudyRoutes({ database, gemini, mailer, sessions = createSessionS
       throw new StudyError(400, "MATERIAL_TEXT_LIMIT", `A material must contain no more than ${limits.maxStoredTextCharacters.toLocaleString()} extracted characters.`);
     }
     try {
-      const material = await database.createMaterialForOwner({ courseId, ownerId: req.user.id, name, type, sizeBytes, content });
+      const material = await database.createMaterialForOwner({ courseId, ownerId: req.user.id, name, type, sizeBytes, content, readingNotes });
       if (!material) {
         if (!await database.courseBelongsToOwner(courseId, req.user.id)) throw new StudyError(404, "COURSE_NOT_FOUND", "This course does not exist or does not belong to you.");
         throw new StudyError(409, "MATERIAL_LIMIT", `Each course can store at most ${limits.maxFilesPerCourse} files and each student at most ${limits.maxTotalFilesPerUser} files.`);
