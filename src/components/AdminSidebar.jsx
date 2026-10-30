@@ -1,11 +1,11 @@
 import {
   LogOut,
-  ShieldCheck,
   LifeBuoy,
 } from "lucide-react";
 import { NavLink, useNavigate } from "react-router-dom";
 import { useAppData } from "../state/AppDataContext";
 import { useLanguage } from "../state/LanguageContext";
+import StudyLogo from "./StudyLogo";
 
 const adminLinks = [
   { to: "/admin/support", label: "Support Tickets", icon: LifeBuoy },
@@ -25,9 +25,7 @@ export default function AdminSidebar() {
   return (
     <aside className="admin-sidebar" data-react-i18n>
       <div className="admin-brand">
-        <span className="admin-brand-mark">
-          <ShieldCheck size={18} />
-        </span>
+        <StudyLogo />
         <div className="admin-brand-copy">
           <strong>Study Companion</strong>
           <span>{zh ? '工单管理端' : 'Support Admin'}</span>

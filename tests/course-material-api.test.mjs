@@ -1,6 +1,10 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import React from "react";
+import { act, create } from "react-test-renderer";
 import { jsonReply, loadSource, memoryWindow } from "./helpers.mjs";
+
+globalThis.IS_REACT_ACT_ENVIRONMENT = true;
 
 test("help classifies common questions and refuses credential-like content", async () => {
   const { containsSecret, helpReply } = await loadSource("src/services/helpChat.js");
@@ -63,7 +67,7 @@ test("the four Course and Material APIs use the session cookie and adapt server 
   assert.equal(materials[0].content, "all source text");
   assert.equal(created.id, 72);
   assert.ok(calls.every((call) => call.options.headers["x-user-id"] === undefined && call.options.credentials === "same-origin"));
-  assert.deepEqual(calls[2].body, { name: "complete.txt", type: "TXT", sizeBytes: 12, content: "complete source text" });
+  assert.deepEqual(calls[2].body, { name: "complete.txt", type: "TXT", sizeBytes: 12, content: "complete source text", readingNotes: "" });
   assert.equal("ownerId" in calls[2].body || "owner_id" in calls[2].body, false);
 });
 
@@ -87,6 +91,93 @@ test("AI requests keep their cookie-session contract and never receive the test 
     assert.equal(Object.keys(call.options.headers).some((key) => key.toLowerCase() === "x-user-id"), false);
     assert.equal(call.body.materials[0].content, material.content);
   }
+});
+
+test("reading notes survive a fresh material load and reach every AI mode without changing the extracted text", async () => {
+  const calls = [];
+  let saved;
+  const content = "[Page 1]\n  Original spacing and equations: x != y.\n";
+  const warning = "OCR was used on 1 page(s). No text was detected on page(s) 3; verify that these pages are blank.";
+  const fetch = async (url, options) => {
+    const body = options.body ? JSON.parse(options.body) : undefined;
+    calls.push({ url, body });
+    if (url === "/api/courses/c/materials" && options.method === "POST") {
+      saved = { id: 90, course_id: "c", name: body.name, type: body.type, size_bytes: body.sizeBytes,
+        status: "Ready", content: body.content, reading_notes: body.readingNotes };
+      return jsonReply({ material: saved }, 201);
+    }
+    if (url === "/api/courses/c/materials") return jsonReply({ materials: [saved] });
+    return jsonReply({ mode: "api" });
+  };
+  const firstBrowser = await loadSource("src/services/courseMaterialService.js", {}, { window: memoryWindow(), fetch });
+  const created = await firstBrowser.createMaterial("c", { name: "scan.pdf", type: "PDF", size: 100, content, parseWarning: warning }, 1);
+  assert.equal(created.parseWarning, warning);
+  assert.equal(created.status, "Ready with warning");
+  const freshBrowser = await loadSource(`
+    export { getCourseMaterials } from './src/services/courseMaterialService.js';
+    export { generateAISummary, generateAIAnswer, generateAIQuiz, generateAIFlashcards } from './src/services/aiService.js';
+  `, {}, { window: memoryWindow(), fetch });
+  const materials = await freshBrowser.getCourseMaterials("c", 1);
+  assert.equal(materials[0].parseWarning, warning);
+  assert.equal(materials[0].content, content);
+  await freshBrowser.generateAISummary({ materials });
+  await freshBrowser.generateAIAnswer({ materials, question: "What needs checking?", history: [] });
+  await freshBrowser.generateAIQuiz({ materials });
+  await freshBrowser.generateAIFlashcards({ materials });
+  const aiCalls = calls.filter(call => call.url.startsWith("/api/ai/"));
+  assert.equal(aiCalls.length, 4);
+  for (const call of aiCalls) {
+    assert.equal(call.body.materials[0].readingNotes, warning);
+    assert.equal(call.body.materials[0].content, content);
+  }
+});
+
+test("material adapters reject malformed reading notes and leave legacy rows without invented warnings", async () => {
+  const { adaptMaterial } = await loadSource("src/services/courseMaterialService.js");
+  const row = { id: 1, course_id: "c", name: "notes.pdf", type: "PDF", size_bytes: 12, content: "Original content", status: "Ready" };
+  for (const reading_notes of [null, 1, false, [], {}, "x".repeat(2001)]) {
+    assert.throws(() => adaptMaterial({ ...row, reading_notes }, 1), error => error.code === "INVALID_SERVER_RESPONSE");
+  }
+  for (const legacy of [row, { ...row, reading_notes: "" }]) {
+    const material = adaptMaterial(legacy, 1);
+    assert.equal(material.parseWarning, "");
+    assert.equal(material.status, "Ready");
+    assert.equal(material.content, row.content);
+  }
+  assert.equal(adaptMaterial({ ...row, reading_notes: "x".repeat(2000) }, 1).parseWarning.length, 2000);
+});
+
+test("server reading notes, including an empty value, take precedence over stale browser warnings", async (t) => {
+  let readingNotes = "Server note: check page 3.";
+  const content = "Unmodified extracted text";
+  const window = memoryWindow({ "study-companion-app-data": JSON.stringify({
+    courses: [{ id: "c", ownerId: 1, name: "Course", code: "C" }], currentCourseId: "c", selectedMaterialIds: [1],
+    materials: [{ id: 1, ownerId: 1, courseId: "c", name: "scan.pdf", type: "PDF", content,
+      parseWarning: "Stale local note", status: "Ready with warning" }],
+  }) });
+  const { AppDataProvider, useAppData } = await loadSource("src/state/AppDataContext.jsx", {}, {
+    window, fetch: async url => {
+      if (url === "/api/auth/me") return jsonReply({ user: { id: 1, name: "Reader", email: "reader@notes.invalid", role: "Student" } });
+      if (url === "/api/ai/status") return jsonReply({ configured: false });
+      if (url === "/api/history") return jsonReply({ records: [], reviews: [] });
+      if (url === "/api/courses") return jsonReply({ courses: [{ id: "c", name: "Course", code: "C" }] });
+      if (url === "/api/courses/c/materials") return jsonReply({ materials: [{ id: 1, course_id: "c", name: "scan.pdf",
+        type: "PDF", size_bytes: 100, content, status: "Ready", reading_notes: readingNotes }] });
+      throw new Error(`Unexpected request: ${url}`);
+    },
+  });
+  let data;
+  function Probe() { data = useAppData(); return null; }
+  let renderer;
+  await act(async () => { renderer = create(React.createElement(AppDataProvider, null, React.createElement(Probe))); });
+  t.after(() => act(() => renderer.unmount()));
+  assert.equal(data.courseMaterials[0].parseWarning, readingNotes);
+  assert.equal(data.courseMaterials[0].status, "Ready with warning");
+  readingNotes = "";
+  await act(async () => data.retryMaterials());
+  assert.equal(data.courseMaterials[0].parseWarning, "");
+  assert.equal(data.courseMaterials[0].status, "Ready");
+  assert.equal(data.courseMaterials[0].content, content);
 });
 
 test("Course and Material API errors remain readable for JSON, non-JSON, and network failures", async () => {

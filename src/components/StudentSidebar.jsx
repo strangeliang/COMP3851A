@@ -14,6 +14,7 @@ import {
 import { Link, NavLink, useLocation } from "react-router-dom";
 import { useAppData } from "../state/AppDataContext";
 import { useLanguage } from "../state/LanguageContext";
+import StudyLogo from "./StudyLogo";
 import "./StudentSidebar.css";
 
 const links = [
@@ -43,7 +44,7 @@ export default function StudentSidebar() {
   return (
     <aside className="user-sidebar">
       <div className="user-brand">
-        <span className="brand-mark"><Sparkles size={20} /></span>
+        <StudyLogo />
         <span>STUDY AI</span>
       </div>
       <p className="nav-label">Overview</p>

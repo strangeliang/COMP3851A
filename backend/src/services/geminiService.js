@@ -16,7 +16,7 @@ function createGeminiService({ apiKey = process.env.GEMINI_API_KEY || "", model 
     status: () => ({ configured, provider: "Gemini", model }),
     async generate(mode, input, { signal } = {}) {
       const validated = mode === 'support' ? null : validateRequest(mode, input);
-      const request = mode === 'support' ? buildSupportRequest(input) : buildGeminiRequest(mode, validated);
+      let request = mode === 'support' ? buildSupportRequest(input) : buildGeminiRequest(mode, validated);
       if (!configured) throw new StudyError(503, "AI_NOT_CONFIGURED", "AI is not configured yet. Please contact the project owner.");
       const controller = new AbortController();
       let timedOut = false;
@@ -32,7 +32,18 @@ function createGeminiService({ apiKey = process.env.GEMINI_API_KEY || "", model 
             body: JSON.stringify(request),
             signal: controller.signal,
           });
-          if (response.ok) return mode === 'support' ? parseSupportOutput(await response.json()) : parseOutput(mode, await response.json(), validated);
+          if (response.ok) {
+            try {
+              return mode === 'support' ? parseSupportOutput(await response.json()) : parseOutput(mode, await response.json(), validated);
+            } catch (error) {
+              // Content and transient HTTP failures share the same two attempts and timeout.
+              if (mode === "flashcards" && error.code === "FLASHCARDS_NOT_FRESH" && attempt === 0) {
+                request = buildGeminiRequest(mode, validated);
+                continue;
+              }
+              throw error;
+            }
+          }
           // Never log or forward provider error bodies, URLs, or keys.
           await response.text();
           if (attempt === 0 && [429, 500, 502, 503, 504].includes(response.status)) {

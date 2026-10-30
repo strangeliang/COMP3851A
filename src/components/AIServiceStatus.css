@@ -1,0 +1,23 @@
+.ai-service-status {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.ai-service-status button {
+  padding: 7px 13px;
+  border: 1px solid currentColor;
+  border-radius: 8px;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.ai-service-status button:disabled {
+  opacity: 0.65;
+  cursor: wait;
+}

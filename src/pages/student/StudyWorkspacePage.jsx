@@ -1,4 +1,7 @@
 import AIChatBox from "../../components/AIChatBox";
+import AIServiceStatus from "../../components/AIServiceStatus";
+import MaterialSourcePreview from "../../components/MaterialSourcePreview";
+import CopySummaryButton from "../../components/CopySummaryButton";
 import { indices, correctIndices, isMultiple, validAnswer, isCorrect, toggleAnswer, answerText } from "../../../shared/quiz.mjs";
 import {
   AlertCircle,
@@ -11,7 +14,7 @@ import {
   Lightbulb,
   MousePointerClick,
 } from "lucide-react";
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import Toolbar from "../../components/Toolbar";
 import StudentLayout from "../../layouts/StudentLayout";
@@ -49,7 +52,7 @@ function SummaryPanel({ canUseAI, materialSourceLabel }) {
     scope,
   } = useAppData();
 
-  const request = useAIRequest(scope.scopeKey, "summary");
+  const request = useAIRequest(scope.scopeKey, "summary", { retainData: true });
   const summary = request.data;
 
   async function generate() {
@@ -117,6 +120,7 @@ function SummaryPanel({ canUseAI, materialSourceLabel }) {
 
       {summary && (
         <div className="summary-result" aria-live="polite">
+          <CopySummaryButton key={scope.scopeKey} summary={summary} materials={selectedMaterials} />
           <p style={{ whiteSpace: "pre-wrap" }}>{summary.paragraph}</p>
 
           <h3>Key Concepts</h3>
@@ -138,7 +142,7 @@ function QuizPanel({ canUseAI, materialSourceLabel }) {
   const { language } = useLanguage();
   const t = (en, zh) => language === "zh" ? zh : en;
 
-  const request = useAIRequest(scope.scopeKey, "quiz");
+  const request = useAIRequest(scope.scopeKey, "quiz", { retainData: true });
 
   const questions = request.data?.questions || [];
 
@@ -188,9 +192,12 @@ function QuizPanel({ canUseAI, materialSourceLabel }) {
   async function generate() {
     if (!canUseAI || request.pending) return;
     if (!settingsValid) return;
-    resetAnswers();
+    if (questions.length && !window.confirm(t(
+      "Generate a new Quiz? The current questions and answers will be replaced only after the new Quiz is ready. Saved results in Study History are kept.",
+      "生成新测验？新题目生成成功后才会替换当前题目与答案，学习历史中的已保存成绩会保留。",
+    ))) return;
 
-    await request.run((signal) =>
+    const result = await request.run((signal) =>
       generateAIQuiz({
         materials: selectedMaterials,
         difficulty,
@@ -199,10 +206,11 @@ function QuizPanel({ canUseAI, materialSourceLabel }) {
         signal,
       })
     );
+    if (result) resetAnswers();
   }
 
   function submit() {
-    if (submittedRef.current) return;
+    if (submittedRef.current || request.pending) return;
 
     if (!complete) {
       setWarning("Please answer every question before submitting.");
@@ -344,6 +352,7 @@ function QuizPanel({ canUseAI, materialSourceLabel }) {
                   }
                 >
                   <input
+                    disabled={request.pending}
                     type={isMultiple(question) ? "checkbox" : "radio"}
                     name={`question-${question.id}`}
                     checked={
@@ -373,23 +382,24 @@ function QuizPanel({ canUseAI, materialSourceLabel }) {
               <p role="status">{t(`${answeredCount}/${questions.length} answered · ${questions.length - answeredCount} remaining`, `已答 ${answeredCount}/${questions.length} 题 · 剩余 ${questions.length - answeredCount} 题`)}</p>
               <nav className="quiz-question-dots" aria-label={t("Jump to a question", "跳转到题目")}>{questions.map((item, questionIndex) => {
                 const answered = validAnswer(item, answers[item.id]);
-                return <button key={item.id} type="button" className={`quiz-question-dot${answered ? " answered" : ""}${questionIndex === activeIndex ? " current" : ""}`} aria-current={questionIndex === activeIndex ? "step" : undefined} aria-label={t(`Question ${questionIndex + 1}: ${answered ? "answered" : "not answered"}`, `第 ${questionIndex + 1} 题：${answered ? "已答" : "未答"}`)} title={t(`Question ${questionIndex + 1}: ${answered ? "answered" : "not answered"}`, `第 ${questionIndex + 1} 题：${answered ? "已答" : "未答"}`)} onClick={() => setIndex(questionIndex)}>{questionIndex + 1}</button>;
+                return <button key={item.id} type="button" disabled={request.pending} className={`quiz-question-dot${answered ? " answered" : ""}${questionIndex === activeIndex ? " current" : ""}`} aria-current={questionIndex === activeIndex ? "step" : undefined} aria-label={t(`Question ${questionIndex + 1}: ${answered ? "answered" : "not answered"}`, `第 ${questionIndex + 1} 题：${answered ? "已答" : "未答"}`)} title={t(`Question ${questionIndex + 1}: ${answered ? "answered" : "not answered"}`, `第 ${questionIndex + 1} 题：${answered ? "已答" : "未答"}`)} onClick={() => setIndex(questionIndex)}>{questionIndex + 1}</button>;
               })}</nav>
               <small>{t("Filled = answered · Outline = not answered. Click a number to jump.", "实心表示已答，空心表示未答，点击编号可跳转。")}</small>
             </div>
             <div className="quiz-navigation-actions">
-            <button
+            {activeIndex > 0 && <button
               type="button"
-              disabled={activeIndex === 0}
+              disabled={request.pending}
               onClick={() =>
                 setIndex(activeIndex - 1)
               }
             >
               Previous
-            </button>
+            </button>}
 
             {activeIndex < questions.length - 1 && <button
               type="button"
+              disabled={request.pending}
               onClick={() =>
                 setIndex(activeIndex + 1)
               }
@@ -400,6 +410,7 @@ function QuizPanel({ canUseAI, materialSourceLabel }) {
             <button
               className="primary-button"
               type="button"
+              disabled={request.pending}
               onClick={submit}
             >
               Submit
@@ -436,6 +447,7 @@ function QuizPanel({ canUseAI, materialSourceLabel }) {
           <button
             className="primary-button"
             type="button"
+            disabled={request.pending}
             onClick={resetAnswers}
           >
             <RotateCcw size={16} />
@@ -453,29 +465,42 @@ function FlashcardsPanel({
 }) {
   const { selectedMaterials, scope, persistStudy } =
     useAppData();
+  const { language } = useLanguage();
+  const t = (en, zh) => language === "zh" ? zh : en;
 
-  const request = useAIRequest(scope.scopeKey, "flashcards");
+  const request = useAIRequest(scope.scopeKey, "flashcards", { retainData: true });
 
   const legacyCards = Boolean(request.data?.cards && request.data.cards.length !== 6);
   const cards = request.data?.cards?.length === 6 ? request.data.cards : [];
 
   const [flipped, setFlipped] =
     useWorkspaceState(`flashcards-flipped:${scope.scopeKey}`, {});
+  const batchId = request.data?.revisionBatchId || "existing";
+  const [progress, setProgress] = useWorkspaceState(`flashcards-progress:${scope.scopeKey}`, { batchId: "", mastered: {}, onlyReview: false });
+  const activeProgress = progress.batchId === batchId ? progress : { mastered: {}, onlyReview: false };
+  const masteredCount = cards.filter(card => activeProgress.mastered[card.id]).length;
+  const visibleCards = cards.map((card, cardIndex) => ({ card, cardIndex }))
+    .filter(({ card }) => !activeProgress.onlyReview || !activeProgress.mastered[card.id]);
+  function updateProgress(update) {
+    setProgress(current => ({ batchId, ...update(current.batchId === batchId ? current : { mastered: {}, onlyReview: false }) }));
+  }
 
   async function generate() {
     if (!canUseAI || request.pending) return;
 
-    setFlipped({});
-
     const result = await request.run(async (signal) => {
       const generated = await generateAIFlashcards({
         materials: selectedMaterials,
+        previousCards: cards.map(({ front, back }) => ({ front, back })),
         signal,
       });
-      if (generated.cards?.length !== 6) throw new Error("The running backend returned an older Flashcards format. Restart the backend from COMP3851A, then generate six cards again.");
-      return generated;
+      if (generated.cards?.length !== 6) throw new Error("The Flashcards service returned an outdated format. Please refresh the page or contact support.");
+      return { ...generated, revisionBatchId: crypto.randomUUID() };
     });
-    if (result) persistStudy("flashcards", result, scope);
+    if (result) {
+      setFlipped({});
+      persistStudy("flashcards", result, scope);
+    }
   }
 
   return (
@@ -542,6 +567,17 @@ function FlashcardsPanel({
         )}
 
       {!!cards.length && (
+        <div className="flashcard-progress" data-react-i18n>
+          <p role="status">{t(`Mastered ${masteredCount} / ${cards.length} · To review ${cards.length - masteredCount}`, `已掌握 ${masteredCount} / ${cards.length} · 待复习 ${cards.length - masteredCount}`)}</p>
+          <label><input type="checkbox" checked={activeProgress.onlyReview} disabled={request.pending}
+            onChange={event => updateProgress(current => ({ ...current, onlyReview: event.target.checked }))} />{t("Only show cards to review", "只看待复习")}</label>
+        </div>
+      )}
+      {!!cards.length && !visibleCards.length && <div className="empty-state" data-react-i18n>
+        <p>{t("All cards in this set are marked as mastered.", "这组卡片已全部标记为掌握。")}</p>
+        <button type="button" disabled={request.pending} onClick={() => updateProgress(current => ({ ...current, onlyReview: false }))}>{t("Show all cards", "查看全部卡片")}</button>
+      </div>}
+      {!!visibleCards.length && (
         <div
           style={{
             display: "grid",
@@ -550,14 +586,14 @@ function FlashcardsPanel({
             gap: "14px",
           }}
         >
-          {cards.map((card, cardIndex) => {
+          {visibleCards.map(({ card, cardIndex }) => {
             const isFlipped = Boolean(
               flipped[card.id]
             );
 
             return (
+              <article key={card.id} className="flashcard-item">
               <button
-                key={card.id}
                 type="button"
                 className={`revision-flashcard${isFlipped ? " is-flipped" : ""}`}
                 aria-pressed={isFlipped}
@@ -621,6 +657,17 @@ function FlashcardsPanel({
                     : "Click to reveal the answer"}
                 </small>
               </button>
+              <div className="flashcard-mastery-actions" data-react-i18n>
+                <span>{activeProgress.mastered[card.id] ? t("Mastered", "已掌握") : t("To review", "待复习")}</span>
+                <button type="button" disabled={request.pending} aria-pressed={Boolean(activeProgress.mastered[card.id])}
+                  aria-label={activeProgress.mastered[card.id]
+                    ? t(`Review card ${cardIndex + 1} again`, `再次复习第 ${cardIndex + 1} 张卡片`)
+                    : t(`Mark card ${cardIndex + 1} as mastered`, `标记第 ${cardIndex + 1} 张卡片为已掌握`)}
+                  onClick={() => updateProgress(current => ({ ...current, mastered: { ...current.mastered, [card.id]: !current.mastered[card.id] } }))}>
+                  {activeProgress.mastered[card.id] ? t("Review again", "再复习") : t("Mark as mastered", "标记已掌握")}
+                </button>
+              </div>
+              </article>
             );
           })}
         </div>
@@ -630,6 +677,8 @@ function FlashcardsPanel({
 }
 
 export default function StudyWorkspacePage() {
+  const { language } = useLanguage();
+  const t = (en, zh) => language === "zh" ? zh : en;
   const [params, setParams] =
     useSearchParams();
 
@@ -663,6 +712,10 @@ export default function StudyWorkspacePage() {
 
   const [search, setSearch] =
     useState("");
+  const [preview, setPreview] = useState(null);
+  useEffect(() => { setPreview(null); }, [scope.scopeKey]);
+  const previewMaterial = preview?.scopeKey === scope.scopeKey
+    ? selectedMaterials.find(material => sameId(material.id, preview.materialId)) : null;
 
   const error =
     selectionError(selectedMaterials);
@@ -681,17 +734,16 @@ export default function StudyWorkspacePage() {
       0
     );
 
-  const materialSourceLabel =
-    selectedMaterials.length
-      ? selectedMaterials
-          .map(
-            (material, index) =>
-              `[S${index + 1}] ${
-                material.name
-              }`
-          )
-          .join(" · ")
-      : "No materials selected";
+  const materialSourceLabel = selectedMaterials.length ? selectedMaterials.map((material, index) => (
+    <span key={material.id}>
+      {index > 0 && " · "}
+      <button type="button" className="material-source-link"
+        aria-label={t(`View source [S${index + 1}]: ${material.name}`, `查看来源 [S${index + 1}]：${material.name}`)}
+        onClick={() => setPreview({ materialId: material.id, scopeKey: scope.scopeKey })}>
+        [S{index + 1}] {material.name}
+      </button>
+    </span>
+  )) : t("No materials selected", "未选择学习材料");
 
   const filteredMaterials = useMemo(
     () =>
@@ -1039,14 +1091,7 @@ export default function StudyWorkspacePage() {
         </div>
       )}
 
-      {!aiStatus.configured && (
-        <div
-          className="state-banner"
-          role="status"
-        >
-          {aiStatus.message}
-        </div>
-      )}
+      <AIServiceStatus />
 
       <div className="workspace-tabs">
         {modeLabels.map(
@@ -1102,6 +1147,9 @@ export default function StudyWorkspacePage() {
               selectedMaterials
             }
             currentCourse={currentCourse}
+            onPreviewSource={(materialId, sourceLabel) => {
+              if (selectedMaterials.some(material => sameId(material.id, materialId))) setPreview({ materialId, sourceLabel, scopeKey: scope.scopeKey });
+            }}
           />
         </section>
       </div>
@@ -1126,6 +1174,9 @@ export default function StudyWorkspacePage() {
           }
         />
       </div>
+      {previewMaterial && <MaterialSourcePreview material={previewMaterial}
+        sourceLabel={preview.sourceLabel || `[S${selectedMaterials.findIndex(material => sameId(material.id, previewMaterial.id)) + 1}]`}
+        onClose={() => setPreview(null)} />}
     </StudentLayout>
   );
 }

@@ -1,0 +1,95 @@
+.history-record-dialog {
+  box-sizing: border-box;
+  width: min(940px, calc(100vw - 32px));
+  max-width: calc(100vw - 32px);
+  max-height: calc(100vh - 48px);
+  max-height: calc(100dvh - 48px);
+  margin: auto;
+  padding: 0;
+  overflow: hidden;
+  border: 1px solid #e5deef;
+  border-radius: 18px;
+  background: #fff;
+  color: #302936;
+  box-shadow: 0 24px 80px #251a4433;
+  font: inherit;
+}
+
+.history-record-dialog[open] {
+  display: flex;
+  flex-direction: column;
+  animation: history-record-dialog-enter 160ms ease-out;
+}
+
+.history-record-dialog::backdrop {
+  background: #241a3c80;
+  animation: history-record-backdrop-enter 160ms ease-out;
+}
+
+.history-record-dialog-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 20px;
+  flex-shrink: 0;
+  padding: 20px 24px;
+  border-bottom: 1px solid #ece7f3;
+  background: #fbf9ff;
+}
+
+.history-record-dialog-header > div { min-width: 0; }
+.history-record-dialog-header h2 { margin: 0; color: #3b2e50; font-size: 20px; line-height: 1.4; overflow-wrap: anywhere; }
+.history-record-dialog-header p { margin: 6px 0 0; color: #766b83; font-size: 13px; line-height: 1.6; overflow-wrap: anywhere; }
+
+.history-record-dialog .history-record-dialog-close {
+  display: grid;
+  place-items: center;
+  flex: 0 0 40px;
+  width: 40px;
+  height: 40px;
+  margin: 0;
+  padding: 0;
+  border: 1px solid #e4daef;
+  border-radius: 10px;
+  background: #fff;
+  color: #6b537f;
+  cursor: pointer;
+  transition: background 140ms ease, border-color 140ms ease;
+}
+
+.history-record-dialog-close:hover { background: #f0e9fc; border-color: #c5a9ed; }
+.history-record-dialog-close:focus-visible { outline: 3px solid #a67cf0; outline-offset: 3px; }
+.history-record-dialog-close svg { display: block; }
+
+.history-record-dialog-content {
+  min-height: 0;
+  padding: 24px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  overflow-wrap: anywhere;
+}
+
+.history-record-dialog-content > :first-child { margin-top: 0; }
+.history-record-dialog-content > :last-child { margin-bottom: 0; }
+
+@keyframes history-record-dialog-enter {
+  from { opacity: 0; transform: translateY(10px) scale(.99); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+@keyframes history-record-backdrop-enter {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@media (max-width: 600px) {
+  .history-record-dialog { width: calc(100vw - 20px); max-width: calc(100vw - 20px); max-height: calc(100vh - 24px); max-height: calc(100dvh - 24px); border-radius: 14px; }
+  .history-record-dialog-header { gap: 12px; padding: 16px; }
+  .history-record-dialog-header h2 { font-size: 18px; }
+  .history-record-dialog-content { padding: 16px; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .history-record-dialog[open], .history-record-dialog::backdrop { animation: none; }
+  .history-record-dialog .history-record-dialog-close { transition: none; }
+}

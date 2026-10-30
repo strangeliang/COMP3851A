@@ -4,14 +4,15 @@ import {
   EyeOff,
   ListChecks,
   MessageCircleQuestion,
-  Sparkles,
   Upload,
 } from "lucide-react";
 import { useState } from "react";
 import { Link, Navigate, useLocation, useNavigate } from "react-router-dom";
 import useBodyClass from "../hooks/useBodyClass";
 import GoogleLogin from "../components/GoogleLogin";
+import StudyLogo from "../components/StudyLogo";
 import { useAppData } from "../state/AppDataContext";
+import { useLanguage } from "../state/LanguageContext";
 
 export default function LoginPage() {
   useBodyClass("user-app");
@@ -19,6 +20,8 @@ export default function LoginPage() {
   const navigate = useNavigate();
   const location = useLocation();
   const { currentUser, login, isAuthLoading } = useAppData();
+  const { language } = useLanguage();
+  const t = (en, zh) => language === "zh" ? zh : en;
 
   const [showPassword, setShowPassword] = useState(false);
   const [form, setForm] = useState({ email: "", password: "", remember: false });
@@ -68,9 +71,7 @@ export default function LoginPage() {
       <section className="login-modern-card">
         <section className="login-hero-panel">
           <div className="login-brand-row">
-            <span className="brand-mark">
-              <Sparkles size={20} />
-            </span>
+            <StudyLogo />
             <span>Study Companion</span>
           </div>
 
@@ -145,6 +146,7 @@ export default function LoginPage() {
               required
               maxLength={254}
               autoComplete="username"
+              aria-describedby={error ? "login-error" : undefined}
               value={form.email}
               onChange={updateField}
               placeholder="Enter your email"
@@ -163,6 +165,7 @@ export default function LoginPage() {
                 required
                 maxLength={128}
                 autoComplete="current-password"
+                aria-describedby={error ? "login-error" : undefined}
                 value={form.password}
                 onChange={updateField}
                 placeholder="Enter your password"
@@ -172,7 +175,9 @@ export default function LoginPage() {
                 className="login-password-toggle"
                 type="button"
                 onClick={() => setShowPassword((current) => !current)}
-                aria-label="Show or hide password"
+                aria-label={showPassword ? t("Hide password", "隐藏密码") : t("Show password", "显示密码")}
+                aria-pressed={showPassword}
+                aria-controls="password"
               >
                 {showPassword ? <EyeOff size={19} /> : <Eye size={19} />}
               </button>
@@ -194,7 +199,7 @@ export default function LoginPage() {
               </Link>
             </div>
 
-            {error && <p className="form-error">{error}</p>}
+            {error && <p id="login-error" role="alert" className="form-error">{error}</p>}
 
             <button className="login-submit-modern" type="submit" disabled={isSubmitting || isAuthLoading}>
               {isAuthLoading ? "Checking session…" : isSubmitting ? "Signing in…" : "Log In"}

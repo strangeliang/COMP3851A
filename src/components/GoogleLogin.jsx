@@ -21,7 +21,8 @@ export default function GoogleLogin({ returnPath = null }) {
   const [ready, setReady] = useState(false);
   useEffect(() => {
     let active = true;
-    apiRequest("/auth/google/config").then(async (config) => {
+    const controller = new AbortController();
+    apiRequest("/auth/google/config", { signal: controller.signal }).then(async (config) => {
       if (!active) return;
       if (!config.enabled) { setMessage("Google sign-in is not configured yet. Please use email and password."); return; }
       await loadGoogle();
@@ -30,16 +31,17 @@ export default function GoogleLogin({ returnPath = null }) {
         if (!active) return;
         setMessage("Signing in with Google…");
         try {
-          await apiRequest("/auth/google", { method: "POST", body: { credential } });
+          await apiRequest("/auth/google", { method: "POST", body: { credential }, signal: controller.signal });
+          if (!active) return;
           resetWorkspaceSession();
-          if (active) window.location.assign(typeof returnPath === 'string' && /^\/student\/support\/(ASK|SESSION)-[a-zA-Z0-9-]+$/.test(returnPath) ? returnPath : '/');
+          window.location.assign(typeof returnPath === 'string' && /^\/student\/support\/(ASK|SESSION)-[a-zA-Z0-9-]+$/.test(returnPath) ? returnPath : '/');
         } catch (error) { if (active) setMessage(`${error.message} Refresh this page before retrying.`); }
       } });
       window.google.accounts.id.renderButton(host.current, { type: "standard", theme: "outline", size: "large", text: "signin_with", width: 280 });
       setReady(true);
       setMessage("New Google users get a student account. Eligible existing student accounts sign in directly and keep their data.");
     }).catch((error) => { if (active) setMessage(error.message); });
-    return () => { active = false; };
+    return () => { active = false; controller.abort(); };
   }, [returnPath]);
   return <section style={{ marginTop: 16 }} aria-label="Google sign-in">
     {!ready && <button type="button" disabled style={{ width: "100%", minHeight: 44, padding: "10px 16px", display: "flex", alignItems: "center", justifyContent: "center", gap: 12, background: "#fff", border: "1px solid #dadce0", borderRadius: 6, color: "#3c4043", fontSize: 14, fontWeight: 500, cursor: "not-allowed" }}>

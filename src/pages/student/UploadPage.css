@@ -1,0 +1,17 @@
+.upload-material-card { padding: 18px 20px; min-width: 0; }
+.upload-material-heading { display: flex; align-items: center; gap: 14px; min-width: 0; }
+.upload-material-heading .file-type { flex: 0 0 44px; width: 44px; height: 44px; display: grid; place-items: center; }
+.upload-material-title { min-width: 0; flex: 1; }
+.upload-material-title h3 { margin: 0; font-size: 16px; line-height: 1.5; overflow-wrap: anywhere; }
+.upload-material-meta { display: flex; flex-wrap: wrap; gap: 6px 12px; margin: 5px 0 0; color: #77727f; font-size: 12px; line-height: 1.5; }
+.upload-material-meta span + span { padding-left: 12px; border-left: 1px solid #e4ddec; }
+.upload-material-heading .status-badge { flex-shrink: 0; min-width: 0; }
+.upload-material-footer { display: flex; justify-content: space-between; align-items: center; gap: 14px; margin-top: 16px; padding-top: 14px; border-top: 1px solid #eee9f4; }
+.upload-material-updated { min-width: 0; margin: 0; color: #77727f; font-size: 12px; line-height: 1.65; }
+.upload-material-updated > span { display: block; color: #82788d; }
+.upload-material-actions { display: flex; flex-wrap: wrap; gap: 8px; flex-shrink: 0; }
+.upload-material-actions button, .upload-material-actions a { display: inline-flex; align-items: center; justify-content: center; gap: 6px; min-height: 36px; padding: 8px 10px; border: 1px solid #ddd4ed; border-radius: 8px; background: #fff; color: #624296; font: inherit; font-size: 12px; text-decoration: none; cursor: pointer; }
+.upload-material-actions .upload-material-delete { border-color: #f2d1d9; color: #ba3552; background: #fff8fa; }
+.upload-material-actions button:hover, .upload-material-actions a:hover { background: #f7f2ff; }
+.upload-material-actions button:focus-visible, .upload-material-actions a:focus-visible { outline: 3px solid #b295f3; outline-offset: 2px; }
+@media (max-width: 700px) { .upload-material-footer { align-items: flex-start; flex-direction: column; }.upload-material-actions { width: 100%; }.upload-material-heading { gap: 10px; }.upload-material-card { padding: 16px; }.upload-material-title h3 { font-size: 14px; } }

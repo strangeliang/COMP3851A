@@ -5,6 +5,7 @@ import { apiRequest } from "../services/apiClient";
 import { resetWorkspaceSession, workspaceSessionId } from "../services/workspaceSession";
 import {
   createCourse as createCourseRequest,
+  updateCourse as updateCourseRequest,
   createMaterial as createMaterialRequest,
   deleteCourse as deleteCourseRequest,
   deleteMaterial as deleteMaterialRequest,
@@ -57,6 +58,7 @@ export function AppDataProvider({ children }) {
   const sessionEpoch = useRef(0);
   const [isAuthLoading, setIsAuthLoading] = useState(true);
   const [aiStatus, setAIStatus] = useState({ configured: false, loading: true, message: "Checking AI service…" });
+  const aiStatusRequestRef = useRef(null);
   const [toast, setToast] = useState("");
   const toastTimer = useRef(null);
   const uploadRef = useRef(null);
@@ -95,11 +97,58 @@ export function AppDataProvider({ children }) {
     syncRef.current?.controller.abort();
   }
 
+  function cancelAIStatusRequest() {
+    aiStatusRequestRef.current?.controller.abort();
+    aiStatusRequestRef.current = null;
+  }
+
+  function retryAIStatus() {
+    const user = userRef.current;
+    if (!user) {
+      cancelAIStatusRequest();
+      setAIStatus({ configured: false, loading: false, error: false, message: "Sign in to use AI." });
+      return Promise.resolve(false);
+    }
+    const active = aiStatusRequestRef.current;
+    if (active && !active.controller.signal.aborted && active.epoch === sessionEpoch.current
+      && sameId(active.userId, user.id)) return active.promise;
+
+    cancelAIStatusRequest();
+    const request = { controller: new AbortController(), epoch: sessionEpoch.current, userId: user.id, promise: null };
+    aiStatusRequestRef.current = request;
+    const isCurrent = () => aiStatusRequestRef.current === request && !request.controller.signal.aborted
+      && request.epoch === sessionEpoch.current && sameId(userRef.current?.id, request.userId);
+    setAIStatus({ configured: false, loading: true, error: false, message: "Checking AI service configuration…" });
+    request.promise = (async () => {
+      try {
+        const status = await apiRequest("/ai/status", { signal: request.controller.signal, timeoutMs: 10000 });
+        if (!isCurrent()) return false;
+        if (typeof status?.configured !== "boolean") throw new Error("Invalid AI status response.");
+        setAIStatus({ ...status, loading: false, error: false,
+          message: status.configured
+            ? "AI configuration found. Availability is checked when you send a request."
+            : "AI is not configured. Ask the person running this app to configure the server." });
+        return status.configured;
+      } catch {
+        if (!isCurrent()) return false;
+        setAIStatus({ configured: false, loading: false, error: true,
+          message: "Could not check AI configuration. Please retry shortly." });
+        return false;
+      } finally {
+        if (aiStatusRequestRef.current === request) aiStatusRequestRef.current = null;
+      }
+    })();
+    return request.promise;
+  }
+
   function acceptUser(user) {
     cancelUpload();
     cancelResourceRequests();
+    cancelAIStatusRequest();
     userRef.current = user;
     setCurrentUser(user);
+    setAIStatus({ configured: false, loading: Boolean(user), error: false,
+      message: user ? "Checking AI service configuration…" : "Sign in to use AI." });
     if (!user) {
       setHistorySync({ pending: false, error: "" });
       resetWorkspaceSession();
@@ -137,6 +186,7 @@ export function AppDataProvider({ children }) {
       controller.abort();
       cancelUpload();
       cancelResourceRequests();
+      cancelAIStatusRequest();
       clearTimeout(toastTimer.current);
       window.removeEventListener("study-session-expired", expired);
     };
@@ -145,21 +195,10 @@ export function AppDataProvider({ children }) {
   }, []);
 
   useEffect(() => {
-    const controller = new AbortController();
-    if (!currentUser) {
-      setAIStatus({ configured: false, loading: false, message: "Sign in to use AI." });
-      return () => controller.abort();
-    }
-    setAIStatus({ configured: false, loading: true, message: "Checking AI service…" });
-    apiRequest("/ai/status", { signal: controller.signal, timeoutMs: 10000 })
-      .then((status) => {
-        if (!controller.signal.aborted) setAIStatus({ ...status, loading: false,
-          message: status.configured ? "Gemini configured" : "AI is not configured. Ask the person running this app to configure the server." });
-      })
-      .catch((error) => {
-        if (!controller.signal.aborted) setAIStatus({ configured: false, loading: false, message: error.message });
-      });
-    return () => controller.abort();
+    retryAIStatus();
+    return cancelAIStatusRequest;
+    // The request reads the current user and session through refs, including on manual retries.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [currentUser]);
 
   useEffect(() => {
@@ -200,14 +239,9 @@ export function AppDataProvider({ children }) {
         || !sameId(userRef.current?.id, user.id) || !sameId(dataRef.current.currentCourseId, courseId)) return false;
       updateData((current) => {
         const previous = courseFiles(current, courseId, user);
-        const previousById = new Map(previous.map((material) => [String(material.id), material]));
         const serverIds = new Set(materials.map((material) => String(material.id)));
         const removed = previous.filter((material) => !serverIds.has(String(material.id)));
-        const merged = materials.map((material) => {
-          const cached = previousById.get(String(material.id));
-          const parseWarning = cached?.parseWarning || "";
-          return { ...material, parseWarning, status: parseWarning ? "Ready with warning" : material.status };
-        });
+        const merged = materials;
         const preferred = preferredMaterialIds.filter((id) => serverIds.has(String(id)));
         const currentSelection = current.selectedMaterialIds.filter((id) => serverIds.has(String(id)));
         const selected = (preferred.length ? preferred : currentSelection.length || !selectDefaults
@@ -318,13 +352,16 @@ export function AppDataProvider({ children }) {
     return true;
   }
 
-  function selectCourse(courseId) {
+  function selectCourse(courseId, { preferredMaterialIds = [] } = {}) {
     const current = dataRef.current;
     const course = current.courses.find((item) => sameId(item.id, courseId) && ownedBy(item, userRef.current));
-    if (!course) return;
+    if (!course) return false;
     cancelUpload();
     updateData((state) => ({ ...state, currentCourseId: course.id, selectedMaterialIds: [], sourceFileId: "" }));
-    loadMaterialsForCourse(course.id, userRef.current, sessionEpoch.current, { selectDefaults: true });
+    const preferred = Array.isArray(preferredMaterialIds) ? preferredMaterialIds : [];
+    return loadMaterialsForCourse(course.id, userRef.current, sessionEpoch.current, {
+      selectDefaults: true, preferredMaterialIds: preferred,
+    }).then(loaded => loaded && preferred.every(id => dataRef.current.selectedMaterialIds.some(selectedId => sameId(id, selectedId))));
   }
 
   async function createCourse({ code, name }) {
@@ -360,6 +397,35 @@ export function AppDataProvider({ children }) {
     }
   }
 
+  async function updateCourse(courseId, { code, name }) {
+    const user = userRef.current;
+    const course = dataRef.current.courses.find(item => sameId(item.id, courseId) && ownedBy(item, user));
+    if (user?.role !== "Student" || !course) return { ok: false, code: "COURSE_NOT_FOUND", message: "This course is no longer available." };
+    if (courseMutationRef.current) return { ok: false, code: "COURSE_PENDING", message: "Wait for the current course operation to finish." };
+    const trimmedCode = typeof code === "string" ? code.trim().toUpperCase() : "";
+    const trimmedName = typeof name === "string" ? name.trim() : "";
+    if (!trimmedCode || !trimmedName || trimmedCode.length > 32 || trimmedName.length > 120) {
+      return { ok: false, code: "INVALID_COURSE", message: "Enter a course code (up to 32 characters) and name (up to 120 characters)." };
+    }
+    if (dataRef.current.courses.some(item => ownedBy(item, user) && !sameId(item.id, course.id) && item.code.toUpperCase() === trimmedCode)) {
+      return { ok: false, code: "DUPLICATE_RECORD", message: "You already have a course with this code." };
+    }
+    const request = { controller: new AbortController(), userId: user.id, epoch: sessionEpoch.current };
+    courseMutationRef.current = request;
+    try {
+      const updated = await updateCourseRequest(course.id, { code: trimmedCode, name: trimmedName }, user.id, { signal: request.controller.signal });
+      if (courseMutationRef.current !== request || request.controller.signal.aborted || request.epoch !== sessionEpoch.current
+        || !sameId(userRef.current?.id, user.id)) return { ok: false, code: "COURSE_UPDATE_CANCELLED", message: "Course update was cancelled." };
+      updateData(state => ({ ...state, courses: state.courses.map(item => sameId(item.id, course.id) && ownedBy(item, user) ? updated : item) }));
+      return { ok: true, course: updated };
+    } catch (error) {
+      return { ok: false, code: error.name === "AbortError" ? "COURSE_UPDATE_CANCELLED" : error.code,
+        message: error.name === "AbortError" ? "Course update was cancelled." : error.message || "The course could not be updated." };
+    } finally {
+      if (courseMutationRef.current === request) courseMutationRef.current = null;
+    }
+  }
+
   async function deleteCourse(courseId) {
     const user = userRef.current;
     if (!dataRef.current.courses.some((item) => sameId(item.id, courseId) && ownedBy(item, user))) {
@@ -374,20 +440,27 @@ export function AppDataProvider({ children }) {
       if (courseMutationRef.current !== request || request.controller.signal.aborted || request.epoch !== sessionEpoch.current
         || !sameId(userRef.current?.id, user.id)) return { ok: false, message: "Course deletion was cancelled." };
       let nextCourseId = "";
+      let activeCourseDeleted = false;
       updateData((current) => {
         const courses = current.courses.filter((item) => !sameId(item.id, courseId));
         const materials = current.materials.filter((item) => !sameId(item.courseId, courseId));
-        nextCourseId = sameId(current.currentCourseId, courseId)
+        activeCourseDeleted = sameId(current.currentCourseId, courseId);
+        nextCourseId = activeCourseDeleted
           ? courses.find((item) => ownedBy(item, user))?.id || "" : current.currentCourseId;
         const keep = (record) => !sameId(record.courseId, courseId);
-        return { ...current, courses, materials, currentCourseId: nextCourseId, selectedMaterialIds: [], sourceFileId: "",
+        return { ...current, courses, materials, currentCourseId: nextCourseId,
+          selectedMaterialIds: activeCourseDeleted ? [] : current.selectedMaterialIds,
+          sourceFileId: activeCourseDeleted ? "" : current.sourceFileId,
           summaryRecords: current.summaryRecords.filter(keep), chatRecords: current.chatRecords.filter(keep),
           quizAttempts: current.quizAttempts.filter(keep), studyOutbox: current.studyOutbox.filter(keep),
           activities: activity(current, "course", "Deleted a course", { courseId, sourceFileId: "" }) };
       });
       notify("Course deleted");
-      if (nextCourseId) loadMaterialsForCourse(nextCourseId, user, request.epoch, { selectDefaults: true });
-      else setMaterialState(resourceState({ ready: true, courseId: "" }));
+      if (activeCourseDeleted) {
+        if (nextCourseId) loadMaterialsForCourse(nextCourseId, user, request.epoch, { selectDefaults: true });
+        else setMaterialState(resourceState({ ready: true, courseId: "" }));
+      }
+      if (historyRequestRef.current) refreshStudyHistory();
       return { ok: true };
     } catch (error) {
       return { ok: false, message: error.name === "AbortError" ? "Course deletion was cancelled." : error.message || "The course could not be deleted." };
@@ -454,8 +527,7 @@ export function AppDataProvider({ children }) {
         request.controller.signal.throwIfAborted();
         setUploadState({ pending: true, progress: `Saving ${material.name}…` });
         const saved = await createMaterialRequest(courseId, material, user.id, { signal: request.controller.signal });
-        persisted.push({ ...saved, parseWarning: material.parseWarning,
-          status: material.parseWarning ? "Ready with warning" : saved.status });
+        persisted.push(saved);
       }
       if (request.epoch !== sessionEpoch.current || !sameId(userRef.current?.id, user.id)
         || !sameId(dataRef.current.currentCourseId, courseId)) throw new DOMException("Upload cancelled", "AbortError");
@@ -505,7 +577,15 @@ export function AppDataProvider({ children }) {
           studyOutbox: current.studyOutbox.filter((record) => !sameId(record.userId, user.id) || keep(record.payload)),
           activities: activity(current, "material", `Deleted material ${material.name}`, { courseId: material.courseId, sourceFileId: material.id }) };
       });
+      const pendingLoad = materialRequestRef.current;
+      if (pendingLoad && sameId(pendingLoad.courseId, material.courseId)) {
+        pendingLoad.controller.abort();
+        if (sameId(dataRef.current.currentCourseId, material.courseId)) {
+          loadMaterialsForCourse(material.courseId, user, epoch);
+        }
+      }
       notify("Material deleted");
+      if (historyRequestRef.current) refreshStudyHistory();
       return { ok: true };
     } catch (error) {
       return { ok: false, message: error.message || "The material could not be deleted." };
@@ -624,6 +704,7 @@ export function AppDataProvider({ children }) {
     historyRequestRef.current = controller;
     await flushStudyRecords();
     try {
+      if (controller.signal.aborted || epoch !== sessionEpoch.current || !sameId(userRef.current?.id, user.id)) return;
       const before = dataRef.current;
       const knownSyncedIds = new Set([...before.summaryRecords, ...before.chatRecords, ...before.quizAttempts]
         .filter((r) => sameId(r.userId, user.id)).map((r) => r.serverId).filter(Boolean));
@@ -634,7 +715,7 @@ export function AppDataProvider({ children }) {
     } catch (error) {
       if (!controller.signal.aborted && epoch === sessionEpoch.current) setHistorySync((state) => ({ ...state,
         error: `Could not refresh server study records. Displayed statistics may be incomplete. ${error.message}` }));
-    }
+    } finally { if (historyRequestRef.current === controller) historyRequestRef.current = null; }
   }
 
   async function retryStudyRecords() {
@@ -672,7 +753,7 @@ export function AppDataProvider({ children }) {
       setCurrentUser(user);
       return user;
     },
-    currentUser, isAuthLoading, aiStatus, users: data.users,
+    currentUser, isAuthLoading, aiStatus, retryAIStatus, users: data.users,
     courses: currentUser?.role === "Admin" ? data.courses : studentCourses,
     materials: currentUser?.role === "Admin" ? data.materials : studentMaterials,
     currentCourse, currentCourseId: data.currentCourseId, courseMaterials,
@@ -683,7 +764,7 @@ export function AppDataProvider({ children }) {
     currentSummaryRecord: summaryRecords.find((record) => record.mode === "api" && recordScopeKey(record) === scope.scopeKey) || null,
     scope, toast, uploadState, courseState, materialState, login, logout, selectCourse, setSelectedMaterialIds,
     setSourceFileId: (id) => setSelectedMaterialIds(id ? [id] : []),
-    createCourse, deleteCourse, addMaterials, cancelUpload, deleteMaterial, retryCourses, retryMaterials,
+    createCourse, updateCourse, deleteCourse, addMaterials, cancelUpload, deleteMaterial, retryCourses, retryMaterials,
     recordSummaryUse, recordQAUse, addChatRecord, saveQuizAttempt, toggleUserStatus, notify,
   };
   return <AppDataContext.Provider value={value}>{children}{toast && <div className="app-toast" role="status">{toast}</div>}</AppDataContext.Provider>;

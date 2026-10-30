@@ -1,9 +1,10 @@
 import { useRef, useState } from 'react';
-import { ArrowLeft, ShieldCheck, Mail, CheckCircle2 } from 'lucide-react';
+import { ArrowLeft, Mail, CheckCircle2 } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import useBodyClass from '../hooks/useBodyClass';
 import { useLanguage } from '../state/LanguageContext';
 import { apiRequest } from '../services/apiClient';
+import StudyLogo from '../components/StudyLogo';
 import './ForgotPasswordPage.css';
 
 export default function ForgotPasswordPage() {
@@ -36,7 +37,7 @@ export default function ForgotPasswordPage() {
     } finally { locked.current = false; setBusy(false); }
   }
   return <main className="forgot-modern-shell" data-react-i18n><section className="forgot-modern-card recovery-card">
-    <div className="forgot-brand-row"><span className="brand-mark"><ShieldCheck size={20} /></span><span>Study Companion</span></div>
+    <div className="forgot-brand-row"><StudyLogo /><span>Study Companion</span></div>
     <div className="forgot-heading"><span className="login-status-pill">{t('Account Recovery', '账号恢复')}</span>
       <h1>{t('Account recovery support', '账号恢复支持')}</h1>
       <p><Link to="/reset-password">{t('Reset password with an email link', '通过邮件链接重置密码')}</Link></p>

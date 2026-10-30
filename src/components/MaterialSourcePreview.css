@@ -1,0 +1,8 @@
+.material-source-link { display: inline; border: 0; padding: 0; background: transparent; color: #6238b8; font: inherit; text-align: left; text-decoration: underline; text-underline-offset: 3px; cursor: pointer; overflow-wrap: anywhere; }
+.material-source-link:hover { color: #421788; }
+.material-source-link:focus-visible { outline: 2px solid #7956b6; outline-offset: 3px; border-radius: 3px; }
+.material-original-actions { display: flex; flex-wrap: wrap; gap: 12px; margin-bottom: 20px; }
+.material-original-actions a { display: inline-flex; align-items: center; gap: 7px; padding: 9px 12px; border: 1px solid #d8c9f7; border-radius: 8px; color: #5420d8; text-decoration: none; }
+.material-source-preview h3 { margin: 0 0 10px; }
+.material-source-note { font-size: 13px; line-height: 1.6; color: #655e70; }
+.material-source-text { margin: 16px 0 0; padding: 16px; border: 1px solid #e8e3f0; border-radius: 10px; background: #faf9fc; font: inherit; line-height: 1.75; white-space: pre-wrap; overflow-wrap: anywhere; }

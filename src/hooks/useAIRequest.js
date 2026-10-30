@@ -3,7 +3,7 @@ import { readWorkspaceState, writeWorkspaceState, workspaceSessionId } from "../
 
 const initialState = { status: "idle", data: null, error: "" };
 
-export default function useAIRequest(scopeKey, kind = "qa") {
+export default function useAIRequest(scopeKey, kind = "qa", { retainData = false } = {}) {
   const cacheKey = `${kind}:${scopeKey}`;
   const sessionId = workspaceSessionId();
   const [state, setState] = useState(() => readWorkspaceState(cacheKey, initialState));
@@ -31,8 +31,9 @@ export default function useAIRequest(scopeKey, kind = "qa") {
     if (pendingRef.current) return null;
     const pending = { controller: new AbortController(), scopeKey };
     pendingRef.current = pending;
-    writeWorkspaceState(cacheKey, initialState, sessionId);
-    setState({ status: "loading", data: null, error: "" });
+    const previousData = retainData ? state.data : null;
+    writeWorkspaceState(cacheKey, { ...initialState, data: previousData }, sessionId);
+    setState({ status: "loading", data: previousData, error: "" });
     try {
       const data = await request(pending.controller.signal);
       if (pendingRef.current !== pending || scopeRef.current !== scopeKey || pending.controller.signal.aborted) return null;
@@ -42,7 +43,7 @@ export default function useAIRequest(scopeKey, kind = "qa") {
       return data;
     } catch (error) {
       if (pendingRef.current === pending && scopeRef.current === scopeKey && error.name !== "AbortError") {
-        const failed = { status: "error", data: null, error: error.message || "The request failed. Please try again." };
+        const failed = { status: "error", data: previousData, error: error.message || "The request failed. Please try again." };
         writeWorkspaceState(cacheKey, failed, sessionId);
         setState(failed);
       }
@@ -50,7 +51,7 @@ export default function useAIRequest(scopeKey, kind = "qa") {
     } finally {
       if (pendingRef.current === pending) pendingRef.current = null;
     }
-  }, [scopeKey, cacheKey, sessionId]);
+  }, [scopeKey, cacheKey, sessionId, retainData, state.data]);
 
   return { ...state, run, cancel, pending: state.status === "loading" };
 }
