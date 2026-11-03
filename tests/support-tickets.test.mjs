@@ -202,7 +202,7 @@ test('problem form validates, locks duplicate submissions and preserves a retry 
     const submit=()=>renderer.root.findByType('form').props.onSubmit({preventDefault(){}});
     await act(async()=>submit());assert.equal(calls.length,0);assert.match(text(renderer),/at least 10/);
     await act(async()=>{
-      for(const [name,value] of Object.entries({title:'Upload fails',problem:'My PDF upload fails after choosing a course.',steps:'Choose course then upload',environment:'Chrome desktop'}))
+      for(const [name,value] of Object.entries({category:'upload',title:'Upload fails',problem:'My PDF upload fails after choosing a course.',steps:'Choose course then upload',environment:'Chrome desktop'}))
         renderer.root.findByProps({name}).props.onChange({target:{value}});
     });
     await act(async()=>{submit();submit();});assert.equal(calls.length,1);
@@ -293,6 +293,7 @@ test('student human request collects a separate issue, retries with same ID and 
     await act(async()=>requestButton().props.onClick());
     assert.equal(calls.length,0,'Opening the request form does not create an empty ticket');
     await act(async()=>{
+      renderer.root.findByProps({name:'category'}).props.onChange({target:{value:'upload'}});
       renderer.root.findByProps({name:'title'}).props.onChange({target:{value:'PDF upload problem'}});
       renderer.root.findByProps({name:'problem'}).props.onChange({target:{value:'My PDF upload stops at the final step.'}});
     });
@@ -344,11 +345,61 @@ test('admin inbox hides empty sessions and can focus on students awaiting staff'
     const rows=()=>renderer.root.findAll(n=>n.type==='button' && String(n.props.className).startsWith('support-ticket-row'));
     assert.equal(rows().length,1);
     await act(async()=>renderer.root.findByProps({className:'support-human-filter'}).findByType('input').props.onChange({target:{checked:false}}));
-    await act(async()=>renderer.root.findAllByProps({type:'checkbox'})[0].props.onChange({target:{checked:false}}));
+    await act(async()=>renderer.root.findByProps({'aria-label':'Hide empty login conversations'}).props.onChange({target:{checked:false}}));
     assert.equal(rows().length,2);
-    await act(async()=>renderer.root.findAllByProps({type:'checkbox'})[1].props.onChange({target:{checked:true}}));
+    await act(async()=>renderer.root.findByProps({'aria-label':'Awaiting staff reply'}).props.onChange({target:{checked:true}}));
     assert.equal(rows().length,1);assert.match(text(renderer),/Awaiting reply/);
   } finally {if(renderer)await act(async()=>renderer.unmount());}
+});
+
+test('compact admin queue keeps issue identity visible and advanced filters reset without losing the queue', async()=>{
+  let renderer; const calls=[];
+  const issue={...initial,humanSupport:'Waiting',humanRequestedAt:initial.createdAt,hasMessages:true,needsReply:true};
+  const {default:Inbox}=await loadSource("export {default} from './src/components/SupportTickets.jsx'",{
+    '../state/AppDataContext':{useAppData:()=>({currentUser:{id:2,role:'Admin'}})},
+    '../state/LanguageContext':{useLanguage:()=>({language:'en'})},
+    '../services/ticketApiService':{ticketCategories:categories,ticketStatuses:statuses,listServerTickets:async(_signal,_cursor,filters)=>{calls.push(filters);return{tickets:[issue],hasMore:false};}},
+  });
+  try {
+    await act(async()=>{renderer=create(React.createElement(Inbox));});
+    const root=renderer.root;
+    assert.equal(root.findByProps({className:'support-advanced-filters'}).props.open,undefined);
+    const categoryTabs=root.findByProps({className:'support-category-tabs'});
+    await act(async()=>categoryTabs.findAllByType('button').find(button=>button.children.includes('Files & uploads')).props.onClick());
+    assert.equal(calls.at(-1).category,'upload');
+    assert.equal(calls.at(-1).humanOnly,true);
+    const row=root.findAll(n=>n.type==='button' && String(n.props.className).startsWith('support-ticket-row'))[0];
+    const content=node=>typeof node==='string' ? node : node.children.map(content).join('');
+    for(const value of [issue.title,issue.description,issue.name,issue.id]) assert.ok(content(row).includes(value));
+    assert.match(content(root.findByProps({className:'support-stats-label'})),/Loaded results/);
+    await act(async()=>root.findByProps({type:'search'}).props.onChange({target:{value:'PDF'}}));
+    await act(async()=>root.findByProps({'aria-label':'Created from (UTC)'}).props.onChange({target:{value:'2026-10-01'}}));
+    assert.equal(calls.at(-1).q,'PDF'); assert.equal(calls.at(-1).from,'2026-10-01');
+    await act(async()=>root.findByProps({className:'support-clear-filters'}).props.onClick());
+    assert.equal(calls.at(-1).q,''); assert.equal(calls.at(-1).from,'');
+    assert.equal(calls.at(-1).category,undefined);
+    assert.equal(calls.at(-1).humanOnly,true); assert.equal(calls.at(-1).sort,'requested');
+    assert.equal(root.findAllByProps({className:'support-clear-filters'}).length,0);
+  } finally {if(renderer)await act(async()=>renderer.unmount());}
+});
+
+test('support requests require an explicit category instead of silently filing every issue under Other',async()=>{
+  let renderer; const calls=[];
+  const {default:Form}=await loadSource("export {default} from './src/components/SupportRequestForm.jsx'",{
+    '../services/ticketApiService':{ticketCategories:categories,createServerTicket:async body=>{calls.push(body);return{ticket:initial};}},
+  });
+  try {
+    await act(async()=>{renderer=create(React.createElement(Form,{onCreated(){},onCancel(){}}));});
+    await act(async()=>{
+      renderer.root.findByProps({name:'title'}).props.onChange({target:{value:'Upload fails'}});
+      renderer.root.findByProps({name:'problem'}).props.onChange({target:{value:'The PDF stops uploading after I choose my course.'}});
+    });
+    await act(async()=>renderer.root.findByType('form').props.onSubmit({preventDefault(){}}));
+    assert.equal(calls.length,0);assert.match(text(renderer),/Choose the category/);
+    await act(async()=>renderer.root.findByProps({name:'category'}).props.onChange({target:{value:'upload'}}));
+    await act(async()=>renderer.root.findByType('form').props.onSubmit({preventDefault(){}}));
+    assert.equal(calls.length,1);assert.equal(calls[0].category,'upload');
+  }finally{if(renderer)await act(async()=>renderer.unmount());}
 });
 
 test('recovery form requires consent, locks submissions, retries idempotently and never claims a password reset',async()=>{

@@ -1,0 +1,31 @@
+.login-simple { background: #f5f5fa; padding: 40px 24px; }
+.login-simple .login-modern-card { width: min(940px, 100%); min-height: 580px; grid-template-columns: .9fr 1.1fr; border-radius: 20px; box-shadow: 0 16px 60px #2920390b; }
+.login-simple .login-hero-panel { padding: 40px 36px; background: #f1ecfc; color: #33224e; }
+.login-simple .login-hero-panel::before, .login-simple .login-hero-panel::after { display: none; }
+.login-simple .login-brand-row { font-size: 17px; gap: 10px; }
+.login-simple .login-hero-content { margin: auto 0; padding: 64px 0; }
+.login-simple .login-hero-content h1 { font-size: clamp(32px, 3.4vw, 44px); line-height: 1.15; letter-spacing: -1.2px; }
+.login-simple .login-hero-content p { font-size: 16px; color: #6d617d; line-height: 1.65; }
+.login-hero-footer { margin: 0; font-size: 13px; line-height: 1.6; color: #786b88; }
+.login-simple .login-form-panel { padding: 40px 44px; background: #fff; }
+.login-simple .login-form-heading { margin-bottom: 22px; }
+.login-simple .login-form-heading h2 { margin: 0 0 8px; font-size: 28px; }
+.login-simple .login-form-panel > section { margin-top: 0 !important; min-width: 0; }
+.login-simple .login-form-panel > section > div { display: flex; justify-content: center; }
+.login-simple .login-support-note { color: #756d80; font-size: 12px; line-height: 1.6; text-align: center; margin: 12px 0 0; }
+.login-method-divider { display: flex; gap: 14px; align-items: center; color: #8a8291; font-size: 12px; margin: 22px 0; }
+.login-method-divider::before, .login-method-divider::after { content: ''; flex: 1; height: 1px; background: #eeeaf2; }
+.login-simple .login-form-modern { gap: 9px; }
+.login-simple .login-input { min-height: 46px; border-radius: 8px; }
+.login-simple .login-label { font-weight: 600; }
+.login-simple .login-submit-modern { min-height: 46px; border-radius: 8px; box-shadow: none; }
+.login-simple .login-password-toggle { background: transparent; }
+.login-simple .login-forgot-link { font-size: 12px; }
+@media (max-width: 700px) {
+  .login-simple { padding: 68px 16px 24px; align-items: start; }
+  .login-simple .login-modern-card { grid-template-columns: 1fr; min-height: 0; }
+  .login-simple .login-hero-panel { padding: 22px 26px; min-height: 0; }
+  .login-simple .login-hero-content, .login-simple .login-hero-footer { display: none; }
+  .login-simple .login-form-panel { padding: 30px 26px; }
+}
+@media (prefers-reduced-motion: reduce) { .login-simple * { transition: none; } }

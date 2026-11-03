@@ -25,6 +25,7 @@ export default function App() {
   const navigate = useNavigate();
   const { currentUser } = useAppData();
   const { language } = useLanguage();
+  const historyParams = new URLSearchParams(location.search);
   const home = currentUser?.role === 'Admin' ? '/admin/support' : currentUser?.role === 'Student' ? '/student/dashboard' : '/';
   return (<ErrorBoundary language={language} homeHref={home} onHome={() => navigate(home)} resetKey={location.pathname}>
     <div className="app-page-transition" key={location.pathname}>
@@ -32,7 +33,7 @@ export default function App() {
       <Route path="/student/support/:ticketId" element={<ProtectedRoute role="Student"><SupportPage /></ProtectedRoute>} />
       <Route path="/admin/support" element={<ProtectedRoute role="Admin"><AdminSupportPage /></ProtectedRoute>} />
       <Route path="/register" element={<RegisterPage />} />
-      <Route path="/student/history" element={<ProtectedRoute role="Student"><HistoryPage key="history" /></ProtectedRoute>} />
+      <Route path="/student/history" element={<ProtectedRoute role="Student"><HistoryPage key="history" initialKind={historyParams.get("kind") || "All"} initialCourse={historyParams.get("course") || "All"} /></ProtectedRoute>} />
       <Route path="/student/review" element={<ProtectedRoute role="Student"><HistoryPage key="review" review /></ProtectedRoute>} />
       <Route path="/student/profile" element={<ProtectedRoute role="Student"><ProfilePage /></ProtectedRoute>} />
       <Route path="/student/settings" element={<ProtectedRoute role="Student"><SettingsPage /></ProtectedRoute>} />

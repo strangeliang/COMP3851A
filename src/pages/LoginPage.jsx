@@ -1,10 +1,6 @@
 import {
-  BookOpenText,
   Eye,
   EyeOff,
-  ListChecks,
-  MessageCircleQuestion,
-  Upload,
 } from "lucide-react";
 import { useState } from "react";
 import { Link, Navigate, useLocation, useNavigate } from "react-router-dom";
@@ -13,6 +9,7 @@ import GoogleLogin from "../components/GoogleLogin";
 import StudyLogo from "../components/StudyLogo";
 import { useAppData } from "../state/AppDataContext";
 import { useLanguage } from "../state/LanguageContext";
+import './LoginPage.css';
 
 export default function LoginPage() {
   useBodyClass("user-app");
@@ -67,7 +64,7 @@ export default function LoginPage() {
   }
 
   return (
-    <main className="login-modern-shell">
+    <main className="login-modern-shell login-simple" data-react-i18n>
       <section className="login-modern-card">
         <section className="login-hero-panel">
           <div className="login-brand-row">
@@ -76,66 +73,23 @@ export default function LoginPage() {
           </div>
 
           <div className="login-hero-content">
-            <p className="login-kicker">AI Learning Workspace</p>
-            <h1>One place for your learning materials</h1>
-            <p>
-              Sign in to access your courses, uploaded materials, summaries,
-              questions, and quizzes in a structured study workspace.
-            </p>
+            <h1>{t('Your space to learn.', '专注学习，从这里开始。')}</h1>
+            <p>{t('Turn your course materials into summaries, answers and practice.', '将课程资料整理成总结、问答和练习。')}</p>
           </div>
 
-          <div className="login-feature-grid">
-            <div className="login-feature-card">
-              <Upload size={18} />
-              <span>Upload Materials</span>
-            </div>
-
-            <div className="login-feature-card">
-              <BookOpenText size={18} />
-              <span>Generate Summaries</span>
-            </div>
-
-            <div className="login-feature-card">
-              <MessageCircleQuestion size={18} />
-              <span>Ask Questions</span>
-            </div>
-
-            <div className="login-feature-card">
-              <ListChecks size={18} />
-              <span>Practice Quizzes</span>
-            </div>
-          </div>
-
-          <div className="login-preview-box">
-            <div className="login-preview-row">
-              <span>Workspace</span>
-              <strong>Course-based</strong>
-            </div>
-
-            <div className="login-preview-row">
-              <span>Learning Tools</span>
-              <strong>Summary, Q&amp;A, Quiz</strong>
-            </div>
-
-            <div className="login-preview-row">
-              <span>Access</span>
-              <strong>Student / Administrator</strong>
-            </div>
-          </div>
+          <p className="login-hero-footer">{t('Your courses. Your materials. Your progress.', '课程、资料与学习进度，集中管理。')}</p>
         </section>
 
         <section className="login-form-panel">
           <div className="login-form-heading">
-            <span className="login-status-pill">Account Login</span>
-            <h2>Welcome back</h2>
-            <p>
-              Sign in to continue to your Study Companion workspace.
-            </p>
+            <h2>{t('Welcome back', '欢迎回来')}</h2>
+            <p>{t('Choose how you would like to sign in.', '选择你的登录方式。')}</p>
           </div>
-
+          <GoogleLogin returnPath={returnPath} />
+          <div className="login-method-divider"><span>{t('or use email', '或使用邮箱登录')}</span></div>
           <form className="login-form-modern" onSubmit={submit}>
             <label className="login-label" htmlFor="email">
-              Email
+              {t('Email', '邮箱')}
             </label>
 
             <input
@@ -149,11 +103,11 @@ export default function LoginPage() {
               aria-describedby={error ? "login-error" : undefined}
               value={form.email}
               onChange={updateField}
-              placeholder="Enter your email"
+              placeholder={t('Enter your email', '请输入邮箱')}
             />
 
             <label className="login-label" htmlFor="password">
-              Password
+              {t('Password', '密码')}
             </label>
 
             <div className="login-password-field">
@@ -168,7 +122,7 @@ export default function LoginPage() {
                 aria-describedby={error ? "login-error" : undefined}
                 value={form.password}
                 onChange={updateField}
-                placeholder="Enter your password"
+                placeholder={t('Enter your password', '请输入密码')}
               />
 
               <button
@@ -191,25 +145,24 @@ export default function LoginPage() {
                   checked={form.remember}
                   onChange={updateField}
                 />
-                Remember me
+                {t('Remember me', '记住我')}
               </label>
 
               <Link className="login-forgot-link" to="/reset-password">
-                Forgot password?
+                {t('Forgot password?', '忘记密码？')}
               </Link>
             </div>
 
             {error && <p id="login-error" role="alert" className="form-error">{error}</p>}
 
             <button className="login-submit-modern" type="submit" disabled={isSubmitting || isAuthLoading}>
-              {isAuthLoading ? "Checking session…" : isSubmitting ? "Signing in…" : "Log In"}
+              {isAuthLoading ? t('Checking session…', '检查登录状态…') : isSubmitting ? t('Signing in…', '正在登录…') : t('Log In', '登录')}
             </button>
 
             <p className="login-support-note">
-              New here? <Link to="/register">Register a student account</Link>
+              {t('New here?', '还没有账号？')} <Link to="/register">{t('Register a student account', '注册学生账号')}</Link>
             </p>
           </form>
-          <GoogleLogin returnPath={returnPath} />
         </section>
       </section>
     </main>

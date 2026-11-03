@@ -42,7 +42,7 @@ const choose = async (root, value) => {
 };
 const submitEvent = () => ({ preventDefault() {} });
 
-async function setup(t, { records = [summary()], reviews = [], review = false, language = 'en', handler } = {}) {
+async function setup(t, { records = [summary()], reviews = [], review = false, language = 'en', handler, initialKind, initialCourse } = {}) {
   const state = { records: structuredClone(records), reviews: structuredClone(reviews), deletedRecords: [] };
   const calls = [];
   const lifecycle = { active: 0, closed: 0 };
@@ -81,7 +81,7 @@ async function setup(t, { records = [summary()], reviews = [], review = false, l
     } },
   }, { window: memoryWindow() });
   let renderer;
-  await act(async () => { renderer = create(React.createElement(History, { review })); });
+  await act(async () => { renderer = create(React.createElement(History, { review, initialKind, initialCourse })); });
   let alive = true;
   const unmount = async () => {
     if (alive) { await act(async () => renderer.unmount()); alive = false; }
@@ -101,6 +101,20 @@ async function setup(t, { records = [summary()], reviews = [], review = false, l
     },
   };
 }
+
+test('history shortcut opens the requested record type and course and keeps other filters available', async t => {
+  const app = await setup(t, { initialKind: 'summary', initialCourse: 'course-b',
+    records: [summary('first', 'course-a'), summary('second', 'course-b'), quiz()] });
+  const rows = () => app.renderer.root.findAllByProps({ className: 'history-record-open' });
+  assert.equal(rows().length, 1);
+  assert.match(text(rows()[0]), /Course B/);
+  await app.open();
+  assert.match(text(dialogs(app.renderer.root)[0]), /second unique summary paragraph/);
+  const courseFilter = app.renderer.root.findAllByType('select').find(node => node.props.value === 'course-b');
+  await act(async () => courseFilter.props.onChange({ target: { value: 'All' } }));
+  assert.equal(rows().length, 2);
+  assert.equal(dialogs(app.renderer.root).length, 0);
+});
 
 test('history opens every record type in one dialog, then keeps the same details inline on close', async t => {
   const summaryRecord = summary();

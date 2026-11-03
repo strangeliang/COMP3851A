@@ -1,0 +1,17 @@
+.learning-history-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 10px 14px;
+  border: 1px solid #d9caff;
+  border-radius: 10px;
+  color: #6131ce;
+  background: #fff;
+  text-decoration: none;
+  font-size: 14px;
+  font-weight: 600;
+}
+.learning-history-link:hover { background: #f5f0ff; }
+.learning-history-link:focus-visible { outline: 3px solid #8b5cf6; outline-offset: 3px; }
+.learning-panel-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; }
+.workspace-panel:has(.learning-history-link) > .panel-title-row { flex-wrap: wrap; gap: 12px; }
