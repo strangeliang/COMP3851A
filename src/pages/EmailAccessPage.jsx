@@ -6,16 +6,32 @@ import '../pages/ForgotPasswordPage.css';
 import { useLanguage } from '../state/LanguageContext';
 
 export default function EmailAccessPage({ purpose = 'reset' }) {
+  const [token, setToken] = useState(() => new URLSearchParams(window.location.hash.slice(1)).get('token') || '');
+  useEffect(() => {
+    function receiveLink() {
+      const next = new URLSearchParams(window.location.hash.slice(1)).get('token');
+      if (!next) return;
+      setToken(next);
+      window.history.replaceState(window.history.state, '', `${window.location.pathname}${window.location.search || ''}`);
+    }
+    receiveLink();
+    window.addEventListener?.('hashchange', receiveLink);
+    return () => window.removeEventListener?.('hashchange', receiveLink);
+  }, []);
+  return <EmailAccessForm key={`${purpose}:${token}`} token={token} purpose={purpose} />;
+}
+
+function EmailAccessForm({ token, purpose }) {
   useBodyClass('user-app');
   const { language } = useLanguage();
   const t = (en, zh) => language === 'zh' ? zh : en;
-  const [token] = useState(() => new URLSearchParams(window.location.hash.slice(1)).get('token') || '');
-  useEffect(() => { if (token) window.history.replaceState(null, '', window.location.pathname); }, [token]);
   const [busy,setBusy] = useState(false);
   const [error,setError] = useState('');
   const [done,setDone] = useState('');
   const attempt = useRef(null);
   const locked = useRef(false);
+  const request = useRef(null);
+  useEffect(() => () => request.current?.abort(), []);
   async function submit(e) {
     e.preventDefault();
     if (locked.current) return;
@@ -23,13 +39,17 @@ export default function EmailAccessPage({ purpose = 'reset' }) {
     if (token && purpose === 'reset' && form.get('password') !== form.get('confirm')) { setError(t('Passwords do not match.', '两次输入的密码不一致。')); return; }
     const email = String(form.get('email') || '').trim().toLowerCase();
     if (!attempt.current || attempt.current.email !== email) attempt.current = { email,clientId:crypto.randomUUID() };
+    const controller = new AbortController();
+    request.current = controller;
     locked.current = true; setBusy(true); setError('');
     try {
-      const result = await apiRequest(`/auth/email/${token ? 'consume' : 'request'}`, { method:'POST', body:token
+      const result = await apiRequest(`/auth/email/${token ? 'consume' : 'request'}`, { method:'POST', signal:controller.signal, body:token
         ? { token,purpose,...(purpose === 'reset' ? { password:form.get('password') } : {}) }
         : { ...attempt.current,purpose } });
+      if (controller.signal.aborted) return;
       setDone(t(result.message, purpose === 'reset' && token ? '密码已更新，请使用新密码登录。' : token ? '邮箱已验证。' : '如果存在符合条件的账户，将发送一次性链接。请检查收件箱和垃圾邮件。'));
-    } catch(err) { setError(err.message); } finally { locked.current = false; setBusy(false); }
+    } catch(err) { if (!controller.signal.aborted) setError(err.message); }
+    finally { if (!controller.signal.aborted) { locked.current = false; setBusy(false); } }
   }
   return <main className="forgot-modern-shell" data-react-i18n><section className="forgot-modern-card recovery-card">
     <h1>{purpose === 'reset' ? t('Reset password', '重置密码') : t('Verify email', '验证邮箱')}</h1>

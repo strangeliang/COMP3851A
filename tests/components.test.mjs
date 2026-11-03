@@ -14,6 +14,22 @@ import {
 
 globalThis.IS_REACT_ACT_ENVIRONMENT = true;
 
+test('resuming a course restores only its requested sources and reports removed sources without claiming success', async t => {
+  const app = await harness(t);
+  let loaded;
+  await act(async () => { loaded = await app.data.selectCourse('inft3050', { preferredMaterialIds: [2] }); });
+  assert.equal(loaded, true);
+  assert.deepEqual(app.data.selectedMaterialIds, [2]);
+  app.server.materials = app.server.materials.filter(material => material.id !== 2);
+  await act(async () => { loaded = await app.data.selectCourse('inft3050', { preferredMaterialIds: [2] }); });
+  assert.equal(loaded, false);
+  assert.ok(!app.data.selectedMaterialIds.includes(2));
+  const previousCourse = app.data.currentCourseId;
+  await act(async () => { loaded = await app.data.selectCourse('unowned-course', { preferredMaterialIds: [3] }); });
+  assert.equal(loaded, false);
+  assert.equal(app.data.currentCourseId, previousCourse);
+});
+
 test('translation restores the latest React value, not stale dashboard counts or names', async () => {
   const { translatedValue } = await loadSource('src/utils/translationCache.js');
   const cache = new WeakMap(); const node = {};
@@ -198,10 +214,13 @@ test("workspace session restores generated results and answers after remount/rel
   await act(async () => { renderer.unmount(); });
 });
 
+function TestMessage(props) { return React.createElement("test-message", props, props.children); }
+TestMessage.Footer = "test-message-footer";
+
 const widgets = {
   ChatContainer: "test-chat",
   MainContainer: "test-main",
-  Message: "test-message",
+  Message: TestMessage,
   MessageInput: "test-input",
   MessageList: "test-list",
   TypingIndicator: "test-typing",
@@ -587,6 +606,7 @@ async function harness(
       "@chatscope/chat-ui-kit-react":
         widgets,
       "../../state/LanguageContext": { useLanguage: () => ({ language: "en" }) },
+      "../state/LanguageContext": { useLanguage: () => ({ language: "en" }) },
 
       "../../layouts/StudentLayout": ({
         children,
@@ -1219,7 +1239,7 @@ test("review shows original numbering, multiple selections, answers and repeat p
   await act(async () => renderer.root.findAllByType("button").find((b) => b.children.join("").includes("Quiz")).props.onClick());
   assert.equal(renderer.root.findByType("h3").children.join(""), "2. Choose both");
   assert.ok(JSON.stringify(renderer.toJSON()).includes("Beta"));
-  const inputs = renderer.root.findAllByType("input");
+  const inputs = renderer.root.findByType("form").findAllByType("input");
   assert.equal(inputs.length, 4); assert.equal(inputs[0].props.type, "checkbox");
   const displayedOptions = () => renderer.root.findAllByType("label").filter(label => label.findAllByType("input").length).map(label => label.children.at(-1));
   const firstOrder = displayedOptions();
@@ -1301,7 +1321,7 @@ test("profile actions open real navigation, support conversations and account-sc
     '../services/ticketApiService': { listServerTickets: async () => { ticketLoads++; return { tickets: [
       { id: 'ticket-1', status: 'Open', hasMessages: true }, { id: 'empty', status: 'Open', hasMessages: false },
     ] }; } },
-    '../services/apiClient': { apiRequest: async () => ({ records: historyRecords }) },
+    '../services/apiClient': { apiRequest: async () => ({ records: historyRecords, sourceMaterials: data.studentMaterials }) },
   }, { window, document: { hidden: false, addEventListener() {}, removeEventListener() {} } });
   let renderer;
   await act(async () => { renderer = create(React.createElement(MemoryRouter, null, React.createElement(React.Fragment, null, React.createElement(Profile), React.createElement(Help)))); });
@@ -1412,6 +1432,7 @@ test("quiz accepts custom counts, toggles multiple answers and preserves them ac
   await act(async () => countInput().props.onChange({ target: { value: "2" } }));
   await act(async () => button(app.renderer, "Generate Quiz").props.onClick());
   assert.equal(sent.questionCount, 2);
+  assert.equal(app.renderer.root.findAllByType("button").filter(node => node.children.join("") === "Previous").length, 0, "The first question has no Previous button");
   const dots = () => app.renderer.root.findAllByType("button").filter(node => String(node.props.className || "").split(" ").includes("quiz-question-dot"));
   assert.equal(dots().length, 2);
   assert.ok(JSON.stringify(app.renderer.toJSON()).includes("0/2 answered · 2 remaining"));
@@ -1430,9 +1451,11 @@ test("quiz accepts custom counts, toggles multiple answers and preserves them ac
   await act(async () => button(app.renderer, "Submit").props.onClick());
   assert.equal(app.data.quizAttempts.length, 0);
   await act(async () => button(app.renderer, "Next").props.onClick());
+  assert.ok(button(app.renderer, "Previous"), "Later questions can return to the previous question");
   assert.equal(app.renderer.root.findAllByType("button").filter(node => node.children.join("") === "Next").length, 0, "The final question has no Next button");
   assert.ok(JSON.stringify(app.renderer.toJSON()).includes("1/2 answered · 1 remaining"));
   await act(async () => dots()[0].props.onClick());
+  assert.equal(app.renderer.root.findAllByType("button").filter(node => node.children.join("") === "Previous").length, 0, "Jumping to the first question hides Previous again");
   assert.equal(checks()[0].props.checked, true, "Jumping back preserves the answer");
   assert.equal(dots()[0].props["aria-current"], "step");
   assert.match(dots()[0].props.className, /answered/);
@@ -1472,6 +1495,8 @@ test("quiz type selection sends all modes, blocks one-question mixed quizzes and
     assert.equal(generate().props.disabled, false);
     await act(async () => generate().props.onClick());
     assert.equal(app.requests.filter(r => r.url === "/api/ai/quiz").at(-1).body.quizType, quizType);
+    assert.equal(app.renderer.root.findAllByType("button").filter(n => n.children.join("") === "Previous").length, 0);
+    if (quizType !== "mixed") assert.equal(app.renderer.root.findAllByType("button").filter(n => n.children.join("") === "Next").length, 0, "A one-question quiz has no direction buttons");
     assert.equal(app.renderer.root.findAllByType("input").filter(n => n.props.name === "question-1" && n.props.type === (quizType === "multiple" ? "checkbox" : "radio")).length, 4);
   }
   await act(async () => type().props.onChange({ target: { value: "single" } }));
@@ -1824,9 +1849,9 @@ test(
       },
     });
 
-    await act(async () =>
-      app.data.selectCourse("hci")
-    );
+    await act(async () => {
+      app.data.selectCourse("hci");
+    });
 
     const oldRequest =
       app.requests.find(
@@ -2177,9 +2202,9 @@ test(
       },
     });
 
-    await act(async () =>
-      app.data.selectCourse("hci")
-    );
+    await act(async () => {
+      app.data.selectCourse("hci");
+    });
 
     const request =
       app.requests.find(
@@ -2478,6 +2503,72 @@ test(
     );
   }
 );
+
+test("flashcard regeneration sends the displayed set, retains it on failure/cancel, and isolates materials and accounts", async (t) => {
+  const makeCards = (label) => Array.from({ length: 6 }, (_, index) => ({
+    id: index + 1, front: `${label} question ${index + 1}`, back: `${label} explanation ${index + 1}`, source: "[S1]",
+  }));
+  const original = makeCards("Original");
+  const fresh = makeCards("Fresh");
+  const failed = deferred();
+  const cancelled = deferred();
+  const changedSource = deferred();
+  const changedAccount = deferred();
+  let calls = 0;
+  const replies = [() => jsonReply({ cards: original }), () => failed.promise, () => jsonReply({ cards: fresh }),
+    () => cancelled.promise, () => changedSource.promise, () => changedAccount.promise];
+  const app = await harness(t, { workspace: true, ai: () => replies[calls++]() });
+  const cards = () => app.renderer.root.findAllByType("button").filter(n => String(n.props.className || "").includes("revision-flashcard"));
+  const generations = () => app.requests.filter(r => r.url === "/api/ai/flashcards");
+  const saved = () => app.server.history.filter(r => r.kind === "flashcards");
+  const previous = (set) => set.map(({ front, back }) => ({ front, back }));
+  await act(async () => button(app.renderer, "Flashcards").props.onClick());
+  await act(async () => button(app.renderer, "Generate Flashcards").props.onClick());
+  assert.deepEqual(generations()[0].body.previousCards, [], "A new user's first set needs no existing cards");
+  assert.equal(cards().length, 6);
+  assert.equal(saved().length, 1);
+  await act(async () => cards()[0].props.onClick());
+  let generation;
+  await act(async () => { generation = button(app.renderer, "Generate New Cards").props.onClick(); });
+  assert.deepEqual(generations()[1].body.previousCards, previous(original));
+  assert.equal(cards().length, 6, "Keep the current set available while a replacement is generated");
+  assert.equal(cards()[0].props["aria-pressed"], true);
+  assert.equal(button(app.renderer, "Generating…").props.disabled, true);
+  await act(async () => { failed.resolve(jsonReply({ code: "FLASHCARDS_NOT_FRESH", message: "Try different materials for new cards." }, 502)); await generation; });
+  assert.equal(cards().length, 6);
+  assert.ok(JSON.stringify(app.renderer.toJSON()).includes("Try different materials for new cards."));
+  assert.equal(saved().length, 1, "A failed replacement must not create another study record");
+  await app.show(false);
+  await app.show(true);
+  await act(async () => button(app.renderer, "Flashcards").props.onClick());
+  assert.equal(cards().length, 6, "The original set survives remounting after failure");
+  await act(async () => button(app.renderer, "Generate New Cards").props.onClick());
+  assert.deepEqual(generations()[2].body.previousCards, previous(original));
+  assert.equal(cards()[0].props["aria-pressed"], false, "Successful replacements start on the front");
+  assert.ok(JSON.stringify(app.renderer.toJSON()).includes("Fresh question 1"));
+  assert.equal(saved().length, 2);
+  await act(async () => { generation = button(app.renderer, "Generate New Cards").props.onClick(); });
+  assert.deepEqual(generations()[3].body.previousCards, previous(fresh));
+  await act(async () => button(app.renderer, "Stop generating").props.onClick());
+  assert.equal(generations()[3].options.signal.aborted, true);
+  await act(async () => { cancelled.resolve(jsonReply({ cards: makeCards("Cancelled") })); await generation; });
+  assert.ok(JSON.stringify(app.renderer.toJSON()).includes("Fresh question 1"));
+  assert.equal(saved().length, 2);
+  const originalSelection = [...app.data.selectedMaterialIds];
+  await act(async () => { generation = button(app.renderer, "Generate New Cards").props.onClick(); });
+  await act(async () => app.data.setSelectedMaterialIds([2]));
+  await act(async () => { changedSource.resolve(jsonReply({ cards: makeCards("Wrong source") })); await generation; });
+  assert.equal(cards().length, 0);
+  assert.equal(saved().length, 2, "A response from a previous source selection is discarded");
+  await act(async () => app.data.setSelectedMaterialIds(originalSelection));
+  assert.equal(cards().length, 6);
+  await act(async () => { generation = button(app.renderer, "Generate New Cards").props.onClick(); });
+  await act(async () => { await app.data.logout(); await app.data.login(mia.email, "test-password"); });
+  await act(async () => { changedAccount.resolve(jsonReply({ cards: makeCards("Wrong account") })); await generation; });
+  assert.equal(cards().length, 0);
+  assert.equal(saved().length, 2);
+  assert.equal(app.server.history.filter(r => r.owner_id === mia.id).length, 0);
+});
 
 test(
   "workspace blocks Summary, Q&A, and Quiz when no material is selected",

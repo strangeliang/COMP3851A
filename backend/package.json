@@ -7,7 +7,7 @@
   "scripts": {
     "start": "node src/server.js",
     "dev": "node --watch src/server.js",
-    "test": "node --test test/ai.test.cjs test/http.test.cjs test/database.test.cjs test/originals.test.cjs test/google.test.cjs test/tickets.test.cjs test/email.test.cjs test/backup.test.cjs test/registration.test.cjs test/history-delete.test.cjs test/regressions.test.cjs test/completion.test.cjs test/support-notifications.test.cjs"
+    "test": "node --test test/ai.test.cjs test/http.test.cjs test/database.test.cjs test/originals.test.cjs test/google.test.cjs test/tickets.test.cjs test/email.test.cjs test/backup.test.cjs test/registration.test.cjs test/history-delete.test.cjs test/regressions.test.cjs test/completion.test.cjs test/support-notifications.test.cjs test/flashcard-refresh.test.cjs test/history-sources.test.cjs test/material-reading-notes.test.cjs test/course-edit.test.cjs test/api-boundaries.test.cjs"
   },
   "dependencies": {
     "bcryptjs": "^3.0.3",
@@ -15,7 +15,7 @@
     "dotenv": "^17.4.2",
     "express": "^5.2.1",
     "google-auth-library": "^11.0.2",
-    "nodemailer": "10.0.15",
+    "nodemailer": "10.1.4",
     "sqlite3": "^6.0.1"
   },
   "engines": {

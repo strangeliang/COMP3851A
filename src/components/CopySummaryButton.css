@@ -1,0 +1,5 @@
+.summary-copy-actions { display: flex; align-items: center; flex-wrap: wrap; gap: 12px; margin-bottom: 16px; }
+.summary-copy-actions button { display: inline-flex; align-items: center; gap: 7px; padding: 9px 12px; border: 1px solid #ddd2ef; border-radius: 9px; background: #fbf9ff; color: #6338ad; font: inherit; font-size: 13px; cursor: pointer; }
+.summary-copy-actions button:disabled { opacity: .6; cursor: wait; }
+.summary-copy-actions span { color: #376e59; font-size: 13px; }
+.summary-copy-actions .summary-copy-error { color: #a32b40; }

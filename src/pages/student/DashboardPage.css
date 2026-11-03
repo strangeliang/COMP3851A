@@ -1,0 +1,66 @@
+.dashboard-page .dashboard-stat-button {
+  width: 100%;
+  font: inherit;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.dashboard-stat-button:hover { border-color: #c2a7ee; box-shadow: 0 6px 20px #6f32ff0b; }
+.dashboard-stat-button:focus-visible,
+.dashboard-course-select:focus-visible { outline: 3px solid #b094ef; outline-offset: 3px; }
+.dashboard-stat-button .dashboard-stat-content { min-width: 0; }
+.dashboard-stat-button .stat-icon svg { display: block; }
+.dashboard-data-status { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin: -12px 0 22px; color: #7a7285; font-size: 12px; }
+.dashboard-data-status button { display: inline-flex; align-items: center; gap: 6px; flex-shrink: 0; padding: 7px 10px; border: 1px solid #e4dbef; border-radius: 8px; background: #fff; color: #654a87; font: inherit; cursor: pointer; }
+.dashboard-data-status button:disabled { opacity: .55; cursor: default; }
+.dashboard-start-guide { margin-top: 20px; padding: 22px; }
+.dashboard-start-guide h2 { margin: 0 0 18px; font-size: 18px; color: #463358; }
+.dashboard-start-guide ol { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 18px; margin: 0; padding: 0; list-style: none; }
+.dashboard-start-guide li { display: flex; gap: 11px; padding: 14px; border: 1px solid #ece6f4; border-radius: 12px; background: #fcfbfe; }
+.dashboard-start-guide .is-current { border-color: #cfbbf1; background: #f9f6ff; }
+.dashboard-start-guide li > div { min-width: 0; }
+.dashboard-step-number { display: grid; place-items: center; flex: 0 0 28px; width: 28px; height: 28px; border-radius: 50%; background: #eee7fa; color: #754ab4; font-size: 13px; font-weight: 700; }
+.dashboard-start-guide .is-complete .dashboard-step-number { color: #2c7a64; background: #e7f3ed; }
+.dashboard-start-guide strong { font-size: 14px; }
+.dashboard-start-guide p { margin: 7px 0 10px; color: #7b7286; font-size: 12px; line-height: 1.65; }
+.dashboard-start-guide a { color: #6f32d4; font-size: 12px; font-weight: 600; text-underline-offset: 3px; }
+.dashboard-start-guide li > div > span { color: #8e8795; font-size: 12px; }
+.dashboard-page .dashboard-course-row { display: flex; gap: 0; padding: 0; cursor: pointer; }
+.dashboard-page .dashboard-course-select { display: flex; align-items: center; justify-content: space-between; gap: 16px; flex: 1; min-width: 0; margin: 0; padding: 16px; border: 0; border-radius: 11px; background: transparent; color: #3e344a; text-align: left; font: inherit; cursor: pointer; }
+.dashboard-course-select .dashboard-course-text { display: grid; gap: 4px; min-width: 0; color: inherit; font-weight: 400; overflow-wrap: anywhere; }
+.dashboard-course-text > span { color: #806394; font-size: 12px; }
+.dashboard-course-select .dashboard-course-choice { flex-shrink: 0; padding: 6px 10px; border-radius: 7px; background: #f1ebfb; color: #6b3ba4; font-size: 12px; }
+.dashboard-page .dashboard-course-delete { display: grid; place-items: center; flex: 0 0 38px; min-width: 38px; width: 38px; height: 38px; margin: 12px 14px 12px 0; border: 1px solid #f0d5dc; border-radius: 9px; background: #fff9fa; }
+.dashboard-page .dashboard-course-row.is-busy, .dashboard-page .dashboard-course-select:disabled { cursor: default; }
+.dashboard-course-select:disabled, .dashboard-course-delete:disabled { opacity: .6; }
+.dashboard-page .dashboard-course-edit { display: inline-flex; align-items: center; gap: 6px; align-self: center; flex-shrink: 0; margin-right: 10px; padding: 9px 10px; border: 1px solid #ded2ee; border-radius: 9px; background: #faf7ff; color: #6b3ba4; font: inherit; font-size: 12px; cursor: pointer; }
+.dashboard-course-edit:disabled { opacity: .6; cursor: default; }
+.dashboard-course-edit:focus-visible { outline: 3px solid #b094ef; outline-offset: 3px; }
+.dashboard-course-editor fieldset { display: grid; gap: 18px; margin: 0; padding: 0; border: 0; }
+.dashboard-course-editor label { display: grid; gap: 8px; font-size: 14px; font-weight: 600; }
+.dashboard-course-editor input { min-width: 0; width: 100%; padding: 11px 12px; border: 1px solid #ded2ee; border-radius: 9px; background: #fff; color: #3e344a; font: inherit; }
+.dashboard-course-editor input:focus-visible { outline: 3px solid #d4c3ef; outline-offset: 2px; }
+.dashboard-course-editor-actions { display: flex; justify-content: flex-end; flex-wrap: wrap; gap: 10px; }
+.dashboard-course-editor-actions button { padding: 10px 14px; border: 1px solid #ded2ee; border-radius: 9px; font: inherit; cursor: pointer; }
+.dashboard-course-editor fieldset:disabled { opacity: .65; }
+@media (max-width: 480px) { .dashboard-page .dashboard-course-row { flex-wrap: wrap; }.dashboard-page .dashboard-course-select { flex-basis: 100%; }.dashboard-page .dashboard-course-edit { margin-left: 13px; }.dashboard-page .dashboard-course-delete { margin-left: auto; } }
+.dashboard-preview { color: #40364b; }
+.dashboard-preview-list { display: grid; gap: 10px; margin: 0 0 18px; padding: 0; list-style: none; }
+.dashboard-preview-list li { display: flex; align-items: center; gap: 12px; padding: 15px; border: 1px solid #eae3f1; border-radius: 11px; background: #fcfaff; }
+.dashboard-preview-list li > svg { flex-shrink: 0; color: #8761b5; }
+.dashboard-preview-list li > div { display: grid; flex: 1; gap: 5px; min-width: 0; }
+.dashboard-preview-list strong { font-size: 14px; overflow-wrap: anywhere; }
+.dashboard-preview-list span, .dashboard-preview-list small { color: #81748e; font-size: 12px; }
+.dashboard-preview-list button { padding: 8px 12px; border: 1px solid #d4c2eb; border-radius: 8px; background: #fff; color: #6f448d; font: inherit; font-size: 12px; cursor: pointer; }
+.dashboard-preview-score { flex-shrink: 0; color: #487e6a; padding: 7px 10px; background: #eaf5f0; border-radius: 8px; }
+.dashboard-preview-note { margin: 0 0 16px; color: #74667f; line-height: 1.65; }
+.dashboard-preview-empty { padding: 22px; border: 1px dashed #dcd1eb; border-radius: 12px; background: #fbf9fe; line-height: 1.7; }
+.dashboard-preview a { color: #6f32d4; text-underline-offset: 3px; }
+@media (max-width: 800px) { .dashboard-start-guide ol { grid-template-columns: 1fr; } }
+@media (max-width: 600px) {
+  .dashboard-start-guide { padding: 16px; }
+  .dashboard-data-status { align-items: flex-start; font-size: 11px; }
+  .dashboard-page .dashboard-course-select { padding: 13px; gap: 8px; }
+  .dashboard-course-select .dashboard-course-choice { padding: 5px 7px; }
+  .dashboard-preview-list li { flex-wrap: wrap; padding: 12px; }
+}

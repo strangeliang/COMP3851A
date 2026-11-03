@@ -1,4 +1,4 @@
-import { useRef } from "react";
+import { useEffect, useRef } from "react";
 import "@chatscope/chat-ui-kit-styles/dist/default/styles.min.css";
 import { ChatContainer, MainContainer, Message, MessageInput, MessageList, TypingIndicator } from "@chatscope/chat-ui-kit-react";
 import { CheckCircle2, FileText, Sparkles, UploadCloud } from "lucide-react";
@@ -9,20 +9,40 @@ import useWorkspaceState from "../hooks/useWorkspaceState";
 import useStudyPreferences from "../hooks/useStudyPreferences";
 import { courseLabel } from "../utils/courseDisplay";
 import { limits, recentHistory, selectionError } from "../utils/studyScope";
+import { useLanguage } from "../state/LanguageContext";
+import { answerSources } from "../utils/answerSources";
+import "./AIChatSources.css";
 
-export default function AIChatBox({ selectedMaterials = [], currentCourse = null }) {
+export default function AIChatBox({ selectedMaterials = [], currentCourse = null, onPreviewSource }) {
   const { addChatRecord, recordQAUse, currentChatRecords, scope, aiStatus, notify } = useAppData();
+  const { language } = useLanguage();
+  const t = (en, zh) => language === "zh" ? zh : en;
   const request = useAIRequest(scope.scopeKey);
   const sendLock = useRef(null);
   const [preferences] = useStudyPreferences();
   const [answerStyle, setAnswerStyle] = useWorkspaceState(`qa-style:${scope.scopeKey}`, preferences.answerStyle);
+  const [sourceManifests, setSourceManifests] = useWorkspaceState(`qa-answer-sources:${scope.scopeKey}`, {});
   const isTyping = request.pending;
   const materialNames = selectedMaterials.map((material) => material.name).join(", ");
   const inputError = selectionError(selectedMaterials);
+  const inputDisabled = Boolean(inputError) || !aiStatus.configured || isTyping;
+  const chatRoot = useRef(null);
+  const inputLabel = t("Ask a question about your selected material", "向所选资料提问");
+  const sendLabel = t("Send question", "发送问题");
+  useEffect(() => {
+    // Chat kit forwards aria props only to its wrapper, not the editable field.
+    const editor = chatRoot.current?.querySelector('.cs-message-input__content-editor');
+    editor?.setAttribute('role', 'textbox');
+    editor?.setAttribute('aria-label', inputLabel);
+    editor?.setAttribute('aria-multiline', 'true');
+    editor?.setAttribute('aria-disabled', String(inputDisabled));
+    chatRoot.current?.querySelector('.cs-button--send')?.setAttribute('aria-label', sendLabel);
+  }, [inputLabel, sendLabel, inputDisabled]);
   const answerMode = currentChatRecords.some((record) => record.role === "AI" && record.mode === "api") ? "api" : "";
   const messages = currentChatRecords.length ? currentChatRecords.map((record) => ({
     id: record.id, message: record.mode !== "api" && record.role === "AI" ? `[Earlier saved answer; source not verified] ${record.text}` : record.text,
     sender: record.role === "User" ? "Student" : "AI", direction: record.role === "User" ? "outgoing" : "incoming", type: "text",
+    sources: answerSources(record, sourceManifests[record.id], scope, selectedMaterials),
   })) : [{ id: "welcome", type: "text", sender: "AI", direction: "incoming",
     message: selectedMaterials.length ? `Selected materials: ${materialNames}. Ask a question about these sources.` : "Select at least one course material first." }];
 
@@ -34,17 +54,22 @@ export default function AIChatBox({ selectedMaterials = [], currentCourse = null
     const token = { scopeKey: scope.scopeKey };
     sendLock.current = token;
     const capturedScope = scope;
+    const sourceIds = selectedMaterials.map(material => material.id);
     const history = recentHistory(currentChatRecords);
     const savedQuestion = addChatRecord("User", question, { scope: capturedScope, mode: "api" });
     recordQAUse(capturedScope);
     try {
       const result = await request.run((signal) => generateAIAnswer({ materials: selectedMaterials, question, history, answerStyle, signal }));
-      if (result) addChatRecord("AI", result.answer, { scope: capturedScope, mode: "api", conversationId: savedQuestion?.conversationId, replyTo: savedQuestion?.id });
+      if (result) {
+        const savedAnswer = addChatRecord("AI", result.answer, { scope: capturedScope, mode: "api", conversationId: savedQuestion?.conversationId, replyTo: savedQuestion?.id });
+        if (savedAnswer?.id) setSourceManifests(current => ({ ...current,
+          [savedAnswer.id]: { scopeKey: capturedScope.scopeKey, materialIds: sourceIds } }));
+      }
     } finally { if (sendLock.current === token) sendLock.current = null; }
   }
 
   return (
-    <div style={{ display: "flex", flexDirection: "column", gap: "24px", height: "100%" }}>
+    <div ref={chatRoot} style={{ display: "flex", flexDirection: "column", gap: "24px", height: "100%" }}>
       <style>{`
         .cs-message__content {
           border-radius: 20px !important;
@@ -198,14 +223,22 @@ export default function AIChatBox({ selectedMaterials = [], currentCourse = null
                 style={{ backgroundColor: "#ffffff", padding: "16px" }}
               >
                 {messages.map((message, index) => (
-                  <Message key={message.id || index} model={message} type="text" />
+                  <Message key={message.id || index} model={message} type="text">
+                    {onPreviewSource && message.sources?.length > 0 && <Message.Footer>
+                      <div className="qa-answer-sources" data-react-i18n aria-label={t("Sources cited in this answer", "本回答引用的来源")}>
+                        {message.sources.map(({ label, material }) => <button key={label} type="button"
+                          title={material.name} aria-label={t(`View source ${label}: ${material.name}`, `查看来源 ${label}：${material.name}`)}
+                          onClick={() => onPreviewSource(material.id, label)}>{label}</button>)}
+                      </div>
+                    </Message.Footer>}
+                  </Message>
                 ))}
               </MessageList>
               <MessageInput
                 placeholder="Ask a question about your selected material..."
                 onSend={handleSend}
                 attachButton={false}
-                disabled={Boolean(inputError) || !aiStatus.configured || isTyping}
+                disabled={inputDisabled}
               />
             </ChatContainer>
           </MainContainer>

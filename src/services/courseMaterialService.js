@@ -21,7 +21,8 @@ export function adaptCourse(row, userId) {
 export function adaptMaterial(row, userId, expectedCourseId = "") {
   if (!row || !Number.isSafeInteger(row.id) || row.id < 1 || typeof row.course_id !== "string" || !row.course_id
     || (expectedCourseId && row.course_id !== expectedCourseId) || typeof row.name !== "string" || typeof row.type !== "string"
-    || !Number.isSafeInteger(row.size_bytes) || row.size_bytes < 0 || (row.content !== null && typeof row.content !== "string")) {
+    || !Number.isSafeInteger(row.size_bytes) || row.size_bytes < 0 || (row.content !== null && typeof row.content !== "string")
+    || (row.reading_notes !== undefined && (typeof row.reading_notes !== "string" || row.reading_notes.length > 2000))) {
     invalidResponse("material");
   }
   return {
@@ -32,9 +33,9 @@ export function adaptMaterial(row, userId, expectedCourseId = "") {
     type: row.type,
     size: row.size_bytes,
     hasOriginal: Boolean(row.has_original),
-    status: typeof row.status === "string" ? row.status : "Ready",
+    status: row.reading_notes && (!row.status || row.status === "Ready") ? "Ready with warning" : typeof row.status === "string" ? row.status : "Ready",
     content: row.content || "",
-    parseWarning: "",
+    parseWarning: row.reading_notes || "",
     incomplete: false,
     createdAt: typeof row.created_at === "string" ? row.created_at : "",
     uploadedAt: typeof row.created_at === "string" ? row.created_at : "",
@@ -67,10 +68,19 @@ export async function deleteCourse(courseId, { signal } = {}) {
   return apiRequest(`/courses/${encodeURIComponent(courseId)}`, { method: "DELETE", signal, timeoutMs: 15000 });
 }
 
+export async function updateCourse(courseId, course, userId, { signal } = {}) {
+  const result = await apiRequest(`/courses/${encodeURIComponent(courseId)}`, {
+    method: "PATCH", body: { code: course.code, name: course.name }, signal, timeoutMs: 15000,
+  });
+  const updated = adaptCourse(result?.course, userId);
+  if (updated.id !== courseId) invalidResponse("course");
+  return updated;
+}
+
 export async function createMaterial(courseId, material, userId, { signal } = {}) {
   const result = await apiRequest(`/courses/${encodeURIComponent(courseId)}/materials`, {
     method: "POST",
-    body: { name: material.name, type: material.type, sizeBytes: material.size, content: material.content },
+    body: { name: material.name, type: material.type, sizeBytes: material.size, content: material.content, readingNotes: material.parseWarning || "" },
     signal,
     timeoutMs: 95000,
   });

@@ -12,7 +12,7 @@
     "preview": "vite preview",
     "lint": "eslint .",
     "check": "npm run lint && npm test && npm run test:backend && npm run build",
-    "test": "node --test tests/components.test.mjs tests/course-material-api.test.mjs tests/parsing.test.mjs tests/storage-and-input.test.mjs tests/support-tickets.test.mjs tests/upload-dropzone.test.mjs tests/registration.test.mjs tests/qa-history.test.mjs",
+    "test": "node --test tests/components.test.mjs tests/course-material-api.test.mjs tests/parsing.test.mjs tests/storage-and-input.test.mjs tests/support-tickets.test.mjs tests/upload-dropzone.test.mjs tests/registration.test.mjs tests/qa-history.test.mjs tests/history-dialog.test.mjs tests/ai-status.test.mjs tests/workspace-preservation.test.mjs tests/date-time.test.mjs tests/history-search.test.mjs tests/dashboard.test.mjs tests/upload-material-cards.test.mjs tests/student-polish.test.mjs tests/recovery-drafts.test.mjs tests/review-progress-login.test.mjs tests/course-edit.test.mjs tests/flashcard-progress-sources.test.mjs tests/profile-session-regressions.test.mjs tests/support-auth-regressions.test.mjs tests/learning-page-races.test.mjs tests/learning-resource-races.test.mjs",
     "test:backend": "npm --prefix backend test",
     "backend": "npm --prefix backend start"
   },
@@ -31,12 +31,12 @@
     "@types/react": "^19.0.3",
     "@types/react-dom": "^19.0.2",
     "@vitejs/plugin-react": "^4.3.4",
+    "esbuild": "0.25.12",
     "eslint": "^9.17.0",
     "eslint-plugin-react-hooks": "^5.0.0",
     "eslint-plugin-react-refresh": "^0.4.16",
     "globals": "^15.14.0",
-    "vite": "^6.0.5",
     "react-test-renderer": "19.2.7",
-    "esbuild": "0.25.12"
+    "vite": "^6.4.5"
   }
 }

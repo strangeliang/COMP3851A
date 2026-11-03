@@ -1,3 +1,4 @@
+import { formatStudyDate } from "../utils/dateTime";
 import { Bell, Check, Mail, MoreHorizontal, Settings, UserRound, LogOut, X } from "lucide-react";
 import { useEffect, useId, useRef, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
@@ -16,7 +17,7 @@ export default function StudentProfilePanel({
   subtitle = "Continue your learning journey and achieve your target.",
   children,
 }) {
-  const { currentUser, logout, studentCourses = [], studentMaterials = [], quizAttempts = [], averageQuizScore = 0, pendingStudyCount = 0, historySync } = useAppData();
+  const { currentUser, logout, studentCourses = [], quizAttempts = [], averageQuizScore = 0, pendingStudyCount = 0, historySync } = useAppData();
   const { language } = useLanguage();
   const t = (en, zh) => language === "zh" ? zh : en;
   const navigate = useNavigate();
@@ -26,9 +27,11 @@ export default function StudentProfilePanel({
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [retry, setRetry] = useState(0);
+  const [materialProgress, setMaterialProgress] = useState(null);
   const root = useRef(null);
   const trigger = useRef(null);
   const menuId = useId();
+  const userId = currentUser?.id;
   useEffect(() => { setPanel(null); setTickets([]); setStudyUpdates([]); setError(""); }, [currentUser?.id]);
   useEffect(() => {
     if (!panel || typeof document === "undefined") return;
@@ -49,6 +52,19 @@ export default function StudentProfilePanel({
     });
     return () => controller.abort();
   }, [panel, retry, currentUser?.id]);
+  useEffect(() => {
+    if (panel !== "progress" || userId === undefined || userId === null) return;
+    const controller = new AbortController();
+    setMaterialProgress({ userId, count: null, error: "" });
+    apiRequest("/history", { signal: controller.signal }).then(result => {
+      if (!Array.isArray(result.sourceMaterials)) throw new Error("Could not load material statistics. Please retry.");
+      if (!controller.signal.aborted) setMaterialProgress({ userId, count: result.sourceMaterials.length, error: "" });
+    }).catch(error => {
+      if (!controller.signal.aborted) setMaterialProgress({ userId, count: null, error: error.message });
+    });
+    return () => controller.abort();
+  }, [panel, retry, userId]);
+  const progress = materialProgress?.userId === currentUser?.id ? materialProgress : null;
   function toggle(value, event) { trigger.current = event.currentTarget; setPanel(current => current === value ? null : value); }
   function close() { setPanel(null); trigger.current?.focus(); }
   function openMessages(ticketId) {
@@ -56,10 +72,8 @@ export default function StudentProfilePanel({
     window.dispatchEvent(new CustomEvent("study-open-help", { detail: { view: "history", ticketId } }));
   }
   const updateLabel = record => ({ summary: t("Summary generated", "总结已生成"), qa: t("Q&A answered", "问答已完成"), quiz: t("Quiz completed", "测验已完成"), flashcards: t("Flashcards generated", "记忆卡已生成") })[record.kind];
-  function updateTime(value) {
-    const date = new Date(/^\d{4}-\d{2}-\d{2} \d{2}:/.test(value) ? value.replace(" ", "T") + "Z" : value);
-    return Number.isNaN(date.getTime()) ? "—" : date.toLocaleString(language === "zh" ? "zh-CN" : "en-GB");
-  }
+  function updateTime(value) { return formatStudyDate(value, language); }
+
   return (
     <aside className="user-profile" ref={root} onKeyDown={event => { if (event.key === "Escape") { event.preventDefault(); close(); } }}>
       <div className="profile-title"><span>{title}</span><div className="profile-menu-anchor" data-react-i18n>
@@ -89,10 +103,12 @@ export default function StudentProfilePanel({
           {studyUpdates.map(record => <Link className="profile-update-item" key={record.id} to="/student/history" onClick={close}><strong>{updateLabel(record)}{record.kind === "quiz" ? ` · ${record.payload.score}% (${record.payload.correct}/${record.payload.total})` : record.kind === "flashcards" ? ` · ${record.payload.cards.length} ${t("cards", "张")}` : ""}</strong><small>{courseLabel(studentCourses.find(course => String(course.id) === String(record.course_id))) || t("Study History", "学习历史")}</small><time dateTime={record.created_at}>{updateTime(record.created_at)}</time></Link>)}
           {loading && <p role="status">{t("Loading support updates…", "正在加载支持会话更新…")}</p>}
           {error && <p role="alert">{error} <button type="button" onClick={() => setRetry(value => value + 1)}>{t("Retry", "重试")}</button></p>}
-          {!loading && !error && tickets.map(ticket => <button type="button" className="profile-update-item" key={ticket.id} onClick={() => openMessages(ticket.id)}><strong>{t("Support conversation", "支持会话")}</strong><small>{t("Status: ", "状态：")}{({ Open: t("Open", "待处理"), "In progress": t("In progress", "处理中"), Resolved: t("Resolved", "已解决") })[ticket.status]}</small></button>)}
+          {!loading && tickets.map(ticket => <button type="button" className="profile-update-item" key={ticket.id} onClick={() => openMessages(ticket.id)}><strong>{t("Support conversation", "支持会话")}</strong><small>{t("Status: ", "状态：")}{({ Open: t("Open", "待处理"), "In progress": t("In progress", "处理中"), Resolved: t("Resolved", "已解决") })[ticket.status]}</small></button>)}
           {!loading && !error && !tickets.length && !studyUpdates.length && !pendingStudyCount && <p>{t("No updates yet. Complete a study activity to see its notification here.", "暂无更新，完成学习活动后，对应通知才会显示在这里。")}</p>}
         </> : <>
-          <dl><div><dt>{t("Courses", "课程")}</dt><dd>{studentCourses.length}</dd></div><div><dt>{t("Materials", "学习材料")}</dt><dd>{studentMaterials.length}</dd></div><div><dt>{t("Completed quizzes", "已完成测验")}</dt><dd>{quizAttempts.length}</dd></div><div><dt>{t("Average score", "平均分数")}</dt><dd>{quizAttempts.length ? `${averageQuizScore}%` : "—"}</dd></div></dl>
+          {progress?.error && <p role="alert">{progress.error} <button type="button" onClick={() => setRetry(value => value + 1)}>{t("Retry", "重试")}</button></p>}
+          {(!progress || progress.count === null && !progress.error) && <p role="status">{t("Loading material statistics…", "正在加载资料统计…")}</p>}
+          <dl><div><dt>{t("Courses", "课程")}</dt><dd>{studentCourses.length}</dd></div><div><dt>{t("Materials", "学习材料")}</dt><dd>{progress?.count ?? "—"}</dd></div><div><dt>{t("Completed quizzes", "已完成测验")}</dt><dd>{quizAttempts.length}</dd></div><div><dt>{t("Average score", "平均分数")}</dt><dd>{quizAttempts.length ? `${averageQuizScore}%` : "—"}</dd></div></dl>
           <Link to="/student/history" onClick={close}>{t("View Study History", "查看学习历史")}</Link>
           <Link to="/student/review" onClick={close}>{t("Review wrong answers", "练习错题")}</Link>
         </>}

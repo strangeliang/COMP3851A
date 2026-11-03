@@ -1,5 +1,6 @@
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import StudentLayout from "../../layouts/StudentLayout";
+import HistoryRecordDialog from "../../components/HistoryRecordDialog";
 import { useAppData } from "../../state/AppDataContext";
 import { apiRequest } from "../../services/apiClient";
 import { useLanguage } from "../../state/LanguageContext";
@@ -7,11 +8,19 @@ import "./HistoryPage.css";
 import "./QuizPanel.css";
 import { BookOpenText, History, Layers, ListChecks, MessageCircleQuestion, RefreshCw, RotateCcw, Trash2, Upload } from "lucide-react";
 import { courseLabel } from "../../utils/courseDisplay";
+import { formatStudyDate } from "../../utils/dateTime";
+import { historyMatchesQuery } from "../../utils/historySearch";
+import { latestPractice } from "../../utils/reviewDisplay";
 import { groupQAHistory, qaMessages, historyRecordIds } from "../../utils/qaHistory";
 import { indices, correctIndices, isMultiple, isCorrect, validAnswer, toggleAnswer, answerText, createPracticeQuestions } from "../../../shared/quiz.mjs";
 
 export default function HistoryPage({ review = false }) {
-  const { studentCourses, summaryRecords, currentChatRecords, quizAttempts, refreshStudyHistory } = useAppData();
+  const { currentUser } = useAppData();
+  return <HistoryContent key={`${currentUser?.id ?? "signed-out"}:${review}`} review={review} />;
+}
+
+function HistoryContent({ review }) {
+  const { studentCourses, summaryRecords, currentChatRecords, quizAttempts, refreshStudyHistory, studentMaterials = [] } = useAppData();
   const { language } = useLanguage();
   const t = (en, zh) => language === "zh" ? zh : en;
   const kindLabel = (value) => ({ All: t("All", "全部"), summary: t("Summary", "总结"), qa: t("Q&A", "问答"), quiz: t("Quiz", "测验"), flashcards: t("Flashcards", "记忆卡") })[value] || value;
@@ -20,8 +29,10 @@ export default function HistoryPage({ review = false }) {
   const [pending, setPending] = useState(false);
   const [loaded, setLoaded] = useState(false);
   const [kind, setKind] = useState("All");
+  const [search, setSearch] = useState("");
   const [course, setCourse] = useState("All");
   const [selected, setSelected] = useState(null);
+  const [detailsOpen, setDetailsOpen] = useState(false);
   const [answers, setAnswers] = useState({});
   const [result, setResult] = useState(null);
   const [lastDeleted, setLastDeleted] = useState(null);
@@ -31,10 +42,26 @@ export default function HistoryPage({ review = false }) {
   const saving = useRef(false);
   const attemptId = useRef(null);
   const mounted = useRef(true);
-  async function load() { setPending(true); setError(""); try { setData(await apiRequest("/history")); setLoaded(true); } catch (e) { setError(e.message); } finally { setPending(false); } }
-  useEffect(() => { mounted.current = true; const controller = new AbortController(); apiRequest("/history", { signal: controller.signal }).then((value) => { setData(value); setLoaded(true); }).catch((e) => { if (!controller.signal.aborted) setError(e.message); }); return () => { mounted.current = false; controller.abort(); }; }, []);
+  const loadRequest = useRef(null);
+  const load = useCallback(async () => {
+    loadRequest.current?.abort();
+    const controller = new AbortController();
+    loadRequest.current = controller;
+    const isCurrent = () => mounted.current && loadRequest.current === controller && !controller.signal.aborted;
+    setPending(true); setError("");
+    try {
+      const value = await apiRequest("/history", { signal: controller.signal });
+      if (isCurrent()) { setData(value); setLoaded(true); }
+    } catch (err) { if (isCurrent()) setError(err.message); }
+    finally { if (isCurrent()) { loadRequest.current = null; setPending(false); } }
+  }, []);
+  useEffect(() => {
+    mounted.current = true;
+    load();
+    return () => { mounted.current = false; loadRequest.current?.abort(); };
+  }, [load]);
   const wrong = (r) => r.kind === "quiz" ? r.payload.questions.filter((q) => !isCorrect(q, r.payload.answers[q.id])) : [];
-  const records = groupQAHistory(data.records).filter((r) => (course === "All" || r.course_id === course) && (review ? r.kind === "quiz" && (practiceMode === "all" || wrong(r).length > 0) : kind === "All" || r.kind === kind));
+  const records = groupQAHistory(data.records).filter((r) => (course === "All" || r.course_id === course) && (review ? r.kind === "quiz" && (practiceMode === "all" || wrong(r).length > 0) : kind === "All" || r.kind === kind) && historyMatchesQuery(r, search, data.sourceMaterials || studentMaterials, studentCourses));
   function startPractice(record) {
     setSelected(record); setAnswers({}); setResult(null); setError(""); attemptId.current = null;
     setPracticeQuestions(previous => createPracticeQuestions(
@@ -42,6 +69,17 @@ export default function HistoryPage({ review = false }) {
       Math.random, selected?.id === record.id ? previous : [],
     ));
   }
+  function openRecord(record) {
+    if (pending) return;
+    if (!review || selected?.id !== record.id) startPractice(record);
+    setDetailsOpen(true);
+  }
+  useEffect(() => {
+    if (loaded && selected && !groupQAHistory(data.records).some(record => record.id === selected.id)) {
+      setSelected(null);
+      setDetailsOpen(false);
+    }
+  }, [loaded, data.records, selected]);
   const deletedRecords = groupQAHistory(data.deletedRecords || []);
   const kindIcon = { summary: BookOpenText, qa: MessageCircleQuestion, quiz: ListChecks, flashcards: Layers };
   async function bulkHistory(action) {
@@ -50,9 +88,10 @@ export default function HistoryPage({ review = false }) {
     saving.current = true; setPending(true); setError(""); setNotice("");
     try {
       const response = await apiRequest(`/history/${action}`, { method: "POST" });
+      if (!mounted.current) return;
       const latest = await apiRequest("/history");
       if (!mounted.current) return;
-      setData(latest); setSelected(null); setLastDeleted(null); setAnswers({}); setResult(null);
+      setData(latest); setSelected(null); setDetailsOpen(false); setLastDeleted(null); setAnswers({}); setResult(null);
       setNotice(action === "delete-all" ? t(`${response.count} study records deleted. Use Undo all to restore them.`, `已删除 ${response.count} 条学习记录，可点击全部撤销恢复。`) : t(`${response.count} study records restored.`, `已恢复 ${response.count} 条学习记录。`));
       await refreshStudyHistory?.();
     } catch (err) { if (mounted.current) setError(err.message); }
@@ -81,6 +120,7 @@ export default function HistoryPage({ review = false }) {
     saving.current = true; setPending(true); setError(""); setNotice("");
     try {
       const restored = await apiRequest(`/history/${encodeURIComponent(record.id)}/restore`, { method: "POST" });
+      if (!mounted.current) return;
       const latest = record.messageRecords ? await apiRequest('/history') : null;
       if (!mounted.current) return;
       setData(current => latest || ({ ...current,
@@ -99,12 +139,14 @@ export default function HistoryPage({ review = false }) {
     saving.current = true; setPending(true); setError("");
     try {
       for (const [type, list] of [["summary", summaryRecords], ["qa", currentChatRecords], ["quiz", quizAttempts]]) for (const item of list) {
+        if (!mounted.current) return;
         if (item.serverId || item.syncId || !studentCourses.some((c) => c.id === item.courseId)) continue;
         await apiRequest("/history", { method: "POST", body: { id: `legacy-${item.id}`, kind: type, courseId: item.courseId, payload: item } });
       }
+      if (!mounted.current) return;
       await load();
-      await refreshStudyHistory?.();
-    } catch (e) { setError(t(`Import stopped: ${e.message} Saved items remain available; retry safely.`, `导入已停止：${e.message} 已保存内容仍然保留，可以重试。`)); } finally { saving.current = false; setPending(false); }
+      if (mounted.current) await refreshStudyHistory?.();
+    } catch (e) { if (mounted.current) setError(t(`Import stopped: ${e.message} Saved items remain available; retry safely.`, `导入已停止：${e.message} 已保存内容仍然保留，可以重试。`)); } finally { saving.current = false; if (mounted.current) setPending(false); }
   }
   async function submitPractice(event) {
     event.preventDefault();
@@ -125,33 +167,19 @@ export default function HistoryPage({ review = false }) {
     } catch (err) { if (mounted.current) setError(err.message); }
     finally { saving.current = false; if (mounted.current) setPending(false); }
   }
-  return <StudentLayout><div data-react-i18n className={`study-history-page${review ? " study-review-page" : ""}`}><header className="workspace-header history-heading"><span className="history-heading-icon">{review ? <ListChecks size={25} /> : <History size={25} />}</span><div><h1>{review ? t("Review Centre", "复习中心") : t("Study History", "学习历史")}</h1><p data-react-i18n>{review ? t("Practise wrong questions or retake a complete Quiz. Your original results are kept.", "可以只练错题或重新练习整份测验，原始成绩会保留。") : t("Study records saved to your account on the server.", "学习记录保存在服务器上的个人账户中。")}</p></div></header>
-    <div className="user-card history-content">
-      <div className="history-toolbar" data-react-i18n>
-      <button type="button" disabled={pending} onClick={load}><RefreshCw size={15} />{t("Refresh records", "刷新记录")}</button>
-      {!review && <><button type="button" disabled={pending} onClick={importLocal}><Upload size={15} />{t("Import older browser records", "导入旧浏览器记录")}</button><div className="history-bulk-actions"><button type="button" className="history-bulk-delete" disabled={pending || !loaded || !data.records.length} onClick={() => bulkHistory("delete-all")}><Trash2 size={15} />{t("Delete all", "全部删除")}</button><button type="button" disabled={pending || !loaded || !deletedRecords.length} onClick={() => bulkHistory("restore-all")}><RotateCcw size={15} />{t("Undo all", "全部撤销")}</button></div></>}
-      </div>
-      {!review && <p className="history-import-hint">{t("Imports summaries, quizzes and the currently selected Q&A conversation. Select other conversations in Q&A to import them separately.", "导入旧浏览器中的总结、测验和当前问答会话。其他问答会话需分别选择后导入。")}</p>}
-      {error && <p role="alert" className="form-error">{error}</p>}{(!loaded && !error || pending) && <p role="status">{t("Loading…", "加载中…")}</p>}
-      {notice && <div className="history-undo-banner" role="status" data-react-i18n><span>{notice}</span>{deletedRecords.some(r => r.id === lastDeleted) && <button type="button" disabled={pending} onClick={() => restoreRecord(deletedRecords.find(r => r.id === lastDeleted))}>{t("Undo", "撤销")}</button>}</div>}
-      <div className="history-filters"><label className="user-field">{t("Course", "课程")}<select disabled={pending} value={course} onChange={(e) => { setCourse(e.target.value); setSelected(null); }}><option value="All">{t("All", "全部")}</option>{studentCourses.map((c) => <option key={c.id} value={c.id}>{courseLabel(c)}</option>)}</select></label>
-      {review && <label className="user-field" data-react-i18n>{t("Practice mode", "练习模式")}<select value={practiceMode} disabled={pending} aria-label={t("Practice mode", "练习模式")} onChange={event => { setPracticeMode(event.target.value); setSelected(null); setAnswers({}); setResult(null); setError(""); attemptId.current = null; }}><option value="wrong">{t("Wrong questions only", "只练错题")}</option><option value="all">{t("Retake all questions", "全部重新练习")}</option></select></label>}
-      {!review && <label className="user-field">{t("Record type", "记录类型")}<select data-react-i18n disabled={pending} value={kind} onChange={(e) => { setKind(e.target.value); setSelected(null); }}>{["All", "summary", "qa", "quiz", "flashcards"].map((k) => <option key={k} value={k}>{kindLabel(k)}</option>)}</select></label>}
-      </div>
-      {loaded && <p className="history-record-count" data-react-i18n>{t(`${records.length} ${review ? "quizzes available for practice" : "study records shown"}`, `${records.length} ${review ? "份测验可供练习" : "条学习记录"}`)}</p>}
-      {loaded && !records.length && <p>{review ? practiceMode === "all" ? t("No saved quizzes for this filter.", "当前筛选条件下没有测验记录。") : t("No saved wrong questions for this filter.", "当前筛选条件下没有错题记录。") : t("No saved records for this filter yet.", "当前筛选条件下暂无学习记录。")}</p>}
-      {records.map((r) => { const Icon = kindIcon[r.kind] || History; return <div key={r.id} className={`history-record-row history-kind-${r.kind}${selected?.id === r.id ? " is-selected" : ""}`}><div><button className="history-record-open" type="button" data-react-i18n aria-pressed={selected?.id === r.id} disabled={pending} onClick={() => startPractice(r)}><Icon size={17} aria-hidden="true" />{kindLabel(r.kind)} · {r.created_at} · {courseLabel(studentCourses.find((c) => c.id === r.course_id)) || t("Archived course", "已归档课程")}{r.kind === "quiz" ? ` · ${r.payload.score}% · ${wrong(r).length} ${t("wrong", "道错题")}` : ""}</button>{review && <small className="history-practice-count">{t(`${data.reviews.filter((a) => a.record_id === r.id).length} practice attempt(s)`, `已练习 ${data.reviews.filter((a) => a.record_id === r.id).length} 次`)}</small>}</div>{!review && <button type="button" className="history-delete-button" data-react-i18n disabled={pending} aria-label={`${t("Delete", "删除")} ${kindLabel(r.kind)} · ${r.created_at}`} onClick={() => deleteRecord(r)}><Trash2 size={14} aria-hidden="true" />{t("Delete", "删除")}</button>}</div>; })}
-      {!review && deletedRecords.length > 0 && <details className="history-deleted-records" data-react-i18n><summary>{t("Deleted records", "已删除的记录")} ({deletedRecords.length})</summary><p>{t("Undo restores the record and its saved practice attempts. Records cannot be restored after their course or source material is deleted.", "撤销会恢复原记录及关联练习。课程或来源材料被删除后，对应记录无法恢复。")}</p>{deletedRecords.map(r => <div className="history-record-row" key={r.id}><span>{kindLabel(r.kind)} · {r.created_at}</span><button type="button" disabled={pending} aria-label={`${t("Undo deletion of", "撤销删除")} ${kindLabel(r.kind)} · ${r.created_at}`} onClick={() => restoreRecord(r)}>{t("Undo", "撤销")}</button></div>)}</details>}
-      {selected && <section className="history-details"><h2>{review ? practiceMode === "all" ? t("Retake Quiz", "重新练习全部题目") : t("Wrong question practice", "错题练习") : t("Record details", "记录详情")}</h2>
+  const detailsTitle = review
+    ? practiceMode === "all" ? t("Retake Quiz", "重新练习全部题目") : t("Wrong question practice", "错题练习")
+    : t("Record details", "记录详情");
+  const detailsContent = selected && <>
         {selected.kind === "quiz" ? <form onSubmit={submitPractice}>
           {(review ? practiceQuestions : selected.payload.questions).map((q) => <article key={q.id} className={(!review || result) ? `quiz-result-card ${isCorrect(q, (result?.answers || selected.payload.answers)[q.id]) ? "quiz-result-correct" : "quiz-result-incorrect"}` : undefined} style={{ marginBottom: 20 }}><h3>{selected.payload.questions.findIndex(original => original.id === q.id) + 1}. {q.question}</h3>
             <p>{isMultiple(q) ? t("Multiple answers — select all that apply", "多选题——请选择所有正确选项") : t("Single answer — select one option", "单选题——请选择一个选项")}</p>
             {(!review || result) && <p className="quiz-result-status"><strong>{isCorrect(q, (result?.answers || selected.payload.answers)[q.id]) ? t("Correct", "正确") : t("Incorrect", "错误")}</strong></p>}
             {review && <p>{t("Original answer:", "原始答案：")} {answerText(q, selected.payload.answers[q.id])}</p>}
-            {review && !result ? q.optionOrder.map(i => <label key={i} style={{ display: "block", padding: 6 }}><input disabled={pending} required={!isMultiple(q)} type={isMultiple(q) ? "checkbox" : "radio"} name={String(q.id)} checked={indices(answers[q.id]).includes(i)} onChange={() => { attemptId.current = null; setAnswers((current) => ({ ...current, [q.id]: toggleAnswer(q, current[q.id], i) })); }} /> {q.options[i]}</label>) : <><p>{t("Your answer:", "你的答案：")} {answerText(q, (result?.answers || selected.payload.answers)[q.id])}</p><p>{t("Correct answer:", "正确答案：")} {answerText(q, correctIndices(q))}</p><p>{q.explanation}</p></>}
+            {review && !result ? q.optionOrder.map(i => <label key={i} className="history-practice-option"><input disabled={pending} required={!isMultiple(q)} type={isMultiple(q) ? "checkbox" : "radio"} name={String(q.id)} checked={indices(answers[q.id]).includes(i)} onChange={() => { attemptId.current = null; setAnswers((current) => ({ ...current, [q.id]: toggleAnswer(q, current[q.id], i) })); }} /> {q.options[i]}</label>) : <><p>{t("Your answer:", "你的答案：")} {answerText(q, (result?.answers || selected.payload.answers)[q.id])}</p><p>{t("Correct answer:", "正确答案：")} {answerText(q, correctIndices(q))}</p><p>{q.explanation}</p></>}
           </article>)}
           {review && !result && <button className="primary-button" disabled={pending}>{t("Submit practice", "提交练习")}</button>}{result && <><p role="status">{t(`Saved: ${result.correct}/${result.total} correct (${result.score}%).`, `已保存：答对 ${result.correct}/${result.total} 题（${result.score}%）。`)}</p><button type="button" disabled={pending} onClick={() => startPractice(selected)}>{t("Practise again", "再次练习")}</button></>}
-          {data.reviews.filter((a) => a.record_id === selected.id).map((a) => <details key={a.id}><summary>{t("Practice", "练习")} · {a.created_at} · {a.payload.correct}/{a.payload.total} {t("correct", "题正确")}</summary>
+          {data.reviews.filter((a) => a.record_id === selected.id).map((a) => <details key={a.id}><summary>{t("Practice", "练习")} · {formatStudyDate(a.created_at, language)} · {a.payload.correct}/{a.payload.total} {t("correct", "题正确")}</summary>
             {(a.payload.mode === "all" ? selected.payload.questions : wrong(selected)).map((q) => <div key={q.id}><h4>{selected.payload.questions.indexOf(q) + 1}. {q.question}</h4>
               <p>{isCorrect(q, a.payload.answers[q.id]) ? t('Correct', '正确') : t('Incorrect', '错误')} · {t("Your answer:", "你的答案：")} {answerText(q, a.payload.answers[q.id])}</p>
               <p>{t("Correct answer:", "正确答案：")} {answerText(q, correctIndices(q))}</p></div>)}
@@ -161,6 +189,40 @@ export default function HistoryPage({ review = false }) {
           {qaMessages(selected).map(message => <article className="history-qa-message" key={message.id}><strong data-react-i18n>{message.payload.role === 'User' ? t('You', '你') : t('AI answer', 'AI 回答')}</strong><p>{message.payload.text}</p></article>)}
           {selected.messageRecords && qaMessages(selected).at(-1)?.payload.role === 'User' && <p role="status" data-react-i18n>{t('No AI reply is saved for the last question yet. The question remains saved; this is not a successful AI answer.', '最后一个问题暂时没有已保存的 AI 回答。问题仍已保留，这不代表 AI 已成功回答。')}</p>}
         </> : selected.kind === "summary" ? <><p>{selected.payload.summary?.paragraph}</p><ul>{selected.payload.summary?.concepts?.map((c, i) => <li key={i}>{c}</li>)}</ul></> : selected.payload.cards?.map((c, i) => <details key={i}><summary>{c.front}</summary><p>{c.back}</p><small>{c.source}</small></details>)}</div>}
-      </section>}
+  </>;
+  return <StudentLayout><div data-react-i18n className={`study-history-page${review ? " study-review-page" : ""}`}><header className="workspace-header history-heading"><span className="history-heading-icon">{review ? <ListChecks size={25} /> : <History size={25} />}</span><div><h1>{review ? t("Review Centre", "复习中心") : t("Study History", "学习历史")}</h1><p data-react-i18n>{review ? t("Practise wrong questions or retake a complete Quiz. Your original results are kept.", "可以只练错题或重新练习整份测验，原始成绩会保留。") : t("Study records saved to your account on the server.", "学习记录保存在服务器上的个人账户中。")}</p></div></header>
+    <div className="user-card history-content">
+      <div className="history-toolbar" data-react-i18n>
+      <button type="button" disabled={pending} onClick={load}><RefreshCw size={15} />{t("Refresh records", "刷新记录")}</button>
+      {!review && <><button type="button" disabled={pending} onClick={importLocal}><Upload size={15} />{t("Import older browser records", "导入旧浏览器记录")}</button><div className="history-bulk-actions"><button type="button" className="history-bulk-delete" disabled={pending || !loaded || !data.records.length} onClick={() => bulkHistory("delete-all")}><Trash2 size={15} />{t("Delete all", "全部删除")}</button><button type="button" disabled={pending || !loaded || !deletedRecords.length} onClick={() => bulkHistory("restore-all")}><RotateCcw size={15} />{t("Undo all", "全部撤销")}</button></div></>}
+      </div>
+      {!review && <p className="history-import-hint">{t("Imports summaries, quizzes and the currently selected Q&A conversation. Select other conversations in Q&A to import them separately.", "导入旧浏览器中的总结、测验和当前问答会话。其他问答会话需分别选择后导入。")}</p>}
+      {error && (!detailsOpen || !selected) && <p role="alert" className="form-error">{error}</p>}{(!loaded && !error || pending && (!detailsOpen || !selected)) && <p role="status">{t("Loading…", "加载中…")}</p>}
+      {notice && <div className="history-undo-banner" role="status" data-react-i18n><span>{notice}</span>{deletedRecords.some(r => r.id === lastDeleted) && <button type="button" disabled={pending} onClick={() => restoreRecord(deletedRecords.find(r => r.id === lastDeleted))}>{t("Undo", "撤销")}</button>}</div>}
+      <div className="history-search" data-react-i18n><label className="user-field" htmlFor="history-search">{t("Search records", "搜索学习记录")}</label><div><input id="history-search" type="search" value={search} disabled={pending} placeholder={t("Search questions, material names or content", "搜索问题、资料名称或内容")} onChange={event => { setSearch(event.target.value); setSelected(null); setDetailsOpen(false); }} />{search && <button type="button" disabled={pending} onClick={() => { setSearch(""); setSelected(null); setDetailsOpen(false); }}>{t("Clear search", "清除搜索")}</button>}</div></div>
+      <div className="history-filters"><label className="user-field">{t("Course", "课程")}<select disabled={pending} value={course} onChange={(e) => { setCourse(e.target.value); setSelected(null); setDetailsOpen(false); }}><option value="All">{t("All", "全部")}</option>{studentCourses.map((c) => <option key={c.id} value={c.id}>{courseLabel(c)}</option>)}</select></label>
+      {review && <label className="user-field" data-react-i18n>{t("Practice mode", "练习模式")}<select value={practiceMode} disabled={pending} aria-label={t("Practice mode", "练习模式")} onChange={event => { setPracticeMode(event.target.value); setSelected(null); setDetailsOpen(false); setAnswers({}); setResult(null); setError(""); attemptId.current = null; }}><option value="wrong">{t("Wrong questions only", "只练错题")}</option><option value="all">{t("Retake all questions", "全部重新练习")}</option></select></label>}
+      {!review && <label className="user-field">{t("Record type", "记录类型")}<select data-react-i18n disabled={pending} value={kind} onChange={(e) => { setKind(e.target.value); setSelected(null); setDetailsOpen(false); }}>{["All", "summary", "qa", "quiz", "flashcards"].map((k) => <option key={k} value={k}>{kindLabel(k)}</option>)}</select></label>}
+      </div>
+      {loaded && <p className="history-record-count" data-react-i18n>{t(`${records.length} ${review ? records.length === 1 ? "quiz available for practice" : "quizzes available for practice" : records.length === 1 ? "study record shown" : "study records shown"}`, `${records.length} ${review ? "份测验可供练习" : "条学习记录"}`)}</p>}
+      {loaded && !records.length && <p>{search.trim() ? t("No records match your search. Try another keyword or clear the search.", "没有匹配的学习记录，请尝试其他关键词或清除搜索。") : review ? practiceMode === "all" ? t("No saved quizzes for this filter.", "当前筛选条件下没有测验记录。") : t("No saved wrong questions for this filter.", "当前筛选条件下没有错题记录。") : t("No saved records for this filter yet.", "当前筛选条件下暂无学习记录。")}</p>}
+      {records.map((r) => { const Icon = kindIcon[r.kind] || History; const latest = review ? latestPractice(data.reviews, r.id) : null; return <div key={r.id} className={`history-record-row history-kind-${r.kind}${selected?.id === r.id ? " is-selected" : ""}`}><div><button className="history-record-open" type="button" data-react-i18n aria-pressed={selected?.id === r.id} disabled={pending} onClick={() => openRecord(r)}><Icon size={17} aria-hidden="true" />{kindLabel(r.kind)} · {formatStudyDate(r.created_at, language)} · {courseLabel(studentCourses.find((c) => c.id === r.course_id)) || t("Archived course", "已归档课程")}{r.kind === "quiz" ? ` · ${r.payload.score}% · ${wrong(r).length} ${t("wrong", "道错题")}` : ""}</button>{review && <><small className="history-practice-count">{t(`${data.reviews.filter((a) => a.record_id === r.id).length} practice attempt(s)`, `已练习 ${data.reviews.filter((a) => a.record_id === r.id).length} 次`)}</small>{latest && <div className="history-latest-practice" data-react-i18n><span>{latest.payload.mode === "all" ? t("Latest full retake", "最近整份重练") : t("Latest wrong-question practice", "最近错题练习")}</span><strong>{latest.payload.correct}/{latest.payload.total} {t("correct", "题正确")}{latest.payload.mode === "all" ? ` (${Math.round(latest.payload.correct / latest.payload.total * 100)}%)` : ""}</strong><time dateTime={latest.created_at}>{formatStudyDate(latest.created_at, language)}</time></div>}</>}</div>{!review && <button type="button" className="history-delete-button" data-react-i18n disabled={pending} aria-label={`${t("Delete", "删除")} ${kindLabel(r.kind)} · ${formatStudyDate(r.created_at, language)}`} onClick={() => deleteRecord(r)}><Trash2 size={14} aria-hidden="true" />{t("Delete", "删除")}</button>}</div>; })}
+      {!review && deletedRecords.length > 0 && <details className="history-deleted-records" data-react-i18n><summary>{t("Deleted records", "已删除的记录")} ({deletedRecords.length})</summary><p>{t("Undo restores the record and its saved practice attempts. Records cannot be restored after their course or source material is deleted.", "撤销会恢复原记录及关联练习。课程或来源材料被删除后，对应记录无法恢复。")}</p>{deletedRecords.map(r => <div className="history-record-row" key={r.id}><span>{kindLabel(r.kind)} · {formatStudyDate(r.created_at, language)}</span><button type="button" disabled={pending} aria-label={`${t("Undo deletion of", "撤销删除")} ${kindLabel(r.kind)} · ${formatStudyDate(r.created_at, language)}`} onClick={() => restoreRecord(r)}>{t("Undo", "撤销")}</button></div>)}</details>}
+      {selected && (detailsOpen ? <HistoryRecordDialog
+        title={detailsTitle}
+        closeLabel={t("Close", "关闭")}
+        onClose={() => setDetailsOpen(false)}
+      >
+        <p className="history-dialog-record-meta">{kindLabel(selected.kind)} · {formatStudyDate(selected.created_at, language)} · {courseLabel(studentCourses.find(item => item.id === selected.course_id)) || t("Archived course", "已归档课程")}</p>
+        {error && <p role="alert" className="form-error">{error}</p>}
+        {pending && <p role="status">{t("Saving practice…", "正在保存练习…")}</p>}
+        <section className="history-details history-dialog-details" aria-busy={pending}>{detailsContent}</section>
+        <div className="history-dialog-actions"><button type="button" className="primary-button" onClick={() => setDetailsOpen(false)}>{review ? t("Close practice", "关闭练习") : t("Continue below", "在下方继续")}</button></div>
+      </HistoryRecordDialog> : review ? <section className="history-practice-prompt" aria-label={t("Selected practice", "已选择的练习")}>
+        <p>{result
+          ? t("Your practice has been saved. Open it to view your answers or practise again.", "本次练习已保存。展开后可查看答案或再次练习。")
+          : t("Open the practice dialog to continue. Your current answers are kept for this quiz.", "展开练习弹窗即可继续，当前测验中已选择的答案会保留。")}</p>
+        <button type="button" className="primary-button" aria-haspopup="dialog" disabled={pending} onClick={() => openRecord(selected)}>{t("Open practice", "展开练习")}</button>
+      </section> : <section className="history-details"><h2>{detailsTitle}</h2>{detailsContent}</section>)}
     </div></div></StudentLayout>;
 }

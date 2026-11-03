@@ -1,4 +1,4 @@
-import { Navigate, Route, Routes, useLocation } from "react-router-dom";
+import { Navigate, Route, Routes, useLocation, useNavigate } from "react-router-dom";
 import "./PageMotion.css";
 import LoginPage from "./pages/LoginPage";
 import RegisterPage from "./pages/RegisterPage";
@@ -15,10 +15,19 @@ import AdminSupportPage from "./pages/admin/AdminSupportPage";
 import ProtectedRoute from "./components/ProtectedRoute";
 import StudyWorkspacePage from "./pages/student/StudyWorkspacePage";
 import SupportPage from "./pages/student/SupportPage";
+import NotFoundPage from "./pages/NotFoundPage";
+import ErrorBoundary from "./components/ErrorBoundary";
+import { useAppData } from "./state/AppDataContext";
+import { useLanguage } from "./state/LanguageContext";
 
 export default function App() {
   const location = useLocation();
-  return (<div className="app-page-transition" key={location.pathname}>
+  const navigate = useNavigate();
+  const { currentUser } = useAppData();
+  const { language } = useLanguage();
+  const home = currentUser?.role === 'Admin' ? '/admin/support' : currentUser?.role === 'Student' ? '/student/dashboard' : '/';
+  return (<ErrorBoundary language={language} homeHref={home} onHome={() => navigate(home)} resetKey={location.pathname}>
+    <div className="app-page-transition" key={location.pathname}>
     <Routes>
       <Route path="/student/support/:ticketId" element={<ProtectedRoute role="Student"><SupportPage /></ProtectedRoute>} />
       <Route path="/admin/support" element={<ProtectedRoute role="Admin"><AdminSupportPage /></ProtectedRoute>} />
@@ -77,14 +86,15 @@ export default function App() {
         }
       />
 
-      <Route path="/admin/*" element={<ProtectedRoute role="Admin"><Navigate to="/admin/support" replace /></ProtectedRoute>} />
+      <Route path="/admin" element={<ProtectedRoute role="Admin"><Navigate to="/admin/support" replace /></ProtectedRoute>} />
+      <Route path="/admin/*" element={<ProtectedRoute role="Admin"><NotFoundPage /></ProtectedRoute>} />
 
       <Route path="/dashboard.html" element={<Navigate to="/student/dashboard" replace />} />
       <Route path="/upload.html" element={<Navigate to="/student/upload" replace />} />
       <Route path="/summary.html" element={<Navigate to="/student/summary" replace />} />
       <Route path="/qa.html" element={<Navigate to="/student/qa" replace />} />
 
-      <Route path="*" element={<Navigate to="/" replace />} />
+      <Route path="*" element={<NotFoundPage />} />
     </Routes>
-  </div>);
+  </div></ErrorBoundary>);
 }

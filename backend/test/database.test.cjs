@@ -57,7 +57,7 @@ test("a fresh SQLite database initializes twice safely and stores usable passwor
     ));
     assert.deepEqual(await tableColumns("users"), ["id", "name", "email", "password_hash", "role", "status", "created_at", "updated_at"]);
     assert.deepEqual(await tableColumns("courses"), ["id", "owner_id", "code", "name", "created_at", "updated_at"]);
-    assert.deepEqual(await tableColumns("materials"), ["id", "course_id", "owner_id", "name", "type", "size_bytes", "status", "content", "created_at", "updated_at"]);
+    assert.deepEqual(await tableColumns("materials"), ["id", "course_id", "owner_id", "name", "type", "size_bytes", "status", "content", "reading_notes", "created_at", "updated_at"]);
 
     await database.createCourse({ id: "user-2-course", ownerId: 2, code: "U2", name: "User 2 Course" });
     const material = await database.createMaterialForOwner({

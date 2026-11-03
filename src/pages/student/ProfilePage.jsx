@@ -1,10 +1,16 @@
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import StudentLayout from "../../layouts/StudentLayout";
 import { useAppData } from "../../state/AppDataContext";
 import { useLanguage } from "../../state/LanguageContext";
 import "./ProfilePage.css";
+import { workspaceSessionId } from "../../services/workspaceSession";
 
 export default function ProfilePage() {
+  const { currentUser } = useAppData();
+  return currentUser ? <ProfileEditor key={`${currentUser.id}:${workspaceSessionId()}`} /> : null;
+}
+
+function ProfileEditor() {
   const { currentUser, saveProfile } = useAppData();
   const { language } = useLanguage();
   const t = (en, zh) => language === "zh" ? zh : en;
@@ -15,6 +21,9 @@ export default function ProfilePage() {
   const [error, setError] = useState("");
   const [avatarFileName, setAvatarFileName] = useState("");
   const imageVersion = useRef(0);
+  const mounted = useRef(false);
+  const saveLock = useRef(false);
+  useEffect(() => { mounted.current = true; return () => { mounted.current = false; }; }, []);
   const fileInput = useRef(null);
   function field(key, value) { setForm((old) => ({ ...old, [key]: value })); setMessage(""); }
   async function upload(event) {
@@ -23,24 +32,27 @@ export default function ProfilePage() {
     const version = ++imageVersion.current;
     setError(""); setImagePending(true);
     try {
-      if (!["image/png", "image/jpeg", "image/webp"].includes(file.type) || file.size > 5 * 1024 * 1024) throw new Error("Choose a PNG, JPG or WEBP image up to 5 MB.");
-      const bitmap = await createImageBitmap(file);
-      const canvas = document.createElement("canvas");
-      canvas.width = 256; canvas.height = 256;
-      const side = Math.min(bitmap.width, bitmap.height);
-      canvas.getContext("2d").drawImage(bitmap, (bitmap.width-side)/2, (bitmap.height-side)/2, side, side, 0, 0, 256, 256);
-      bitmap.close();
-      const avatar = canvas.toDataURL("image/png");
-      if (avatar.length > 350000) throw new Error("Image is too complex. Please choose a simpler image.");
-      if (version === imageVersion.current) { field("avatar", avatar); setAvatarFileName(file.name); }
-    } catch (err) { if (version === imageVersion.current) setError(err.message || "Could not read this image."); }
-    finally { if (version === imageVersion.current) setImagePending(false); event.target.value = ""; }
+      if (!["image/png", "image/jpeg", "image/webp"].includes(file.type) || file.size > 5 * 1024 * 1024) throw new Error(t("Choose a PNG, JPG or WEBP image up to 5 MB.", "请选择 PNG、JPG 或 WEBP 图片，大小不超过 5 MB。"));
+      const bitmap = await createImageBitmap(file).catch(() => { throw new Error(t("Could not read this image. Try another PNG, JPG or WEBP file.", "无法读取这张图片，请尝试其他 PNG、JPG 或 WEBP 文件。")); });
+      try {
+        if (!mounted.current || version !== imageVersion.current) return;
+        const canvas = document.createElement("canvas");
+        canvas.width = 256; canvas.height = 256;
+        const side = Math.min(bitmap.width, bitmap.height);
+        canvas.getContext("2d").drawImage(bitmap, (bitmap.width-side)/2, (bitmap.height-side)/2, side, side, 0, 0, 256, 256);
+        const avatar = canvas.toDataURL("image/png");
+        if (avatar.length > 350000) throw new Error(t("Image is too complex. Please choose a simpler image.", "图片过于复杂，请选择内容更简单的图片。"));
+        if (version === imageVersion.current) { field("avatar", avatar); setAvatarFileName(file.name); }
+      } finally { bitmap.close(); }
+    } catch (err) { if (mounted.current && version === imageVersion.current) setError(err.message || t("Could not read this image.", "无法读取这张图片。")); }
+    finally { if (mounted.current && version === imageVersion.current) setImagePending(false); event.target.value = ""; }
   }
   return <StudentLayout><div className="student-profile-page" data-react-i18n><header className="workspace-header"><h1>{t("My Profile", "个人资料")}</h1><p>{t("Your personal study profile. This is not a public page.", "你的个人学习资料，仅供自己使用，不是公开页面。")}</p></header>
     <form className="user-card profile-editor" onSubmit={async (event) => {
-      event.preventDefault(); if (pending || imagePending) return;
+      event.preventDefault(); if (saveLock.current || pending || imagePending) return;
+      saveLock.current = true;
       setPending(true); setError(""); setMessage("");
-      try { await saveProfile(form); setMessage(t("Profile saved.", "个人资料已保存。")); } catch (err) { setError(err.message); } finally { setPending(false); }
+      try { await saveProfile(form); if (mounted.current) setMessage(t("Profile saved.", "个人资料已保存。")); } catch (err) { if (mounted.current) setError(err.message); } finally { saveLock.current = false; if (mounted.current) setPending(false); }
     }}>
       <fieldset disabled={pending} style={{ border: 0, padding: 0, display: "grid", gap: 18 }}>
         <div className="profile-avatar-preview">{form.avatar ? <img src={form.avatar} alt={t("Avatar preview", "头像预览")} width={96} height={96} /> : <><span className="profile-default-avatar" aria-hidden="true">{form.name.trim().split(/\s+/).map(part => part[0]).slice(0, 2).join("").toUpperCase() || "S"}</span><p>{t("Default avatar (your initials)", "默认头像（姓名首字母）")}</p></>}</div>
