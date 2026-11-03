@@ -141,3 +141,58 @@
 @media (max-width: 600px) { .support-stats { grid-template-columns: 1fr 1fr; gap: 8px; }.support-tickets .support-stat { padding: 12px; }.support-detail { padding: 16px; }.support-header h1 { font-size: 25px; }.support-status-editor { flex-direction: column; align-items: stretch; }.support-toolbar { flex-wrap: wrap; } }
 .support-load-older { display: block; width: calc(100% - 24px); margin: 12px; padding: 12px; border: 1px solid #ddd5eb; border-radius: 8px; background: #faf7ff; color: #5420d8; cursor: pointer; }
 .support-load-older:disabled { opacity: .55; cursor: not-allowed; }
+
+/* A compact queue-first layout, scoped to the staff workspace. */
+.support-service-info { flex: 1; min-width: 0; }
+.support-service-info summary, .support-advanced-filters summary { cursor: pointer; color: #756a84; font-size: 12px; }
+.support-service-info p { max-width: 800px; margin: 8px 0 !important; }
+.support-stats-label { font-size: 11px; color: #81768c; margin: 0 0 6px; }
+.support-admin .support-header { margin-bottom: 8px; }
+.support-admin .support-header h1 { font-size: 28px; margin: 0 0 6px; }
+.support-admin .support-header p { font-size: 13px; }
+.support-admin .support-secure { padding: 6px 10px; font-size: 11px; background: #f6f2fc; }
+.support-admin .support-toolbar { margin-bottom: 10px; }
+.support-admin .support-toolbar > button { font-size: 12px; padding: 6px 10px; }
+.support-admin .support-stats { gap: 8px; margin-bottom: 10px; }
+.support-admin .support-stat { display: flex; gap: 8px; align-items: center; padding: 10px 12px; border-radius: 9px; box-shadow: none; }
+.support-admin .support-stat svg { width: 16px; height: 16px; }
+.support-admin .support-stat span { font-size: 12px; }
+.support-admin .support-stat strong { margin-left: auto; font-size: 20px; }
+.support-admin .support-search-scope { font-size: 11px; margin: 0 0 12px; }
+.support-category-tabs { display: flex; flex-wrap: wrap; gap: 6px; margin: 0 0 12px; }
+.support-tickets .support-category-tabs button { font-size: 12px; padding: 7px 11px; border-radius: 7px; color: #756781; background: #fff; border-color: #ece8f3; }
+.support-tickets .support-category-tabs button[aria-pressed=true] { color: #5e28c0; background: #f1eafa; border-color: #d5c3ef; font-weight: 600; }
+.support-tickets .support-category-tabs button:focus-visible { outline: 3px solid #9464ff; outline-offset: 2px; }
+.support-admin .support-workspace { grid-template-columns: minmax(300px, .85fr) minmax(0, 1.3fr); gap: 16px; }
+.support-admin .support-list-panel, .support-admin .support-detail { border-radius: 12px; box-shadow: none; }
+.support-admin .support-filters { padding: 10px 14px 0; }
+.support-admin .support-filters label { margin: 0 0 10px; font-size: 11px; }
+.support-admin .support-search input { padding-left: 34px; }
+.support-admin .support-tickets input { min-width: 0; }
+.support-tickets .support-human-filter, .support-advanced-filters .support-filters > label:has(input[type=checkbox]) { display: flex; align-items: center; gap: 8px; }
+.support-admin .support-human-filter { margin: 0 14px 8px; font-size: 12px; color: #57426d; }
+.support-tickets input[type=checkbox] { flex: 0 0 15px; width: 15px; height: 15px; min-height: 15px; margin: 0; padding: 0; accent-color: #6f35f5; }
+.support-advanced-filters { padding: 0 14px 10px; }
+.support-advanced-filters summary { padding: 3px 0; }
+.support-advanced-filters[open] > summary { margin-bottom: 12px; }
+.support-advanced-filters .support-filters { padding: 0; }
+.support-filter-applied { margin-left: 8px; font-size: 10px; color: #7143bc; }
+.support-tickets .support-clear-filters { margin: 0 14px 10px; border: 0; padding: 3px 0; background: none; text-decoration: underline; font-size: 11px; }
+.support-admin .support-list-heading { padding: 10px 14px; background: #faf9fc; border-top: 1px solid var(--support-line); }
+.support-admin .support-list { max-height: 560px; padding: 4px 6px; }
+.support-admin .support-ticket-row { gap: 7px; padding: 13px 10px; border-radius: 8px; }
+.support-admin .support-ticket-row > strong { font-size: 14px; line-height: 1.4; color: #302439; }
+.support-admin .support-row-top { justify-content: flex-start; flex-wrap: wrap; gap: 7px; }
+.support-admin .support-row-top .support-awaiting { margin-left: auto; color: #925d12; font-size: 10px; }
+.support-admin .support-row-excerpt { white-space: normal; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; line-clamp: 2; line-height: 1.5; color: #716779; }
+.support-admin .support-ticket-row .support-id { font-size: 10px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: #9a90a2; }
+.support-admin .support-row-meta { flex-wrap: wrap; font-size: 11px; color: #786a86; }
+.support-admin .support-detail { padding: 20px; }
+.support-admin .support-detail-empty { min-height: 230px; display: flex; flex-direction: column; justify-content: center; align-items: center; padding: 40px 20px; }
+.support-admin .support-detail-heading h2 { font-size: 21px; margin: 12px 0 6px; }
+.support-admin .support-meta { padding: 12px 0; margin: 12px 0; gap: 10px; }
+.support-admin .support-status-editor { padding: 10px 12px; margin: 14px 0; background: #faf9fc; }
+.support-admin .support-chat-header { padding: 14px; background: #faf9fc; }
+.support-admin .support-chat-window { margin-top: 14px; border-radius: 10px; }
+@media (max-width: 1050px) { .support-admin .support-workspace { grid-template-columns: 1fr; }.support-admin .support-list { max-height: 370px; } }
+@media (max-width: 600px) { .support-admin .support-stat { padding: 8px; gap: 5px; }.support-admin .support-stat svg { display: none; }.support-admin .support-stats { grid-template-columns: repeat(2, 1fr); }.support-admin .support-detail { padding: 14px; }.support-admin .support-row-meta { align-items: flex-start; } }

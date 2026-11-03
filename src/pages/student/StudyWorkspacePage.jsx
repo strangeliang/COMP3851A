@@ -2,6 +2,7 @@ import AIChatBox from "../../components/AIChatBox";
 import AIServiceStatus from "../../components/AIServiceStatus";
 import MaterialSourcePreview from "../../components/MaterialSourcePreview";
 import CopySummaryButton from "../../components/CopySummaryButton";
+import LearningHistoryLink from "../../components/LearningHistoryLink";
 import { indices, correctIndices, isMultiple, validAnswer, isCorrect, toggleAnswer, answerText } from "../../../shared/quiz.mjs";
 import {
   AlertCircle,
@@ -78,6 +79,8 @@ function SummaryPanel({ canUseAI, materialSourceLabel }) {
           <h2>Generate Summary</h2>
         </div>
 
+        <div className="learning-panel-actions">
+        <LearningHistoryLink kind="summary" courseId={scope.courseId} />
         <button
           className="primary-button"
           type="button"
@@ -90,6 +93,7 @@ function SummaryPanel({ canUseAI, materialSourceLabel }) {
             ? "Regenerate"
             : "Generate Summary"}
         </button>
+        </div>
       </div>
 
       <p className="demo-warning">
@@ -1133,6 +1137,7 @@ export default function StudyWorkspacePage() {
 
               <h2>Q&A Chat</h2>
             </div>
+            <LearningHistoryLink kind="qa" courseId={currentCourseId} />
           </div>
 
           <p className="demo-warning">

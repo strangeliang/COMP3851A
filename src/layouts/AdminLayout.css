@@ -1,0 +1,35 @@
+/* Keep the working queue visible without shrinking the browser zoom. */
+.admin-shell .page-shell { padding: 16px; }
+.admin-shell .screen.admin-app-shell { max-width: 1600px; min-height: calc(100vh - 32px); padding: 0; border-radius: 16px; grid-template-columns: 208px minmax(0, 1fr); gap: 0; box-shadow: 0 12px 45px #34234e07; }
+.admin-app-shell .admin-sidebar { border: 0; border-right: 1px solid #ece8f2; border-radius: 16px 0 0 16px; padding: 24px 16px; background: #faf9fc; }
+.admin-app-shell .admin-brand { margin-bottom: 32px; gap: 9px; }
+.admin-app-shell .admin-brand-copy strong { font-size: 14px; }
+.admin-app-shell .admin-brand-copy span { font-size: 11px; }
+.admin-app-shell .admin-nav-label { font-size: 10px; }
+.admin-app-shell .admin-main-area { padding: 20px 28px 28px; }
+.admin-app-shell .admin-topbar { margin-bottom: 8px; min-height: 36px; }
+.admin-app-shell .admin-topbar-user { padding: 0; border: 0; box-shadow: none; background: none; gap: 9px; }
+.admin-app-shell .admin-topbar-label { display: none; }
+.admin-app-shell .admin-topbar-meta strong { font-size: 13px; }
+.admin-app-shell .admin-topbar-meta small { font-size: 11px; }
+.admin-app-shell .admin-topbar-avatar { width: 34px; height: 34px; font-size: 12px; box-shadow: none; }
+@media (max-width: 1180px) {
+  .admin-shell .screen.admin-app-shell { grid-template-columns: 1fr; }
+  .admin-app-shell .admin-sidebar { flex-direction: row; align-items: center; gap: 20px; padding: 12px 24px; border-right: 0; border-bottom: 1px solid #ece8f2; border-radius: 16px 16px 0 0; }
+  .admin-app-shell .admin-brand { margin: 0; }
+  .admin-app-shell .admin-nav-label, .admin-app-shell .admin-sidebar-spacer { display: none; }
+  .admin-app-shell .admin-nav { margin-left: auto; }
+  .admin-app-shell .admin-logout-button { width: auto; min-height: 38px; }
+  .admin-app-shell .admin-nav-item { min-height: 38px; }
+  .admin-app-shell .admin-topbar { justify-content: flex-end; }
+}
+@media (max-width: 650px) {
+  .admin-shell .page-shell { padding: 0; }
+  .admin-shell .screen.admin-app-shell { border: 0; border-radius: 0; min-height: 100vh; }
+  .admin-app-shell .admin-main-area { padding: 16px 14px; }
+  .admin-app-shell .admin-sidebar { padding: 12px 14px; gap: 10px; border-radius: 0; }
+  .admin-app-shell .admin-brand-copy span, .admin-app-shell .admin-nav-icon { display: none; }
+  .admin-app-shell .admin-nav-item, .admin-app-shell .admin-logout-button { padding: 0 9px; font-size: 12px; }
+  .admin-app-shell .admin-topbar-meta { text-align: right; }
+  .admin-app-shell .admin-topbar-user { width: auto; }
+}

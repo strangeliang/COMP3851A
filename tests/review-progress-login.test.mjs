@@ -117,3 +117,14 @@ test('failed login is announced and associated with both fields without changing
   assert.equal(root.findByProps({ id: 'password' }).props['aria-describedby'], 'login-error');
   assert.deepEqual(app.requests, [['learner@example.com', 'A-test-password', false]]);
 });
+
+test('simplified login removes promotional panels but keeps both login methods and recovery links', async t => {
+  const app=await loginSetup(t), root=app.renderer.root;
+  assert.equal(root.findAllByProps({className:'login-feature-grid'}).length,0);
+  assert.equal(root.findAllByProps({className:'login-preview-box'}).length,0);
+  assert.match(text(root.findByProps({className:'login-method-divider'})),/or use email/);
+  assert.ok(root.findAllByProps({to:'/reset-password'}).length);
+  assert.ok(root.findAllByProps({to:'/register'}).length);
+  assert.equal(root.findByProps({name:'email'}).props.autoComplete,'username');
+  assert.equal(root.findByProps({name:'password'}).props.autoComplete,'current-password');
+});

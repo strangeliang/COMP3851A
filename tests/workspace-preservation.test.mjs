@@ -77,6 +77,14 @@ async function setup(t, handlers = {}) {
   };
 }
 
+test('Summary and Q&A headings have course-scoped history shortcuts without generating AI content', async t => {
+  const app = await setup(t);
+  const links = app.renderer.root.findAllByType('a');
+  assert.equal(links.find(link => text(link) === 'Summary history')?.props.href, '/student/history?kind=summary&course=course');
+  assert.equal(links.find(link => text(link) === 'Q&A history')?.props.href, '/student/history?kind=qa&course=course');
+  assert.equal(app.calls.length, 0);
+});
+
 test('summary regeneration keeps the old summary through failure and cancellation and only saves successful replacements', async t => {
   const failed = deferred(), cancelled = deferred();
   let count = 0;

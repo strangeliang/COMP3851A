@@ -14,12 +14,12 @@ import { latestPractice } from "../../utils/reviewDisplay";
 import { groupQAHistory, qaMessages, historyRecordIds } from "../../utils/qaHistory";
 import { indices, correctIndices, isMultiple, isCorrect, validAnswer, toggleAnswer, answerText, createPracticeQuestions } from "../../../shared/quiz.mjs";
 
-export default function HistoryPage({ review = false }) {
+export default function HistoryPage({ review = false, initialKind = "All", initialCourse = "All" }) {
   const { currentUser } = useAppData();
-  return <HistoryContent key={`${currentUser?.id ?? "signed-out"}:${review}`} review={review} />;
+  return <HistoryContent key={`${currentUser?.id ?? "signed-out"}:${review}:${initialKind}:${initialCourse}`} review={review} initialKind={initialKind} initialCourse={initialCourse} />;
 }
 
-function HistoryContent({ review }) {
+function HistoryContent({ review, initialKind, initialCourse }) {
   const { studentCourses, summaryRecords, currentChatRecords, quizAttempts, refreshStudyHistory, studentMaterials = [] } = useAppData();
   const { language } = useLanguage();
   const t = (en, zh) => language === "zh" ? zh : en;
@@ -28,9 +28,9 @@ function HistoryContent({ review }) {
   const [error, setError] = useState("");
   const [pending, setPending] = useState(false);
   const [loaded, setLoaded] = useState(false);
-  const [kind, setKind] = useState("All");
+  const [kind, setKind] = useState(["summary", "qa", "quiz", "flashcards"].includes(initialKind) ? initialKind : "All");
   const [search, setSearch] = useState("");
-  const [course, setCourse] = useState("All");
+  const [course, setCourse] = useState(initialCourse || "All");
   const [selected, setSelected] = useState(null);
   const [detailsOpen, setDetailsOpen] = useState(false);
   const [answers, setAnswers] = useState({});
@@ -61,7 +61,7 @@ function HistoryContent({ review }) {
     return () => { mounted.current = false; loadRequest.current?.abort(); };
   }, [load]);
   const wrong = (r) => r.kind === "quiz" ? r.payload.questions.filter((q) => !isCorrect(q, r.payload.answers[q.id])) : [];
-  const records = groupQAHistory(data.records).filter((r) => (course === "All" || r.course_id === course) && (review ? r.kind === "quiz" && (practiceMode === "all" || wrong(r).length > 0) : kind === "All" || r.kind === kind) && historyMatchesQuery(r, search, data.sourceMaterials || studentMaterials, studentCourses));
+  const records = groupQAHistory(data.records).filter((r) => (course === "All" || String(r.course_id) === String(course)) && (review ? r.kind === "quiz" && (practiceMode === "all" || wrong(r).length > 0) : kind === "All" || r.kind === kind) && historyMatchesQuery(r, search, data.sourceMaterials || studentMaterials, studentCourses));
   function startPractice(record) {
     setSelected(record); setAnswers({}); setResult(null); setError(""); attemptId.current = null;
     setPracticeQuestions(previous => createPracticeQuestions(

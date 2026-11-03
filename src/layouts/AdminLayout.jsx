@@ -1,6 +1,7 @@
 import AdminSidebar from "../components/AdminSidebar";
 import useBodyClass from "../hooks/useBodyClass";
 import { useAppData } from "../state/AppDataContext";
+import './AdminLayout.css';
 
 export default function AdminLayout({ children }) {
   useBodyClass("admin-shell");
