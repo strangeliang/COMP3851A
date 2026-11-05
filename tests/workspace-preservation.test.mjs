@@ -164,6 +164,48 @@ test('a failed replacement also preserves an already submitted Quiz and its save
   assert.deepEqual(app.saves[0], saved);
 });
 
+test('Quiz Submit stays disabled until every question is answered and cannot save an incomplete attempt', async t => {
+  const app = await setup(t);
+  await act(async () => button(app.renderer.root, 'Quiz').props.onClick());
+  await act(async () => button(app.renderer.root, 'Generate Quiz').props.onClick());
+  assert.equal(button(app.renderer.root, 'Submit').props.disabled, true);
+  assert.ok(button(app.renderer.root, 'Submit').props['aria-describedby']);
+  await act(async () => button(app.renderer.root, 'Submit').props.onClick());
+  assert.equal(app.saves.length, 0);
+  await act(async () => app.renderer.root.findAllByType('input').find(node => node.props.name === 'question-1').props.onChange());
+  assert.equal(button(app.renderer.root, 'Submit').props.disabled, true);
+  await act(async () => button(app.renderer.root, 'Next').props.onClick());
+  await act(async () => app.renderer.root.findAllByType('input').find(node => node.props.name === 'question-2').props.onChange());
+  assert.equal(button(app.renderer.root, 'Submit').props.disabled, false);
+  assert.equal(button(app.renderer.root, 'Submit').props['aria-describedby'], undefined);
+  await act(async () => button(app.renderer.root, 'Submit').props.onClick());
+  assert.equal(app.saves.length, 1);
+  assert.equal(app.saves[0].result.total, 2);
+});
+
+test('cancelling a Quiz asks before discarding, clears its scoped draft and never saves an unfinished grade', async t => {
+  const app = await setup(t);
+  await act(async () => button(app.renderer.root, 'Quiz').props.onClick());
+  await act(async () => button(app.renderer.root, 'Generate Quiz').props.onClick());
+  await act(async () => app.renderer.root.findAllByType('input').find(node => node.props.name === 'question-1').props.onChange());
+  app.confirm(false);
+  await act(async () => button(app.renderer.root, 'Cancel Quiz').props.onClick());
+  assert.equal(app.renderer.root.findAllByType('input').find(node => node.props.name === 'question-1').props.checked, true);
+  app.confirm(true);
+  await act(async () => button(app.renderer.root, 'Cancel Quiz').props.onClick());
+  assert.match(text(app.renderer.root), /Quiz cancelled/);
+  assert.doesNotMatch(text(app.renderer.root), /Original question/);
+  assert.equal(app.saves.length, 0);
+  await act(async () => button(app.renderer.root, 'Summary').props.onClick());
+  await act(async () => button(app.renderer.root, 'Quiz').props.onClick());
+  assert.match(text(app.renderer.root), /Quiz cancelled/);
+  assert.equal(app.renderer.root.findAllByProps({ className: 'quiz-options' }).length, 0);
+  await act(async () => button(app.renderer.root, 'Generate Quiz').props.onClick());
+  assert.doesNotMatch(text(app.renderer.root), /Quiz cancelled/);
+  assert.ok(app.renderer.root.findAllByType('input').filter(node => node.props.name === 'question-1').every(node => !node.props.checked));
+  assert.equal(app.saves.length, 0);
+});
+
 test('late Summary and Quiz replacements cannot overwrite another material scope or account', async t => {
   for (const kind of ['summary', 'quiz']) {
     const pending = deferred();
@@ -213,6 +255,23 @@ test('source buttons preview complete selected text and authenticated relative o
   await act(async () => sourceButtons().find(node => text(node) === '[S2] older.txt').props.onClick());
   await app.switchScope([11, 12], 2);
   assert.equal(app.renderer.root.findAllByProps({ role: 'dialog' }).length, 0, 'A source preview cannot survive an account change');
+});
+
+test('Summary citation links open and highlight the actual cited slide and ignore out-of-scope source numbers', async t => {
+  const app = await setup(t, { summary: () => Promise.resolve({
+    paragraph: 'A supported explanation [S1, Slide 2] and an invalid reference [S999, Slide 8].',
+    concepts: ['Related fact [S1, Slide 3]'], mode: 'api',
+  }) });
+  app.materials[0].content = 'Slide 1\nIntroduction\n\nSlide 2\nThe exact cited explanation.\n\nSlide 3\nA related fact.';
+  await act(async () => button(app.renderer.root, 'Generate Summary').props.onClick());
+  const citations = app.renderer.root.findAllByType('button').filter(node => node.props['aria-label']?.startsWith('View cited source'));
+  assert.deepEqual(citations.map(text), ['[S1, Slide 2]', '[S1, Slide 3]']);
+  await act(async () => citations[0].props.onClick());
+  const dialog = app.renderer.root.findByProps({ role: 'dialog' });
+  assert.match(dialog.props['aria-label'], /\[S1, Slide 2\]/);
+  assert.equal(text(dialog.findByType('mark')), 'Slide 2\nThe exact cited explanation.\n\n');
+  assert.match(text(dialog.findByType('pre')), /Introduction/);
+  assert.match(text(dialog.findByType('pre')), /A related fact/);
 });
 
 test('Office originals offer download without pretending the extracted text is an original-file preview', async t => {

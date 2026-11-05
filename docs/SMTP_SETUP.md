@@ -1,37 +1,63 @@
-# SMTP delivery for registration and account recovery
+# SMTP delivery
 
-Deploy the SMTP-support code before changing the live provider. Existing deployments
-default to Resend, so adding support does not silently switch the mail provider.
+The backend defaults to Resend. Select SMTP explicitly with `MAIL_PROVIDER=smtp`;
+adding SMTP settings alone does not change the provider. Configuration belongs in
+the host's private backend environment or a local, untracked `backend/.env` file.
 
-For the project 163 mailbox, configure these backend-only Render environment variables:
+## Configuration
 
-| Key | Value |
-| --- | --- |
-| MAIL_PROVIDER | smtp |
-| SMTP_HOST | smtp.163.com |
-| SMTP_PORT | 465 |
-| SMTP_USER | studycompanion26@163.com |
-| SMTP_PASS | A fresh mailbox authorization code, entered privately by the owner |
-| MAIL_FROM | Study Companion <studycompanion26@163.com> |
+Use the SMTP host, account and credentials supplied by your mail provider. This
+example contains placeholders; replace the host and public origin, and fill the
+blank values privately:
 
-Keep FRONTEND_URL and PUBLIC_APP_URL equal to
-`https://study-companion-s9rz.onrender.com`. Edit the existing MAIL_FROM row rather
-than creating duplicate keys. The old RESEND_API_KEY is ignored when MAIL_PROVIDER
-is smtp; it can be retained privately for rollback. Never commit credentials or use
-the mailbox login password. Revoke any authorization code exposed in screenshots.
+```dotenv
+MAIL_PROVIDER=smtp
+SMTP_HOST=smtp.example.com
+SMTP_PORT=465
+SMTP_USER=
+SMTP_PASS=
+MAIL_FROM=
+FRONTEND_URL=https://study.example.com
+PUBLIC_APP_URL=https://study.example.com
+```
 
-SMTP uses certificate-verified TLS (465), or required STARTTLS (587). Other ports
-are rejected. Protocol/message logging is disabled. The app uses SMTP sending only,
-not POP3/IMAP mailbox reading. Enabling a combined mailbox service may grant broader
-access to whoever holds its authorization code, so protect the code accordingly.
+- `SMTP_USER`: the provider's SMTP account name, often the full mailbox address.
+- `SMTP_PASS`: the provider-issued SMTP password or mailbox authorization code.
+  If the provider requires an authorization code, use it instead of the mailbox
+  login password.
+- `MAIL_FROM`: a sender address approved by the provider, optionally including a
+  display name such as `Study Companion <support@example.com>`. The sender must
+  satisfy the provider's mailbox or verified-domain requirements.
+- `FRONTEND_URL` and `PUBLIC_APP_URL`: the same exact public HTTPS origin, without
+  a path or trailing slash. See [deployment](DEPLOYMENT.md).
 
-Both registration codes and password-reset links use the selected provider.
-Provider failures invalidate pending codes/links through the existing routes;
-they do not bypass registration verification. SMTP does not guarantee provider-level
-idempotency or inbox placement. Persistent resend/attempt limits remain in force.
+Edit existing environment entries instead of creating duplicate keys. An existing
+`RESEND_API_KEY` is ignored while `MAIL_PROVIDER=smtp` and may be retained privately
+for rollback. Never commit credentials. Revoke and replace any exposed credential.
 
-After saving configuration and redeploying, test with an authorized recipient:
-receipt, incorrect code rejection, correct code registration and subsequent login.
-Test another recipient/provider before inviting classmates. Do not delete an existing
-account to make its address available for tests. Mailbox quotas and anti-abuse checks
-can block or delay delivery; a successful build or SMTP acceptance is not inbox proof.
+## Transport and delivery
+
+Port 465 uses certificate-verified TLS. Port 587 requires STARTTLS. Other ports
+are rejected; certificate verification remains enabled, with TLS 1.2 or newer.
+Protocol and message logging are disabled. The application only sends through SMTP;
+it does not read a mailbox through POP3 or IMAP. Protect authorization codes according
+to all permissions the mail provider grants them.
+
+Registration codes, verification links, password-reset links and queued support
+reply notifications use the selected provider. Failed code/link sends invalidate
+the pending code or link; SMTP does not bypass registration verification. Persistent
+resend and attempt limits remain in force. SMTP does not guarantee provider
+idempotency or inbox placement. Support notification retries are described in
+[asynchronous support follow-up](SUPPORT_FOLLOWUP.md).
+
+## Verify a deployment
+
+Restart or redeploy after changing environment values. With an authorized recipient,
+verify actual receipt, incorrect-code rejection, successful registration with the
+correct code, and subsequent login. Also check verification/password-reset links
+and a staff-reply notification. Use another recipient provider before inviting users.
+Do not delete an existing account to make its address available for tests.
+
+Check the recipient's inbox/spam folder and provider delivery logs. Mailbox quotas
+or anti-abuse checks can block or delay delivery; a successful build or SMTP
+acceptance does not prove inbox delivery.

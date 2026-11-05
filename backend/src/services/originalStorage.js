@@ -20,11 +20,22 @@ function createOriginalStorage(databasePath) {
       return { key, hash: createHash("sha256").update(bytes).digest("hex") };
     },
     async remove(key) {
-      if (!key) return;
-      try { await fs.unlink(location(key)); }
-      catch (error) { if (error.code !== "ENOENT") console.error("Original cleanup failed:", error.code); }
+      if (!key) return true;
+      try { await fs.unlink(location(key)); return true; }
+      catch (error) {
+        if (error.code === "ENOENT") return true;
+        console.error("Original cleanup failed:", error.code);
+        return false;
+      }
     },
   };
+}
+
+async function cleanupDeletedOriginals(database, originals) {
+  if (!database.listOriginalCleanup) return;
+  for (const file of await database.listOriginalCleanup()) {
+    if (await originals.remove(file.storage_key)) await database.completeOriginalCleanup(file.storage_key);
+  }
 }
 
 function validateOriginal(bytes, material) {
@@ -42,4 +53,4 @@ function validateOriginal(bytes, material) {
   };
   if (!valid[material.type]) throw new StudyError(400, "INVALID_ORIGINAL", "Original file format does not match its type.");
 }
-module.exports = { createOriginalStorage, validateOriginal };
+module.exports = { createOriginalStorage, validateOriginal, cleanupDeletedOriginals };

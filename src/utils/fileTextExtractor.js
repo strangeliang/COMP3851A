@@ -110,9 +110,12 @@ async function readZipTextEntries(arrayBuffer, shouldRead, signal) {
     const localOffset = view.getUint32(offset + 42, true);
     ensureRange(view, offset + 46, nameLength + extraLength + commentLength, "central directory metadata");
     const name = decoder.decode(new Uint8Array(arrayBuffer, offset + 46, nameLength));
-    expandedBytes += uncompressedSize;
-    if (expandedBytes > studyLimits.maxOfficeExpandedBytes) throw new Error("This Office file expands beyond 20 MB. Remove large embedded media or split the document.");
-    if (shouldRead(name)) selected.push({ name, method, compressedSize, uncompressedSize, localOffset });
+    if (shouldRead(name)) {
+      // Media is not decompressed; bound only the XML that is actually read.
+      expandedBytes += uncompressedSize;
+      if (expandedBytes > studyLimits.maxOfficeExpandedBytes) throw new Error(`The readable text inside this Office file exceeds ${formatFileSize(studyLimits.maxOfficeExpandedBytes)} after decompression. This is separate from the original file size. Split the document into smaller files.`);
+      selected.push({ name, method, compressedSize, uncompressedSize, localOffset });
+    }
     offset += 46 + nameLength + extraLength + commentLength;
   }
   const result = [];
@@ -148,7 +151,7 @@ async function extractOfficeText(file, extension, signal) {
   }).filter(Boolean);
   const text = cleanExtractedText(parts.join("\n\n"));
   if (!text) throw new Error(`${file.name} was opened, but no readable text was found.`);
-  return { text, warning: extension === "pptx" ? "Text was extracted from slides; diagrams, charts, equations, and speaker notes may need manual checking." : "Images, equations, and complex document layout may need manual checking." };
+  return { text, warning: extension === "pptx" ? "Text was extracted from slides. Images and speaker notes are not read; diagrams, tables, vector notation, and equations may lose their layout. Check mathematical expressions against the original before using AI answers." : "Images, equations, and complex document layout may need manual checking." };
 }
 
 async function createOcrWorker(onProgress, signal) {

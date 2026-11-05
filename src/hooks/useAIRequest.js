@@ -27,6 +27,13 @@ export default function useAIRequest(scopeKey, kind = "qa", { retainData = false
     setState((current) => ({ ...current, status: "idle", error: "" }));
   }, []);
 
+  const reset = useCallback(() => {
+    pendingRef.current?.controller.abort();
+    pendingRef.current = null;
+    writeWorkspaceState(cacheKey, initialState, sessionId);
+    setState(initialState);
+  }, [cacheKey, sessionId]);
+
   const run = useCallback(async (request) => {
     if (pendingRef.current) return null;
     const pending = { controller: new AbortController(), scopeKey };
@@ -53,5 +60,5 @@ export default function useAIRequest(scopeKey, kind = "qa", { retainData = false
     }
   }, [scopeKey, cacheKey, sessionId, retainData, state.data]);
 
-  return { ...state, run, cancel, pending: state.status === "loading" };
+  return { ...state, run, cancel, reset, pending: state.status === "loading" };
 }

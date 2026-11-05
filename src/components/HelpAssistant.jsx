@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from 'react';
-import { MessageCircleQuestion, X } from 'lucide-react';
+import { MessageCircleQuestion, LifeBuoy, History, X } from 'lucide-react';
 import { useAppData } from '../state/AppDataContext';
 import { getLoginConversation, sendLoginMessage } from '../services/ticketApiService';
 import { containsSecret } from '../services/helpChat';
@@ -139,11 +139,15 @@ function LoginChat({ userId, sessionId }) {
     style={open && viewport ? { '--help-viewport-height': `${viewport.height}px`, '--help-keyboard-inset': `${viewport.bottom}px` } : undefined}>
     {open && <section className="help-assistant-panel" id="help-assistant-panel" style={{ '--help-chat-width': `${chatWindowSizes[chatSize].width}px`, '--help-chat-height': `${chatWindowSizes[chatSize].height}px` }} role="dialog" aria-labelledby="help-assistant-title" onKeyDown={e => { if (e.key === 'Escape' && e.target.tagName !== 'SELECT') close(); }}>
       <header className="help-assistant-header"><div><h2 id="help-assistant-title">Ask Me</h2><p>{t('Powered by Gemini · Website support', 'Gemini AI · 网站使用帮助')}</p></div><div className="help-assistant-header-actions"><button ref={closeButton} onClick={close} aria-label={t('Close help', '关闭帮助')}><X size={20}/></button></div></header>
+      <nav className="help-assistant-categories help-assistant-view-nav" aria-label={t('Help options', '帮助选项')}>
+        <button type="button" aria-pressed={view === 'chat'} onClick={() => setView('chat')}><MessageCircleQuestion size={15} aria-hidden="true"/>{t('AI help', 'AI 帮助')}</button>
+        <button type="button" aria-label={t('Request human support', '申请人工帮助')} aria-pressed={view === 'new'} onClick={() => setView('new')}><LifeBuoy size={15} aria-hidden="true"/>{t('Human support', '人工支持')}</button>
+        <button type="button" aria-pressed={view === 'history'} onClick={() => setView('history')}><History size={15} aria-hidden="true"/>{t('History', '历史记录')}</button>
+      </nav>
+      <div className="help-assistant-size"><label htmlFor="help-chat-size">{t('Chat window size', '聊天窗口大小')}</label><select id="help-chat-size" value={chatSize} onChange={event => setChatSize(event.target.value)}>{Object.entries(chatWindowSizes).map(([value, labels]) => <option key={value} value={value}>{language === 'zh' ? labels.zh : labels.en}</option>)}</select></div>
       <div className="help-assistant-content" ref={log} tabIndex={0} aria-label={t('Help conversation and options', '帮助对话及选项')}
         onScroll={() => { if (log.current) nearBottom.current = log.current.scrollHeight-log.current.scrollTop-log.current.clientHeight < 60; }}>
-      <nav className="help-assistant-categories help-assistant-view-nav"><button aria-pressed={view === 'chat'} onClick={() => setView('chat')}>{t('This login', '本次会话')}</button><button aria-pressed={view === 'history'} onClick={() => setView('history')}>{t('Conversation history', '历史会话')}</button></nav>
-      <div className="help-assistant-size"><label htmlFor="help-chat-size">{t('Chat window size', '聊天窗口大小')}</label><select id="help-chat-size" value={chatSize} onChange={event => setChatSize(event.target.value)}>{Object.entries(chatWindowSizes).map(([value, labels]) => <option key={value} value={value}>{language === 'zh' ? labels.zh : labels.en}</option>)}</select></div>
-      {view === 'new' ? <div className="help-request-panel"><SupportRequestForm zh={language === 'zh'} onCancel={() => setView('chat')} onCreated={created => { setSupportId(created.id); setView('history'); }} /></div> : view === 'history' ? <div className="help-history-panel"><SupportTickets key={supportId || 'all'} initialTicketId={supportId} onNewTicket={() => setView('chat')}/></div> : <>
+      {view === 'new' ? <div className="help-request-panel"><SupportRequestForm zh={language === 'zh'} onCancel={() => setView('chat')} onCreated={created => { setSupportId(created.id); setView('history'); }} /></div> : view === 'history' ? <div className="help-history-panel"><header className="help-view-heading"><h3>{t('Conversations and support requests', '会话与人工工单')}</h3><p>{t('Check previous messages, staff replies and request status.', '查看历史消息、管理员回复和工单处理状态。')}</p></header><SupportTickets key={supportId || 'all'} initialTicketId={supportId} embedded /></div> : <>
         <div className="help-session-info">
           <p className="help-session-brief">{t('Messages go to Gemini and support staff and are saved. Never share passwords, codes or API keys.', '消息会发送给 Gemini 和管理员并保存。请勿发送密码、验证码或 API Key。')}</p>
           <details className="help-privacy-details" open={privacyOpen} onToggle={event => { setPrivacyOpen(event.currentTarget.open); if (event.currentTarget.open) nearBottom.current = false; }}>
@@ -154,19 +158,13 @@ function LoginChat({ userId, sessionId }) {
           </details>
         </div>
         <div className="help-assistant-log" role="log" aria-live="polite">
-          <p className="help-assistant-answer">{t('How can I help? Ask about login, uploads, Quiz or Study History.', '有什么可以帮你？可以询问登录、上传、Quiz 或学习历史。')}</p>
+          <p className="help-assistant-answer">{t('How can I help? Ask about login, uploads, Quiz or Study History. For a staff member, choose Human support above.', '有什么可以帮你？可以询问登录、上传、Quiz 或学习历史。如需管理员协助，请选择上方的“人工支持”。')}</p>
           {messages.map(m => <div key={m.id} className="help-saved-message"><small>{m.role === 'AI' ? t('Gemini · AI reply', 'Gemini · AI 回复') : m.role === 'FAQ' ? t('Ask Me · Preset FAQ', 'Ask Me · 预设 FAQ') : m.role === 'Admin' ? t('Support · ', '管理员 · ')+m.name : t('You', '你')}</small><p className={m.role === 'Student' ? 'help-assistant-question' : 'help-assistant-answer'}>{m.text}</p><time dateTime={m.createdAt}>{new Date(m.createdAt).toLocaleTimeString(language === 'zh' ? 'zh-CN' : 'en-GB')}</time></div>)}
           {saving && <p role="status" className="help-assistant-answer">{t('Gemini is replying…', 'Gemini 正在回复…')}</p>}
         </div>
         <div className="help-assistant-tools">
           <details className="help-quick-details" open={toolsOpen} onToggle={event => { setToolsOpen(event.currentTarget.open); if (event.currentTarget.open) nearBottom.current = false; }}>
-            <summary>{t('Quick help and human support', '快捷帮助与人工客服')}</summary>
-          <div className="help-human-support">
-            <button type="button" disabled={!ticket || saving} onClick={() => setView('new')}>
-              {t('Request human support','转人工客服')}
-            </button>
-            <p>{t('Human support is not live chat. Submit one issue per ticket; you do not need to stay online.', '人工支持不是实时聊天。每个问题提交一张工单，无需一直在线等待。')}</p>
-          </div>
+            <summary>{t('Suggested questions', '常见问题')}</summary>
           <div className="help-assistant-categories">{(language === 'zh' ? ['登录帮助','上传帮助','Quiz 帮助','学习历史'] : ['Login help','Upload help','Quiz help','Study history']).map(q => <button key={q} disabled={saving || !ticket} onClick={() => send(q)}>{q}</button>)}</div>
           </details>
           {ticket?.humanSupport && <p role="status">{({Waiting:t('Waiting for human support. AI replies do not close this request.','等待人工处理。AI 回复不会结束此申请。'),'In progress':t('An administrator is handling your request.','管理员正在处理你的申请。'),Resolved:t('Human support resolved this request. You can request help again.','人工申请已解决。如需帮助，可以再次申请。')})[ticket.humanSupport]}</p>}
@@ -178,7 +176,7 @@ function LoginChat({ userId, sessionId }) {
       </div>
       {view === 'chat' && <div className="help-assistant-composer">
         <form onSubmit={e => { e.preventDefault(); send(draft); }}><input disabled={saving || !ticket} aria-label="Describe your problem without credentials" value={draft} onChange={e => setDraft(e.target.value)} maxLength={2000} autoComplete="off" placeholder={t('Describe your problem…', '请描述你的问题…')}/><button disabled={saving || !ticket || !draft.trim()}>{saving ? t('Sending…','发送中…') : t('Send','发送')}</button></form>
-        <small>{t('Saved automatically when sent. No separate ticket submission.', '发送后自动保存，无需另外提交工单。')}</small>
+        <small>{t('AI messages are saved when sent. Choose Human support to submit a staff request.', 'AI 消息发送后自动保存。如需管理员处理，请选择“人工支持”提交申请。')}</small>
       </div>}
     </section>}
     <button className="help-assistant-launcher" ref={launcher} onClick={() => open ? close() : setOpen(true)} aria-expanded={open} aria-controls={open ? 'help-assistant-panel' : undefined}><MessageCircleQuestion size={24}/><span>Ask Me</span></button>

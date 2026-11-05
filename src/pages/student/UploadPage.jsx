@@ -181,7 +181,8 @@ export default function UploadPage() {
         <span className="upload-symbol"><UploadCloud size={28} /></span>
         <h2>{dragging ? t('Drop files here', '松开即可添加文件') : selectedFiles.length ? t(`${selectedFiles.length} file(s) selected`, `已选择 ${selectedFiles.length} 个文件`) : t('Choose study materials', '选择学习材料')}</h2>
         <p className="upload-drag-hint">{t('Drag files here, or choose files below. Then click Upload All to upload.', '将文件拖到此处，或点击下方选择文件。确认后点击“全部上传”。')}</p>
-        <p>{t(`Choose up to ${limits.maxFilesPerUpload} files per upload. Each file must contain no more than ${limits.maxStoredTextCharacters.toLocaleString()} extracted characters.`, `每批最多上传 ${limits.maxFilesPerUpload} 个文件，每个文件提取的文字不能超过 ${limits.maxStoredTextCharacters.toLocaleString()} 个字符。`)}</p>
+        <p>{t(`Choose up to ${limits.maxFilesPerUpload} files per upload, up to ${formatFileSize(limits.maxFileBytes)} each. Each file must contain no more than ${limits.maxStoredTextCharacters.toLocaleString()} extracted characters.`, `每批最多上传 ${limits.maxFilesPerUpload} 个文件，每个原文件最大 ${formatFileSize(limits.maxFileBytes)}，提取的文字不能超过 ${limits.maxStoredTextCharacters.toLocaleString()} 个字符。`)}</p>
+        <p>{t(`Office files: the text being read must be no larger than ${formatFileSize(limits.maxOfficeExpandedBytes)} after decompression. Embedded media is skipped.`, `Office 文件：需要读取的文字部分解压后最多 ${formatFileSize(limits.maxOfficeExpandedBytes)}，嵌入媒体不会被解压读取。`)}</p>
         <p>{t(`PDF: up to ${limits.maxPDFPages} pages and ${limits.maxPDFOCRPages} pages needing OCR. OCR supports English and Simplified Chinese.`, `PDF 最多 ${limits.maxPDFPages} 页，其中需要 OCR 识别的页面最多 ${limits.maxPDFOCRPages} 页；OCR 支持英语和简体中文。`)}</p>
         <label className="file-picker-modern">
           {t('Choose Files', '选择文件')}
@@ -202,8 +203,8 @@ export default function UploadPage() {
                 <button className="upload-queue-remove" type="button" disabled={uploadState.pending} aria-label={t(`Remove ${file.name}`, `移除 ${file.name}`)} onClick={()=>{setSelectedFiles(old=>old.filter((_,i)=>i!==index));setStatus(null);}}><Trash2 size={16} aria-hidden="true" />{t('Remove', '移除')}</button>
               </div>
             ))}
-            <button className="upload-queue-clear" type="button" disabled={uploadState.pending} onClick={()=>{setSelectedFiles([]);setStatus(null);if(inputRef.current)inputRef.current.value='';}}>{t('Clear pending files', '清空待上传')}</button>
-            <p className="upload-queue-note">{t('Removing here only clears the upload queue. Files on your computer and already uploaded materials are not deleted.', '这里只移除待上传文件，不会删除电脑原文件或已上传的材料。')}</p>
+            <button className="upload-queue-clear" type="button" disabled={uploadState.pending} onClick={()=>{setSelectedFiles([]);setStatus(null);if(inputRef.current)inputRef.current.value='';}}>{t('Remove all files', '移除全部文件')}</button>
+            <p className="upload-queue-note">{t('Remove and Remove all files only remove files waiting to upload. Files on your computer and already uploaded materials are kept.', '“移除”和“移除全部文件”仅移除待上传文件，电脑原文件和已经上传的资料会保留。')}</p>
           </div>
         )}
       </section>

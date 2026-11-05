@@ -1,8 +1,9 @@
 # Support ticket workflow
 
-The active administrator portal is ticket-only. Admin sign-in opens `/admin/support`;
-old `/admin/*` URLs redirect there. Legacy admin page source files remain for reference
-but are no longer imported or routed. Student learning pages are unchanged.
+The administrator portal provides support tickets. Admin sign-in opens `/admin/support`;
+`/admin` redirects there, while other unavailable `/admin/*` URLs show the page-not-found
+screen. Legacy admin page source files remain for reference but are no longer imported
+or routed.
 
 ## Use
 
@@ -14,29 +15,37 @@ but are no longer imported or routed. Student learning pages are unchanged.
    calls the real backend Gemini API, and saves its reply. There is no draft approval
    or separate ticket submission. A visible notice explains that recent support
    messages are sent to Google Gemini and administrators can read the conversation.
-3. Students can choose **Request human support** in Ask Me. The request persists
-   as Waiting, appears in the administrator's **Human support waiting queue**,
-   and remains waiting even if Gemini replies. Duplicate clicks/retries do not
-   create duplicate requests. An administrator reply or In progress status moves
-   it to In progress. Resolved closes it; the student can request help again.
+3. Students can choose **Human support** in Ask Me. This opens a form; submitting
+   its category, title and problem creates a separate ticket in Waiting, without
+   copying the AI conversation. It appears in the administrator's **Human support
+   waiting queue**. Duplicate submissions/retries do not create duplicate requests.
+   An administrator reply or In progress status moves it to In progress. Resolved
+   closes it; another student reply returns it to Waiting. The student can also
+   reopen it or submit a different issue separately.
 4. The admin opens Support Tickets, searches or filters the inbox, reads the issue,
    replies, and sets Open, In progress, or Resolved. Resolved records can be reopened.
-5. The student uses This login or Conversation history to read and reply. The admin
+5. The student uses **AI help** or **History** in Ask Me to read and reply. The admin
    inbox and open chats poll every eight seconds while visible, with manual refresh
    available. Draft text is retained during polling. This is not a live WebSocket chat.
-6. Conversation distinguishes student, Gemini AI, legacy preset FAQ, and administrator messages with timestamps.
+6. The conversation distinguishes student, Gemini AI, legacy preset FAQ, and administrator messages with timestamps.
    Login record shows when that conversation began; Status history shows changes.
    Older tickets retain their original submitted transcript. Private AI study chats
    and unsent drafts are never automatically copied into support.
 
-No example tickets are seeded. An empty database shows zero until a student signs in. Browser-only
+No example tickets are seeded. An empty database contains no tickets until a student signs in
+or submits a recovery request. Browser-only
 legacy tickets are not automatically uploaded, overwritten, or deleted. A student
-may review and re-submit an unresolved issue. No email notifications are sent.
+may review and re-submit an unresolved issue. Administrator replies to regular tickets
+queue email notifications for active owners with verified email or a linked Google
+account. Failed/skipped delivery is visible and retryable; provider acceptance does
+not prove inbox delivery. Recovery notes and status-only changes do not send email.
+See [asynchronous support follow-up](SUPPORT_FOLLOWUP.md) for queue and retry details.
 
 ## Storage and permissions
 
-`support_tickets`, `support_events`, `support_handoffs`, `support_ai_replies`, and legacy `support_faq_replies` are additive SQLite tables initialized on
-backend startup. The existing `STUDY_DATABASE_PATH` selects their persistent database.
+`support_tickets`, `support_events`, `support_handoffs`, `support_ai_replies`,
+`support_email_outbox` and legacy `support_faq_replies` are SQLite tables initialized
+automatically on backend startup. `STUDY_DATABASE_PATH` selects their database.
 Status events and replies record author and time; updates also store resolution time.
 Back up this database with the rest of the application data before deployment.
 
@@ -66,15 +75,15 @@ pages so it does not discard the user's position; detail polling continues.
 
 ## Run and verify
 
-- Restart the existing backend (`npm run backend`) so the new routes and tables load.
-- For development use the existing frontend (`npm run dev`); refresh the browser.
+- Run `npm run backend` from the repository root. Startup applies the required schema upgrades.
+- For development, run `npm run dev` in a separate terminal.
 - `npm test` includes automatic chat save, failure, retry, polling, and status tests.
 - `npm run test:backend` includes isolated SQLite permission, reply, status audit,
   duplicate messages, per-login grouping, parallel tabs, logout, and real process restart tests.
 - `npm run build` produces the frontend bundle.
 
-No changes are made to deployment configuration by this feature. Do not use a
-temporary preview database or a test session stub as the deployed server.
+Use the persistent database and mail settings described in [deployment](DEPLOYMENT.md).
+Automated tests do not confirm hosted persistence, live Gemini availability or inbox delivery.
 
 ## Ask Me Gemini configuration and boundaries
 
@@ -98,12 +107,13 @@ AI errors never fall back to a fabricated answer. The user message remains saved
 human support; Retry AI reply reuses its request ID. A successfully persisted AI response
 is reused on retries, avoiding duplicate messages and unnecessary model calls.
 
-Reference: https://ai.google.dev/api/generate-content
-# Account recovery intake
+Reference: [Gemini generateContent API](https://ai.google.dev/api/generate-content).
+
+## Account recovery intake
 
 The public `/forgot-password` page accepts an account name and linked email, with explicit consent to share them with administrators. `POST /api/auth/recovery-request` creates an unverified recovery request. It does not query whether the account exists, change credentials, issue a token, or send email. Public responses never expose ticket IDs or account history. Requests are rate-limited by IP and persistently by email, and retried client IDs are deduplicated.
 
-Recovery requests appear in the administrator's Support Tickets inbox under Account. Their claimed name/email are not attached to an existing user. Only administrators can read them, add internal notes, and update workflow status. Notes are not sent to applicants. Marking a request Resolved is not a password reset. Direct applicants to `/reset-password` for the separate one-time email flow; `/verify-email` verifies email ownership. See DEPLOYMENT.md for mail configuration. No manual identity bypass is included.
+Recovery requests appear in the administrator's Support Tickets inbox under Account. Their claimed name/email are not attached to an existing user. Only administrators can read them, add internal notes, and update workflow status. Notes are not sent to applicants. Marking a request Resolved is not a password reset. Direct applicants to `/reset-password` for the separate one-time email flow; `/verify-email` verifies email ownership. See [deployment](DEPLOYMENT.md) for mail configuration. No manual identity bypass is included.
 
 The Admin inbox can hide empty login conversations, filter tickets awaiting a staff reply,
 and sort by recent updates or oldest creation time. A student message requires attention
@@ -114,7 +124,8 @@ as staff replies. Counts apply to loaded matches; filters apply to the full data
 
 `GET /api/tickets` accepts `q` (up to 200 characters), `status`, `category`,
 `from` and `to` (YYYY-MM-DD, UTC), `hideEmpty`, `needsReply`, `humanOnly`
-(true/false), `sort` (newest/oldest) and an opaque `cursor`.
+(true/false), `sort` (newest/oldest/requested) and an opaque `cursor`.
+`requested` requires `humanOnly=true` and orders the waiting queue by request time.
 Keep the same filters for subsequent pages. A cursor from another filter is rejected.
 
 `POST /api/tickets/:id/human-support` accepts `{clientId: "<UUID>"}`.

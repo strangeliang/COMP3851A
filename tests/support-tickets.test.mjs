@@ -9,6 +9,65 @@ const statuses=['Open','In progress','Resolved'];
 const initial={id:'ASK-demo',name:'Test Student',title:'Upload issue',description:'The file did not upload.',category:'upload',status:'Open',version:1,createdAt:'2026-09-22T00:00:00Z',updatedAt:'2026-09-22T00:00:00Z',resolvedAt:null,replies:[]};
 const text=node=>JSON.stringify(node.toJSON());
 
+test('human support is a direct top-level action even if AI chat cannot load, and history does not hide a second request form', async () => {
+  let renderer;
+  const { default: Help } = await loadSource("export {default} from './src/components/HelpAssistant.jsx'", {
+    '../state/AppDataContext': { useAppData: () => ({ currentUser: { id: 1, role: 'Student' } }) },
+    '../state/LanguageContext': { useLanguage: () => ({ language: 'en' }) },
+    '../services/ticketApiService': { ticketCategories: categories, ticketStatuses: statuses,
+      getLoginConversation: async () => { throw Error('AI conversation unavailable'); },
+      listServerTickets: async () => ({ tickets: [], hasMore: false }),
+    },
+  }, { window: memoryWindow() });
+  try {
+    await act(async () => { renderer = create(React.createElement(Help)); });
+    await act(async () => renderer.root.findByProps({ className: 'help-assistant-launcher' }).props.onClick());
+    const navigation = renderer.root.findByProps({ 'aria-label': 'Help options' });
+    assert.equal(navigation.findAllByType('button').length, 3);
+    const human = () => renderer.root.findByProps({ 'aria-label': 'Request human support' });
+    assert.notEqual(human().props.disabled, true);
+    assert.equal(human().findAllByType('details').length, 0);
+    await act(async () => human().props.onClick());
+    assert.equal(human().props['aria-pressed'], true);
+    assert.equal(renderer.root.findAllByProps({ className: 'support-tickets support-request-form' }).length, 1);
+    assert.equal(renderer.root.findAllByProps({ className: 'help-assistant-composer' }).length, 0);
+    await act(async () => navigation.findAllByType('button')[2].props.onClick());
+    assert.match(text(renderer), /Conversations and support requests/);
+    assert.equal(renderer.root.findAllByProps({ className: 'support-tickets support-request-form' }).length, 0);
+    assert.equal(renderer.root.findAllByType('button').filter(button => button.children.includes('New support request')).length, 0);
+    assert.equal(renderer.root.findByProps({ className: 'support-advanced-filters' }).props.open, undefined);
+    await act(async () => human().props.onClick());
+    assert.equal(renderer.root.findAllByProps({ className: 'support-tickets support-request-form' }).length, 1);
+  } finally { if (renderer) await act(async () => renderer.unmount()); }
+});
+
+test('student can supplement a waiting request, and reply language appears only after a staff reply', async () => {
+  let renderer, sent = 0;
+  const { default: Conversation } = await loadSource("export {default} from './src/components/SupportConversation.jsx'");
+  const aiReply = { id: 'ai', kind: 'reply', role: 'AI', name: 'Gemini', text: 'Try another browser.', createdAt: initial.createdAt };
+  const staffReply = { ...aiReply, id: 'staff', role: 'Admin', name: 'Support', text: 'Please share the file type.' };
+  const props = { ticket: { ...initial, humanSupport: 'Waiting', replies: [aiReply] }, admin: false, zh: false,
+    reply: 'The file is a PPTX.', setReply() {}, busy: false, onSend() { sent++; } };
+  try {
+    await act(async () => { renderer = create(React.createElement(Conversation, props)); });
+    assert.match(text(renderer), /Waiting for a support team reply/);
+    const composer = () => renderer.root.findByProps({ className: 'support-chat-composer' });
+    assert.equal(composer().findByType('label').children[0], 'Add information');
+    assert.equal(composer().findByType('textarea').props.disabled, false);
+    assert.ok(composer().findByType('button').children.includes('Send update'));
+    await act(async () => composer().props.onSubmit({ preventDefault() {} }));
+    assert.equal(sent, 1);
+    await act(async () => renderer.update(React.createElement(Conversation, { ...props, ticket: { ...props.ticket, replies: [aiReply, staffReply], status: 'In progress', humanSupport: 'In progress' } })));
+    assert.equal(composer().findByType('label').children[0], 'Reply to support');
+    assert.ok(composer().findByType('button').children.includes('Send reply'));
+    assert.doesNotMatch(text(renderer), /Waiting for a support team reply/);
+    await act(async () => renderer.update(React.createElement(Conversation, { ...props, zh: true })));
+    assert.equal(composer().findByType('label').children[0], '补充问题信息');
+    await act(async () => renderer.update(React.createElement(Conversation, { ...props, admin: true })));
+    assert.equal(composer().findByType('label').children[0], 'Reply to student');
+  } finally { if (renderer) await act(async () => renderer.unmount()); }
+});
+
 test('Ask Me collapses secondary guidance while preserving privacy, draft and a separate composer', async () => {
   let renderer, reads = 0, sends = 0;
   const { default: Help } = await loadSource("export {default} from './src/components/HelpAssistant.jsx'", {
@@ -289,7 +348,7 @@ test('student human request collects a separate issue, retries with same ID and 
   try{
     await act(async()=>{renderer=create(React.createElement(Help));});
     await act(async()=>renderer.root.findByProps({className:'help-assistant-launcher'}).props.onClick());
-    const requestButton=()=>renderer.root.findAllByType('button').find(b=>b.children.includes('Request human support'));
+    const requestButton=()=>renderer.root.findByProps({'aria-label':'Request human support'});
     await act(async()=>requestButton().props.onClick());
     assert.equal(calls.length,0,'Opening the request form does not create an empty ticket');
     await act(async()=>{
@@ -504,7 +563,7 @@ test('Ask Me saves on send without submission, locks pending requests and reuses
     await act(async()=>{attempt.resolve({ticket:{...initial,replies:[{id:'msg',kind:'reply',role:'Student',text:'Upload help',createdAt:initial.createdAt},{id:'ai',kind:'reply',role:'AI',text:'Select a course first.',createdAt:initial.createdAt}]}});});
     assert.match(text(renderer),/Select a course first/);
     assert.match(text(renderer),/Gemini · AI reply/);
-    assert.match(text(renderer),/Saved automatically when sent/);
+    assert.match(text(renderer),/AI messages are saved when sent/);
   } finally {if(renderer)await act(async()=>renderer.unmount());}
 });
 test('Gemini failure leaves a saved message and offers an idempotent AI retry',async()=>{

@@ -196,3 +196,5 @@
 .support-admin .support-chat-window { margin-top: 14px; border-radius: 10px; }
 @media (max-width: 1050px) { .support-admin .support-workspace { grid-template-columns: 1fr; }.support-admin .support-list { max-height: 370px; } }
 @media (max-width: 600px) { .support-admin .support-stat { padding: 8px; gap: 5px; }.support-admin .support-stat svg { display: none; }.support-admin .support-stats { grid-template-columns: repeat(2, 1fr); }.support-admin .support-detail { padding: 14px; }.support-admin .support-row-meta { align-items: flex-start; } }
+.support-waiting-note { margin: 0; padding: 12px 16px; background: #f6f2fd; border-top: 1px solid #e8dff5; color: #58446f; font-size: 12px; line-height: 1.6; }
+.support-embedded .support-toolbar { margin-bottom: 12px; }

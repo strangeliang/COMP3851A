@@ -10,6 +10,8 @@
 !src/**
 !shared/
 !shared/**
+!public/
+!public/**
 !backend/
 !backend/package.json
 !backend/package-lock.json

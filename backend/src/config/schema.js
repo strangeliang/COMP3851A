@@ -210,6 +210,22 @@ const SCHEMA_SQL = `
     owner_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
     deleted_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
   );
+  CREATE TABLE IF NOT EXISTS study_history_views (
+    record_id TEXT NOT NULL REFERENCES study_history(id) ON DELETE CASCADE,
+    owner_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    page TEXT NOT NULL CHECK (page IN ('history','review')),
+    viewed_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (record_id,page)
+  );
+  CREATE INDEX IF NOT EXISTS idx_history_views_owner ON study_history_views(owner_id,page);
+  CREATE TABLE IF NOT EXISTS flashcard_progress (
+    record_id TEXT NOT NULL REFERENCES study_history(id) ON DELETE CASCADE,
+    owner_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    card_id TEXT NOT NULL CHECK (length(card_id) BETWEEN 1 AND 100),
+    updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (record_id,card_id)
+  );
+  CREATE TABLE IF NOT EXISTS study_feature_migrations (name TEXT PRIMARY KEY);
   CREATE TABLE IF NOT EXISTS user_profiles (
     user_id INTEGER PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
     display_name TEXT NOT NULL,
@@ -262,6 +278,20 @@ const SCHEMA_SQL = `
     FOREIGN KEY (owner_id) REFERENCES users(id) ON DELETE CASCADE
   );
 
+  -- Keep source identities stable without rebuilding existing materials tables.
+  -- Explicit seed/import IDs also advance the sequence through the trigger.
+  CREATE TABLE IF NOT EXISTS material_id_sequence (
+    singleton INTEGER PRIMARY KEY CHECK (singleton=1),
+    last_id INTEGER NOT NULL
+  );
+  INSERT OR IGNORE INTO material_id_sequence(singleton,last_id)
+    SELECT 1,COALESCE(MAX(id),0) FROM materials;
+  UPDATE material_id_sequence SET last_id=MAX(last_id,(SELECT COALESCE(MAX(id),0) FROM materials)) WHERE singleton=1;
+  CREATE TRIGGER IF NOT EXISTS advance_material_id_sequence AFTER INSERT ON materials
+  BEGIN
+    UPDATE material_id_sequence SET last_id=MAX(last_id,NEW.id) WHERE singleton=1;
+  END;
+
   CREATE INDEX IF NOT EXISTS idx_courses_owner_id
     ON courses(owner_id);
 
@@ -271,6 +301,13 @@ const SCHEMA_SQL = `
     sha256 TEXT NOT NULL,
     created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
   );
+  CREATE TABLE IF NOT EXISTS original_cleanup_queue (
+    storage_key TEXT PRIMARY KEY
+  );
+  CREATE TRIGGER IF NOT EXISTS queue_deleted_original AFTER DELETE ON material_originals
+  BEGIN
+    INSERT OR IGNORE INTO original_cleanup_queue(storage_key) VALUES(OLD.storage_key);
+  END;
 
   CREATE TABLE IF NOT EXISTS google_accounts (
     subject TEXT PRIMARY KEY,
@@ -303,6 +340,16 @@ async function createSchema({ exec }) {
   } catch (error) {
     if (error.code !== "SQLITE_ERROR" || !/duplicate column name: reading_notes/i.test(error.message)) throw error;
   }
+  // Existing records start read once; later restarts must not consume new activity.
+  await exec(`SAVEPOINT history_view_upgrade;
+    INSERT OR IGNORE INTO study_history_views(record_id,owner_id,page)
+      SELECT id,owner_id,'history' FROM study_history
+      WHERE NOT EXISTS(SELECT 1 FROM study_feature_migrations WHERE name='history_views_v1');
+    INSERT OR IGNORE INTO study_history_views(record_id,owner_id,page)
+      SELECT id,owner_id,'review' FROM study_history WHERE kind='quiz'
+      AND NOT EXISTS(SELECT 1 FROM study_feature_migrations WHERE name='history_views_v1');
+    INSERT OR IGNORE INTO study_feature_migrations(name) VALUES('history_views_v1');
+    RELEASE history_view_upgrade;`);
 }
 
 module.exports = {

@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { deflateRawSync } from "node:zlib";
+import { randomBytes } from "node:crypto";
 import { loadSource, deferred } from "./helpers.mjs";
 
 test("small nonempty files display bytes and retain the KB and MB boundaries", async () => {
@@ -55,11 +56,40 @@ test("PPTX slides retain their numeric order and source markers", async () => {
   assert.match(result.text, /Last slide/);
 });
 
-test("Office decompression rejects oversized metadata and inflated data exceeding the declared size", async () => {
+test("Office decompression rejects oversized selected XML and inflated data exceeding the declared size", async () => {
   const { extractTextFromFile } = await loadSource("src/utils/fileTextExtractor.js");
   const entries = [["word/document.xml", "a".repeat(10000)]];
-  await assert.rejects(extractTextFromFile(officeFile("oversized.docx", entries, 21 * 1024 * 1024)), /expands beyond 20 MB/);
+  await assert.rejects(extractTextFromFile(officeFile("oversized.docx", entries, 21 * 1024 * 1024)), /text inside.*exceeds 20 MB after decompression.*separate from the original file size/);
   await assert.rejects(extractTextFromFile(officeFile("wrong-size.docx", entries, 10)), /safe reading limit/);
+});
+
+test("a media-heavy six MB presentation reads its slides without expanding unused embedded media", async () => {
+  let inflated = 0;
+  const NativeDecompressionStream = globalThis.DecompressionStream;
+  const { extractTextFromFile } = await loadSource("src/utils/fileTextExtractor.js", {}, {
+    DecompressionStream: class {
+      constructor(format) { inflated++; return new NativeDecompressionStream(format); }
+    },
+  });
+  const xml = '<a:root xmlns:a="urn:test"><a:p><a:t>Course concepts remain readable.</a:t></a:p></a:root>';
+  const media = Buffer.concat([randomBytes(6 * 1024 * 1024), Buffer.alloc(18 * 1024 * 1024)]);
+  const file = officeFile("media-deck.pptx", [["ppt/slides/slide1.xml", xml], ["ppt/media/image1.bin", media]]);
+  assert.ok(file.size > 5 * 1024 * 1024 && file.size < 10 * 1024 * 1024);
+  const result = await extractTextFromFile(file);
+  assert.match(result.text, /Course concepts remain readable/);
+  assert.equal(inflated, 1, "Only the slide XML is decompressed");
+  assert.match(result.warning, /vector notation, and equations may lose their layout/);
+});
+
+test("the Office text limit applies across selected slides and malformed ZIP metadata is rejected", async () => {
+  const { extractTextFromFile } = await loadSource("src/utils/fileTextExtractor.js");
+  const slides = [["ppt/slides/slide1.xml", "one"], ["ppt/slides/slide2.xml", "two"]];
+  await assert.rejects(extractTextFromFile(officeFile("combined-limit.pptx", slides, 11 * 1024 * 1024)), /text inside.*exceeds 20 MB after decompression/);
+  await assert.rejects(extractTextFromFile({ name: "invalid.pptx", arrayBuffer: async () => new Uint8Array([1, 2, 3]).buffer }), /could not be opened as a ZIP/);
+  const file = officeFile("broken-directory.docx", [["word/document.xml", "hello"]]);
+  const bytes = new Uint8Array(await file.arrayBuffer());
+  new DataView(bytes.buffer).setUint32(bytes.length - 6, bytes.length + 100, true);
+  await assert.rejects(extractTextFromFile({ name: file.name, arrayBuffer: async () => bytes.buffer }), /invalid central directory entry/);
 });
 
 async function pdfFixture(pages) {

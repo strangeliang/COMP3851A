@@ -30,6 +30,10 @@
 .history-latest-practice > span { color: #4e7166; }
 .history-latest-practice strong { padding: 2px 8px; border-radius: 6px; background: #eaf5ef; color: #28634d; }
 .history-latest-practice time { color: #817887; }
+.history-new-badge { margin-left: 5px; }
+.history-flashcard { padding: 14px; margin: 12px 0; border: 1px solid #e8e0f2; border-radius: 10px; }
+.history-flashcard > button { margin-top: 10px; font-size: 12px; }
+.history-flashcard > button[aria-pressed="true"] { color: #236c56; background: #f0faf5; border-color: #b9dfd0; }
 .history-record-row .history-record-open { display: flex; align-items: center; gap: 10px; padding: 6px 0; border: 0; background: transparent; color: #403747; font-size: 13px; line-height: 1.7; cursor: pointer; }
 .history-record-open svg { color: #7956b6; flex-shrink: 0; }
 .history-kind-quiz .history-record-open svg { color: #297d69; }

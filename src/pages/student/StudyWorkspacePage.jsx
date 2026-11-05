@@ -3,6 +3,7 @@ import AIServiceStatus from "../../components/AIServiceStatus";
 import MaterialSourcePreview from "../../components/MaterialSourcePreview";
 import CopySummaryButton from "../../components/CopySummaryButton";
 import LearningHistoryLink from "../../components/LearningHistoryLink";
+import { parseSourceCitations } from "../../../shared/sourceCitations.mjs";
 import { indices, correctIndices, isMultiple, validAnswer, isCorrect, toggleAnswer, answerText } from "../../../shared/quiz.mjs";
 import {
   AlertCircle,
@@ -15,7 +16,7 @@ import {
   Lightbulb,
   MousePointerClick,
 } from "lucide-react";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useId, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import Toolbar from "../../components/Toolbar";
 import StudentLayout from "../../layouts/StudentLayout";
@@ -23,6 +24,7 @@ import { useAppData } from "../../state/AppDataContext";
 import useAIRequest from "../../hooks/useAIRequest";
 import useWorkspaceState from "../../hooks/useWorkspaceState";
 import useStudyPreferences from "../../hooks/useStudyPreferences";
+import useFlashcardProgress from "../../hooks/useFlashcardProgress";
 import { useLanguage } from "../../state/LanguageContext";
 import "./QuizPanel.css";
 import "./FlashcardsPanel.css";
@@ -46,7 +48,22 @@ const modeLabels = [
   ["flashcards", "Flashcards", Layers],
 ];
 
-function SummaryPanel({ canUseAI, materialSourceLabel }) {
+function CitedSources({ text, materials, onPreviewSource }) {
+  const { language } = useLanguage();
+  const citations = parseSourceCitations(text).filter(citation => citation.source <= materials.length);
+  if (!onPreviewSource || !citations.length) return null;
+  return <div className="qa-answer-sources study-result-sources" data-react-i18n
+    aria-label={language === 'zh' ? '本学习结果引用的来源' : 'Sources cited in this study result'}>
+    {citations.map(({ source, label, location }) => {
+      const material = materials[source - 1];
+      return <button key={label} type="button" title={material.name}
+        aria-label={language === 'zh' ? `查看引用来源 ${label}：${material.name}` : `View cited source ${label}: ${material.name}`}
+        onClick={() => onPreviewSource(material.id, label, location)}>{label}</button>;
+    })}
+  </div>;
+}
+
+function SummaryPanel({ canUseAI, materialSourceLabel, onPreviewSource }) {
   const {
     selectedMaterials,
     recordSummaryUse,
@@ -126,6 +143,7 @@ function SummaryPanel({ canUseAI, materialSourceLabel }) {
         <div className="summary-result" aria-live="polite">
           <CopySummaryButton key={scope.scopeKey} summary={summary} materials={selectedMaterials} />
           <p style={{ whiteSpace: "pre-wrap" }}>{summary.paragraph}</p>
+          <CitedSources text={`${summary.paragraph}\n${summary.concepts.join('\n')}`} materials={selectedMaterials} onPreviewSource={onPreviewSource} />
 
           <h3>Key Concepts</h3>
 
@@ -140,7 +158,7 @@ function SummaryPanel({ canUseAI, materialSourceLabel }) {
   );
 }
 
-function QuizPanel({ canUseAI, materialSourceLabel }) {
+function QuizPanel({ canUseAI, materialSourceLabel, onPreviewSource }) {
   const { selectedMaterials, saveQuizAttempt, scope } = useAppData();
   const [preferences] = useStudyPreferences();
   const { language } = useLanguage();
@@ -153,6 +171,8 @@ function QuizPanel({ canUseAI, materialSourceLabel }) {
   const [index, setIndex] = useWorkspaceState(`quiz-index:${scope.scopeKey}`, 0);
   const [answers, setAnswers] = useWorkspaceState(`quiz-answers:${scope.scopeKey}`, {});
   const [submitted, setSubmitted] = useWorkspaceState(`quiz-submitted:${scope.scopeKey}`, false);
+  const [cancelled, setCancelled] = useWorkspaceState(`quiz-cancelled:${scope.scopeKey}`, false);
+  const submitHintId = useId();
   const [warning, setWarning] = useState("");
   const [difficulty, setDifficulty] = useWorkspaceState(`quiz-difficulty:${scope.scopeKey}`, preferences.quizDifficulty);
   const [questionCount, setQuestionCount] = useWorkspaceState(`quiz-count:${scope.scopeKey}`, "5");
@@ -190,7 +210,18 @@ function QuizPanel({ canUseAI, materialSourceLabel }) {
     setAnswers({});
     setSubmitted(false);
     setWarning("");
+    setCancelled(false);
     submittedRef.current = false;
+  }
+
+  function cancelQuiz() {
+    if (request.pending || submittedRef.current || !window.confirm(t(
+      "Cancel this Quiz? Your answers for this attempt will be discarded without saving a result. Previously saved study records are kept.",
+      "取消本次测验？当前作答将被放弃，不会保存成绩。以前保存的学习记录会保留。",
+    ))) return;
+    resetAnswers();
+    request.reset();
+    setCancelled(true);
   }
 
   async function generate() {
@@ -331,7 +362,9 @@ function QuizPanel({ canUseAI, materialSourceLabel }) {
         !request.pending &&
         !request.error && (
           <div className="empty-state">
-            Generate a quiz to start practising.
+            <span role={cancelled ? "status" : undefined} data-react-i18n>{cancelled
+              ? t("Quiz cancelled. Generate a new Quiz whenever you are ready.", "本次测验已取消，准备好后可以生成新的测验。")
+              : t("Generate a quiz to start practising.", "生成测验后即可开始练习。")}</span>
           </div>
         )}
 
@@ -380,6 +413,9 @@ function QuizPanel({ canUseAI, materialSourceLabel }) {
               {warning}
             </p>
           )}
+          {!complete && <p id={submitHintId} className="quiz-submit-hint" data-react-i18n>
+            {t("Answer every question to enable Submit. You can cancel this Quiz at any time before submitting.", "回答所有题目后才能提交。提交前可以随时取消本次测验。")}
+          </p>}
 
           <div className="quiz-actions">
             <div className="quiz-navigation" data-react-i18n>
@@ -391,6 +427,9 @@ function QuizPanel({ canUseAI, materialSourceLabel }) {
               <small>{t("Filled = answered · Outline = not answered. Click a number to jump.", "实心表示已答，空心表示未答，点击编号可跳转。")}</small>
             </div>
             <div className="quiz-navigation-actions">
+            <button type="button" className="quiz-cancel-button" disabled={request.pending} onClick={cancelQuiz} data-react-i18n>
+              {t("Cancel Quiz", "取消测验")}
+            </button>
             {activeIndex > 0 && <button
               type="button"
               disabled={request.pending}
@@ -414,7 +453,8 @@ function QuizPanel({ canUseAI, materialSourceLabel }) {
             <button
               className="primary-button"
               type="button"
-              disabled={request.pending}
+              disabled={request.pending || !complete}
+              aria-describedby={!complete ? submitHintId : undefined}
               onClick={submit}
             >
               Submit
@@ -445,6 +485,7 @@ function QuizPanel({ canUseAI, materialSourceLabel }) {
                 <strong>Explanation:</strong>{" "}
                 {item.explanation}
               </p>
+              <CitedSources text={`${item.question}\n${item.explanation}`} materials={selectedMaterials} onPreviewSource={onPreviewSource} />
             </article>
           ))}
 
@@ -466,27 +507,41 @@ function QuizPanel({ canUseAI, materialSourceLabel }) {
 function FlashcardsPanel({
   canUseAI,
   materialSourceLabel,
+  onPreviewSource,
 }) {
-  const { selectedMaterials, scope, persistStudy } =
+  const { selectedMaterials, scope, persistStudy, ensureStudyRecord, serverStudyHistory } =
     useAppData();
   const { language } = useLanguage();
   const t = (en, zh) => language === "zh" ? zh : en;
 
   const request = useAIRequest(scope.scopeKey, "flashcards", { retainData: true });
 
-  const legacyCards = Boolean(request.data?.cards && request.data.cards.length !== 6);
-  const cards = request.data?.cards?.length === 6 ? request.data.cards : [];
+  const exactScopeRecords = serverStudyHistory?.ready && sameId(serverStudyHistory.ownerId, scope.userId)
+    ? serverStudyHistory.records.filter(record => record.kind === 'flashcards' && String(record.course_id) === String(scope.courseId)
+      && Array.isArray(record.payload?.selectedMaterialIds)
+      && record.payload.selectedMaterialIds.length === scope.selectedMaterialIds.length
+      && record.payload.selectedMaterialIds.every(id => scope.selectedMaterialIds.some(selected => sameId(selected, id))))
+    : [];
+  const restoredRecord = !request.data ? exactScopeRecords[0] : null;
+  const displayedBatch = request.data || restoredRecord?.payload;
+  const legacyCards = Boolean(displayedBatch?.cards && displayedBatch.cards.length !== 6);
+  const cards = displayedBatch?.cards?.length === 6 ? displayedBatch.cards.map((card, index) => ({ ...card, id: card.id ?? index + 1 })) : [];
+  const savedRecordId = request.data?.historyId || restoredRecord?.id
+    || exactScopeRecords.find(record => request.data?.revisionBatchId && record.payload.revisionBatchId === request.data.revisionBatchId)?.id;
+  const mastery = useFlashcardProgress({ recordId: savedRecordId, userId: scope.userId,
+    ensureSaved: request.data?.historyLocalId && ensureStudyRecord ? () => ensureStudyRecord(request.data.historyLocalId, scope) : undefined });
 
   const [flipped, setFlipped] =
     useWorkspaceState(`flashcards-flipped:${scope.scopeKey}`, {});
-  const batchId = request.data?.revisionBatchId || "existing";
-  const [progress, setProgress] = useWorkspaceState(`flashcards-progress:${scope.scopeKey}`, { batchId: "", mastered: {}, onlyReview: false });
-  const activeProgress = progress.batchId === batchId ? progress : { mastered: {}, onlyReview: false };
-  const masteredCount = cards.filter(card => activeProgress.mastered[card.id]).length;
+  const batchId = displayedBatch?.revisionBatchId || savedRecordId || "existing";
+  const [progress, setProgress] = useWorkspaceState(`flashcards-progress:${scope.scopeKey}`, { batchId: "", onlyReview: false });
+  const activeProgress = progress.batchId === batchId ? progress : { onlyReview: false };
+  const mastered = new Set(mastery.mastered);
+  const masteredCount = cards.filter(card => mastered.has(String(card.id))).length;
   const visibleCards = cards.map((card, cardIndex) => ({ card, cardIndex }))
-    .filter(({ card }) => !activeProgress.onlyReview || !activeProgress.mastered[card.id]);
+    .filter(({ card }) => !activeProgress.onlyReview || !mastered.has(String(card.id)));
   function updateProgress(update) {
-    setProgress(current => ({ batchId, ...update(current.batchId === batchId ? current : { mastered: {}, onlyReview: false }) }));
+    setProgress(current => ({ batchId, ...update(current.batchId === batchId ? current : { onlyReview: false }) }));
   }
 
   async function generate() {
@@ -499,11 +554,13 @@ function FlashcardsPanel({
         signal,
       });
       if (generated.cards?.length !== 6) throw new Error("The Flashcards service returned an outdated format. Please refresh the page or contact support.");
-      return { ...generated, revisionBatchId: crypto.randomUUID() };
+      if (signal.aborted) throw new DOMException('Cancelled', 'AbortError');
+      const batch = { ...generated, revisionBatchId: crypto.randomUUID() };
+      const historyLocalId = persistStudy("flashcards", batch, scope);
+      return { ...batch, historyLocalId, historyId: historyLocalId ? `${scope.userId}:${historyLocalId}` : undefined };
     });
     if (result) {
       setFlipped({});
-      persistStudy("flashcards", result, scope);
     }
   }
 
@@ -573,6 +630,11 @@ function FlashcardsPanel({
       {!!cards.length && (
         <div className="flashcard-progress" data-react-i18n>
           <p role="status">{t(`Mastered ${masteredCount} / ${cards.length} · To review ${cards.length - masteredCount}`, `已掌握 ${masteredCount} / ${cards.length} · 待复习 ${cards.length - masteredCount}`)}</p>
+          <small role="status">{mastery.loading ? t('Loading saved card progress…', '正在读取已保存的卡片进度…')
+            : mastery.saving ? t('Saving progress to your account…', '正在将进度保存到账户…')
+              : mastery.ready ? t('Progress is saved to your account.', '掌握进度已保存到账户。')
+                : t('Save this card set to your account before marking progress.', '请先将这组卡片保存到账户，再标记掌握进度。')}</small>
+          {mastery.error && <p role="alert" className="form-error">{mastery.error} <button type="button" onClick={mastery.reload}>{t('Retry progress', '重试进度同步')}</button></p>}
           <label><input type="checkbox" checked={activeProgress.onlyReview} disabled={request.pending}
             onChange={event => updateProgress(current => ({ ...current, onlyReview: event.target.checked }))} />{t("Only show cards to review", "只看待复习")}</label>
         </div>
@@ -661,14 +723,15 @@ function FlashcardsPanel({
                     : "Click to reveal the answer"}
                 </small>
               </button>
+              <CitedSources text={card.source} materials={selectedMaterials} onPreviewSource={onPreviewSource} />
               <div className="flashcard-mastery-actions" data-react-i18n>
-                <span>{activeProgress.mastered[card.id] ? t("Mastered", "已掌握") : t("To review", "待复习")}</span>
-                <button type="button" disabled={request.pending} aria-pressed={Boolean(activeProgress.mastered[card.id])}
-                  aria-label={activeProgress.mastered[card.id]
+                <span>{mastered.has(String(card.id)) ? t("Mastered", "已掌握") : t("To review", "待复习")}</span>
+                <button type="button" disabled={request.pending || !mastery.ready || mastery.saving || mastery.loading} aria-pressed={mastered.has(String(card.id))}
+                  aria-label={mastered.has(String(card.id))
                     ? t(`Review card ${cardIndex + 1} again`, `再次复习第 ${cardIndex + 1} 张卡片`)
                     : t(`Mark card ${cardIndex + 1} as mastered`, `标记第 ${cardIndex + 1} 张卡片为已掌握`)}
-                  onClick={() => updateProgress(current => ({ ...current, mastered: { ...current.mastered, [card.id]: !current.mastered[card.id] } }))}>
-                  {activeProgress.mastered[card.id] ? t("Review again", "再复习") : t("Mark as mastered", "标记已掌握")}
+                  onClick={() => mastery.toggle(card.id)}>
+                  {mastered.has(String(card.id)) ? t("Review again", "再复习") : t("Mark as mastered", "标记已掌握")}
                 </button>
               </div>
               </article>
@@ -720,6 +783,9 @@ export default function StudyWorkspacePage() {
   useEffect(() => { setPreview(null); }, [scope.scopeKey]);
   const previewMaterial = preview?.scopeKey === scope.scopeKey
     ? selectedMaterials.find(material => sameId(material.id, preview.materialId)) : null;
+  function previewSource(materialId, sourceLabel, location) {
+    if (selectedMaterials.some(material => sameId(material.id, materialId))) setPreview({ materialId, sourceLabel, location, scopeKey: scope.scopeKey });
+  }
 
   const error =
     selectionError(selectedMaterials);
@@ -1121,6 +1187,7 @@ export default function StudyWorkspacePage() {
         <SummaryPanel
           key={scope.scopeKey}
           canUseAI={canUseAI}
+          onPreviewSource={previewSource}
           materialSourceLabel={
             materialSourceLabel
           }
@@ -1152,9 +1219,7 @@ export default function StudyWorkspacePage() {
               selectedMaterials
             }
             currentCourse={currentCourse}
-            onPreviewSource={(materialId, sourceLabel) => {
-              if (selectedMaterials.some(material => sameId(material.id, materialId))) setPreview({ materialId, sourceLabel, scopeKey: scope.scopeKey });
-            }}
+            onPreviewSource={previewSource}
           />
         </section>
       </div>
@@ -1164,6 +1229,7 @@ export default function StudyWorkspacePage() {
         <QuizPanel
           key={scope.scopeKey}
           canUseAI={canUseAI}
+          onPreviewSource={previewSource}
           materialSourceLabel={
             materialSourceLabel
           }
@@ -1174,6 +1240,7 @@ export default function StudyWorkspacePage() {
         <FlashcardsPanel
           key={scope.scopeKey}
           canUseAI={canUseAI}
+          onPreviewSource={previewSource}
           materialSourceLabel={
             materialSourceLabel
           }
@@ -1181,6 +1248,7 @@ export default function StudyWorkspacePage() {
       </div>
       {previewMaterial && <MaterialSourcePreview material={previewMaterial}
         sourceLabel={preview.sourceLabel || `[S${selectedMaterials.findIndex(material => sameId(material.id, previewMaterial.id)) + 1}]`}
+        location={preview.location}
         onClose={() => setPreview(null)} />}
     </StudentLayout>
   );

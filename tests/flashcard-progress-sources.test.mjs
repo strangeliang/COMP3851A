@@ -28,7 +28,7 @@ async function setup(t, { mode = 'flashcards', flashcards = async () => cardsRep
     { id: 11, ownerId: 1, courseId: 'course', name: 'First.pdf', type: 'PDF', content: 'FIRST SOURCE complete extracted text', hasOriginal: false },
     { id: 12, ownerId: 1, courseId: 'course', name: 'Second.txt', type: 'TXT', content: 'SECOND SOURCE complete extracted text', hasOriginal: false },
   ];
-  const saves = [], calls = [];
+  const saves = [], calls = [], savedRecords = [], progressByRecord = new Map();
   const data = { currentUser: { id: 1, role: 'Student' },
     studentCourses: [{ id: 'course', code: 'COURSE', name: 'Learning course' }],
     currentCourse: { id: 'course', code: 'COURSE', name: 'Learning course' }, currentCourseId: 'course',
@@ -37,7 +37,18 @@ async function setup(t, { mode = 'flashcards', flashcards = async () => cardsRep
     aiStatus: { configured: true, loading: false }, summaryUses: 0, qaUses: 0,
     scope: { userId: 1, courseId: 'course', selectedMaterialIds: [11, 12], scopeKey: scopeKey(1, 'course', [11, 12]) },
     selectCourse() {}, setSelectedMaterialIds() {}, retryCourses() {}, retryMaterials() {}, recordQAUse() {}, notify() {},
-    recordSummaryUse() {}, saveQuizAttempt() {}, persistStudy: (kind, result, scope) => saves.push({ kind, result, scope }),
+    serverStudyHistory: { ownerId: 1, records: [], viewed: { history: [], review: [] }, ready: true },
+    recordSummaryUse() {}, saveQuizAttempt() {},
+    ensureStudyRecord: async id => `${data.scope.userId}:${id}`,
+    persistStudy: (kind, result, scope) => {
+      saves.push({ kind, result, scope });
+      const id = `batch-${saves.length}`;
+      savedRecords.unshift({ id: `${scope.userId}:${id}`, owner_id: scope.userId, course_id: scope.courseId, kind,
+        created_at: `2026-11-05 00:00:${String(saves.length).padStart(2, '0')}`,
+        payload: { ...result, selectedMaterialIds: scope.selectedMaterialIds } });
+      data.serverStudyHistory = { ...data.serverStudyHistory, ownerId: scope.userId, records: savedRecords.filter(record => record.owner_id === scope.userId) };
+      return id;
+    },
   };
   let nextId = 0;
   data.addChatRecord = (role, message, details) => {
@@ -60,6 +71,18 @@ async function setup(t, { mode = 'flashcards', flashcards = async () => cardsRep
     '@chatscope/chat-ui-kit-react': { Message, MainContainer: 'test-main', ChatContainer: 'test-chat', MessageList: 'test-list', MessageInput: 'test-input', TypingIndicator: 'test-typing' },
     '../../services/aiService': { generateAISummary: async () => ({}), generateAIQuiz: async () => ({}),
       generateAIFlashcards: input => { calls.push({ kind: 'flashcards', input }); return flashcards(input); } },
+    '../services/apiClient': { apiRequest: async (url, request = {}) => {
+      const match = /^\/history\/([^/]+)\/flashcards-progress$/.exec(url);
+      assert.ok(match, `Unexpected progress request ${url}`);
+      const id = decodeURIComponent(match[1]);
+      const mastered = new Set(progressByRecord.get(id) || []);
+      if (request.method === 'PATCH') {
+        if (request.body.mastered) mastered.add(String(request.body.cardId));
+        else mastered.delete(String(request.body.cardId));
+        progressByRecord.set(id, [...mastered]);
+      }
+      return { mastered: [...mastered] };
+    } },
     '../services/aiService': { generateAIAnswer: input => { calls.push({ kind: 'qa', input }); return answer(input); } },
   }, { window });
   let renderer;
@@ -78,6 +101,7 @@ async function setup(t, { mode = 'flashcards', flashcards = async () => cardsRep
       data.selectedMaterialIds = ids;
       data.selectedMaterials = materials.filter(material => ids.includes(material.id)).map(material => ({ ...material, ownerId: userId, courseId }));
       data.currentChatRecords = [];
+      data.serverStudyHistory = { ...data.serverStudyHistory, ownerId: userId, records: savedRecords.filter(record => record.owner_id === userId) };
       data.scope = { userId, courseId, selectedMaterialIds: ids, scopeKey: scopeKey(userId, courseId, ids) };
       await update();
     },
@@ -109,7 +133,7 @@ test('flashcard mastery counts and review filtering preserve flip controls witho
   assert.equal(app.saves.length, 1, 'Self-assessment marks do not create new study activity');
 });
 
-test('mastery survives a failed replacement and remount, resets on each successful batch, and stays isolated by source, course, account and login session', async t => {
+test('account mastery survives failure, remount and a new login session, resets on successful batches and stays isolated by scope', async t => {
   let fail = false;
   const app = await setup(t, { flashcards: async () => { if (fail) throw new Error('Generation failed'); return cardsReply(); } });
   await act(async () => button(app.renderer.root, 'Generate Flashcards').props.onClick());
@@ -136,7 +160,8 @@ test('mastery survives a failed replacement and remount, resets on each successf
   assert.match(text(app.renderer.root), /Mastered 1 \/ 6/);
   app.modules.resetWorkspaceSession();
   await app.update();
-  assert.equal(flips(app.renderer.root).length, 0);
+  assert.equal(flips(app.renderer.root).length, 6);
+  assert.match(text(app.renderer.root), /Mastered 1 \/ 6/);
 });
 
 test('cancelling replacement keeps mastery and filtering for the displayed batch and ignores the late cards', async t => {

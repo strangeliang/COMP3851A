@@ -267,6 +267,7 @@ async function harness(
 
   const requests = [];
   let sessionUser = null;
+  const cardProgress = new Map();
 
   const server = {
     courses: [
@@ -414,6 +415,18 @@ async function harness(
         return jsonReply({ ok: true });
       }
       return jsonReply({ records: server.history.filter((r) => r.owner_id === userId), reviews: [] });
+    }
+    const progressRequest = url.match(/^\/api\/history\/([^/]+)\/flashcards-progress$/);
+    if (progressRequest) {
+      const recordId = decodeURIComponent(progressRequest[1]);
+      const record = server.history.find(item => item.id === recordId && item.owner_id === userId && item.kind === 'flashcards');
+      if (!record) return jsonReply({ code: 'NOT_FOUND', message: 'This flashcard set is unavailable.' }, 404);
+      const mastered = cardProgress.get(recordId) || new Set();
+      if (method === 'PATCH') {
+        if (body.mastered) mastered.add(String(body.cardId)); else mastered.delete(String(body.cardId));
+        cardProgress.set(recordId, mastered);
+      }
+      return jsonReply({ mastered: [...mastered] });
     }
 
     if (
