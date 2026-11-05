@@ -6,3 +6,7 @@
 .material-source-preview h3 { margin: 0 0 10px; }
 .material-source-note { font-size: 13px; line-height: 1.6; color: #655e70; }
 .material-source-text { margin: 16px 0 0; padding: 16px; border: 1px solid #e8e3f0; border-radius: 10px; background: #faf9fc; font: inherit; line-height: 1.75; white-space: pre-wrap; overflow-wrap: anywhere; }
+.material-citation-location { padding: 10px 12px; border: 1px solid #d9c9f4; border-radius: 8px; background: #f4efff; color: #54318b; font-size: 13px; line-height: 1.6; }
+.material-citation-location.is-missing { border-color: #e7d8b8; background: #fffaf0; color: #79602b; }
+.material-cited-section { display: block; padding: 8px; margin: 4px -8px; border-left: 3px solid #7956b6; border-radius: 4px; background: #eee5ff; color: inherit; scroll-margin-block: 24px; }
+.material-cited-section:focus { outline: 2px solid #7956b6; outline-offset: 3px; }

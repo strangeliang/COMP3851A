@@ -9,7 +9,10 @@
 .quiz-question-dots .quiz-question-dot.current { background: #6f32ff; color: white; outline: 2px solid #cbbaf0; outline-offset: 2px; }
 .quiz-question-dots .quiz-question-dot:focus-visible { outline: 2px solid #6f32ff; outline-offset: 2px; }
 .quiz-navigation small { display: block; font-size: 11px; color: #77727f; line-height: 1.5; }
-.quiz-navigation-actions { display: flex; align-items: center; gap: 10px; }
+.quiz-navigation-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; }
+.quiz-navigation-actions button:disabled { opacity: .5; cursor: not-allowed; }
+.quiz-submit-hint { color: #71677e; font-size: 12px; line-height: 1.6; }
+.quiz-navigation-actions .quiz-cancel-button { color: #8c3e50; border-color: #e5cbd2; background: #fff; }
 .quiz-review .quiz-result-correct, .quiz-result-card.quiz-result-correct { border: 1px solid #a8dabe; border-left: 4px solid #22844e; background: #f5fcf7; }
 .quiz-review .quiz-result-incorrect, .quiz-result-card.quiz-result-incorrect { border: 1px solid #edb4bf; border-left: 4px solid #bb3450; background: #fff8f9; }
 .quiz-result-correct .quiz-result-status { color: #187443; }

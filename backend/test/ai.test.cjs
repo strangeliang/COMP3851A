@@ -11,6 +11,17 @@ const flashcardOutput = { cards: Array.from({ length: 6 }, (_, index) => ({ fron
 const reply = (text, status = 200, headers = {}) => new Response(typeof text === "string" ? text : JSON.stringify(text), { status, headers });
 const codeIs = (code) => (error) => error.code === code;
 
+test('Flashcards accept cited slide and page locations but reject unavailable sources', () => {
+  const located = { cards: flashcardOutput.cards.map((card, index) => ({ ...card, source: `[S1, Slide ${index + 1}]` })) };
+  assert.equal(parseOutput('flashcards', complete(JSON.stringify(located)), { materials }).cards[0].source, '[S1, Slide 1]');
+  located.cards[0].source = '[S1, Page 2]';
+  assert.equal(parseOutput('flashcards', complete(JSON.stringify(located)), { materials }).cards[0].source, '[S1, Page 2]');
+  for (const source of ['[S0]', '[S2, Slide 1]', '[S999, Page 2]', 'Slide 2']) {
+    located.cards[0].source = source;
+    assert.throws(() => parseOutput('flashcards', complete(JSON.stringify(located)), { materials }), codeIs('INVALID_AI_OUTPUT'));
+  }
+});
+
 test('Ask Me calls Gemini with server-owned support rules, bounded context and no tools', async () => {
   let calls=0;
   const service=createGeminiService({apiKey:'test-support-key',fetchImpl:async(url,options)=>{
@@ -364,4 +375,114 @@ test("a stalled request times out and an explicit cancellation remains a cancell
   await assert.rejects(service.generate("qa", input), codeIs("AI_TIMEOUT"));
   const controller = new AbortController(); controller.abort();
   await assert.rejects(service.generate("qa", input, { signal: controller.signal }), (error) => error.name === "AbortError");
+});
+
+test("Summary accepts complete JSON fences and split text parts without changing its strict fields or citations", () => {
+  const summary = { paragraph: 'Vector length is derived using the dot product. [S1]', concepts: ['Magnitude is a non-negative distance.'] };
+  const wrapped = parseOutput('summary', complete('```json\n' + JSON.stringify(summary) + '\n```'), { materials });
+  assert.equal(wrapped.paragraph, summary.paragraph);
+  const json = JSON.stringify(summary);
+  const split = { candidates: [{ finishReason: 'STOP', content: { parts: [
+    { thought: true, text: 'Private reasoning, not the response.' }, { text: json.slice(0, 24) }, { text: json.slice(24) },
+  ] } }] };
+  assert.deepEqual(parseOutput('summary', split, { materials }), { ...summary, mode: 'api' });
+  for (const invalid of [
+    { paragraph: summary.paragraph, concepts: [] }, { paragraph: summary.paragraph, concepts: [{ text: 'Not a string' }] },
+    { paragraph: 'Invented reference [S999]', concepts: ['Invalid source'] },
+    { paragraph: 'Invented extended reference [S999, Slide 39]', concepts: ['Invalid source'] },
+    { paragraph: 'Invalid zero reference [S0, Page 2]', concepts: ['Invalid source'] },
+    { paragraph: 'Unsafe reference [S9007199254740993, Page 2]', concepts: ['Invalid source'] },
+    { paragraph: 'Combined invalid reference [S1, S999]', concepts: ['Invalid source'] },
+  ]) assert.throws(() => parseOutput('summary', complete(JSON.stringify(invalid)), { materials }), codeIs('INVALID_AI_OUTPUT'));
+  assert.throws(() => parseOutput('summary', complete('Some commentary ' + JSON.stringify(summary)), { materials }), codeIs('INVALID_AI_OUTPUT'));
+});
+
+test("Summary repairs invalid or truncated structured output once with the same source material", async () => {
+  const summary = { paragraph: 'Photosynthesis converts light energy. [S1]', concepts: ['Chemical energy'] };
+  for (const first of [complete('not JSON'), complete(JSON.stringify({ paragraph: 'No concepts' })),
+    { candidates: [{ finishReason: 'MAX_TOKENS' }] }]) {
+    const requests = [];
+    const service = createGeminiService({ apiKey: 'test-key', fetchImpl: async (_url, options) => {
+      requests.push(JSON.parse(options.body));
+      return reply(requests.length === 1 ? first : complete(JSON.stringify(summary)));
+    } });
+    assert.equal((await service.generate('summary', { materials })).paragraph, summary.paragraph);
+    assert.equal(requests.length, 2);
+    assert.match(requests[1].contents.at(-1).parts[0].text, /RESPONSE CHECK/);
+    assert.ok(requests.every(request => request.contents.at(-1).parts[0].text.includes(materials[0].content)));
+    assert.deepEqual(requests[1].generationConfig.responseSchema, requests[0].generationConfig.responseSchema);
+  }
+});
+
+test("Summary repair is bounded, does not repair safety blocks, and shares HTTP retry and cancellation budgets", async () => {
+  for (const transientFirst of [false, true]) {
+    let calls = 0;
+    const service = createGeminiService({ apiKey: 'test-key', delay: async () => {}, fetchImpl: async () => {
+      calls++;
+      return transientFirst && calls === 1 ? reply('Busy', 503) : reply(complete('invalid JSON'));
+    } });
+    await assert.rejects(service.generate('summary', { materials }), codeIs('INVALID_AI_OUTPUT'));
+    assert.equal(calls, 2);
+  }
+  let calls = 0;
+  const blocked = createGeminiService({ apiKey: 'test-key', fetchImpl: async () => { calls++; return reply({ candidates: [{ finishReason: 'SAFETY' }] }); } });
+  await assert.rejects(blocked.generate('summary', { materials }), codeIs('INCOMPLETE_RESPONSE'));
+  assert.equal(calls, 1);
+  const slow = createGeminiService({ apiKey: 'test-key', timeoutMs: 25, fetchImpl: async (url, options) => {
+    calls++;
+    return calls === 2 ? reply(complete('bad JSON')) : hangingFetch(url, options);
+  } });
+  await assert.rejects(slow.generate('summary', { materials }), codeIs('AI_TIMEOUT'));
+  const controller = new AbortController(); calls = 0;
+  const cancelled = createGeminiService({ apiKey: 'test-key', fetchImpl: async (url, options) => {
+    calls++;
+    if (calls === 1) return reply(complete('bad JSON'));
+    controller.abort(); return hangingFetch(url, options);
+  } });
+  await assert.rejects(cancelled.generate('summary', { materials }, { signal: controller.signal }), error => error.name === 'AbortError');
+  assert.equal(calls, 2);
+});
+
+test("Quiz rejects equivalent exact and rounded scalar options while preserving different units and close distractors", () => {
+  const { hasEquivalentOptions } = require('../src/services/quizQuality');
+  for (const pair of [
+    ['√164 units', '12.8 units (3sf)'], ['sqrt(164)', '12.8 units (3 s.f.)'],
+    ['\\sqrt{164}', '12.81 (2 decimal places)'], ['1/2', '0.5'], ['1/3', '0.333'],
+    ['\\frac{2}{3}', 'a = 0.667 (3 significant figures)'], ['2 units', '2.0 units'],
+    [' Same   answer ', 'same answer'],
+  ]) assert.equal(hasEquivalentOptions([...pair, 'An unrelated option', 'Another option']), true, pair.join(' / '));
+  for (const pair of [
+    ['12.8', '12.9'], ['12.8', '12.84'], ['1e-20', '2e-20'], ['1 m', '1 cm'], ['1/3', '0.334'],
+    ['9007199254740992', '9007199254740993'], ['1.000000000000001', '1.000000000000002'],
+    ['1.00000000000000001', '1.00000000000000002'], ['1e-324', '0'], ['1e-323%', '0'],
+    ['sqrt(9007199254740993)', '94906265.6'], ['1/9007199254740993', '0.000000000000000111'],
+    ['sqrt(x)', '12.8'], ['x + 1', '1'], ['1/0', '0'], ['C++', 'C#'], ['2%', '2'],
+  ]) assert.equal(hasEquivalentOptions([...pair, 'One option', 'Other option']), false, pair.join(' / '));
+  const question = { question: 'Given A(6,-3,2) and B(-2,5,-4), find the distance in units.',
+    options: ['√164 units', '12.8 units (3sf)', '10 units', '8 units'], answerIndices: [1], explanation: 'The squared distance is 164. [S1]' };
+  assert.throws(() => parseOutput('quiz', complete(JSON.stringify({ questions: [question] })), { materials, questionCount: 1 }), codeIs('AMBIGUOUS_QUIZ'));
+});
+
+test("ambiguous Quiz options trigger one regenerated, validated Quiz with correct answer mappings", async () => {
+  const question = { question: 'Given A(6,-3,2) and B(-2,5,-4), find the distance to 3 significant figures.',
+    options: ['√164 units', '12.8 units (3sf)', '10 units', '8 units'], answerIndices: [1], explanation: 'The squared distance is 164. [S1]' };
+  const corrected = { ...question, options: ['12.8 units', '10.0 units', '8.00 units', '16.4 units'], answerIndices: [0] };
+  const requests = [];
+  const service = createGeminiService({ apiKey: 'test-key', fetchImpl: async (_url, options) => {
+    requests.push(JSON.parse(options.body));
+    return reply(complete(JSON.stringify({ questions: [requests.length === 1 ? question : corrected] })));
+  } });
+  const result = await service.generate('quiz', { materials, questionCount: 1, quizType: 'single' });
+  assert.equal(requests.length, 2);
+  assert.match(requests[1].contents.at(-1).parts[0].text, /RESPONSE CHECK/);
+  assert.equal(result.questions[0].options[result.questions[0].answerIndices[0]], '12.8 units');
+  let calls = 0;
+  const invalid = createGeminiService({ apiKey: 'test-key', fetchImpl: async () => { calls++; return reply(complete(JSON.stringify({ questions: [question] }))); } });
+  await assert.rejects(invalid.generate('quiz', { materials, questionCount: 1 }), codeIs('AMBIGUOUS_QUIZ'));
+  assert.equal(calls, 2);
+  const prompt = requests[0].contents.at(-1).parts[0].text;
+  assert.match(prompt, /explicit coordinate separators/);
+  assert.match(prompt, /required units and rounding precision/);
+  assert.match(prompt, /Check conceptual equivalence/);
+  assert.match(prompt, /choose another fully supported question instead of guessing/);
 });

@@ -1,8 +1,9 @@
 # Support ticket workflow
 
 The active administrator portal is ticket-only. Admin sign-in opens `/admin/support`;
-old `/admin/*` URLs redirect there. Legacy admin page source files remain for reference
-but are no longer imported or routed. Student learning pages are unchanged.
+`/admin` redirects there, while other unavailable `/admin/*` URLs show the page-not-found
+screen. Legacy admin page source files remain for reference but are no longer imported
+or routed.
 
 ## Use
 
@@ -14,14 +15,15 @@ but are no longer imported or routed. Student learning pages are unchanged.
    calls the real backend Gemini API, and saves its reply. There is no draft approval
    or separate ticket submission. A visible notice explains that recent support
    messages are sent to Google Gemini and administrators can read the conversation.
-3. Students can choose **Request human support** in Ask Me. The request persists
-   as Waiting, appears in the administrator's **Human support waiting queue**,
-   and remains waiting even if Gemini replies. Duplicate clicks/retries do not
-   create duplicate requests. An administrator reply or In progress status moves
-   it to In progress. Resolved closes it; the student can request help again.
+3. Students can choose **Human support** in Ask Me. This opens a form; submitting
+   its category, title and problem creates a separate ticket in Waiting, without
+   copying the AI conversation. It appears in the administrator's **Human support
+   waiting queue**. Duplicate submissions/retries do not create duplicate requests.
+   An administrator reply or In progress status moves it to In progress. Resolved
+   closes it; the student can reopen it or submit a different issue separately.
 4. The admin opens Support Tickets, searches or filters the inbox, reads the issue,
    replies, and sets Open, In progress, or Resolved. Resolved records can be reopened.
-5. The student uses This login or Conversation history to read and reply. The admin
+5. The student uses **AI help** or **History** in Ask Me to read and reply. The admin
    inbox and open chats poll every eight seconds while visible, with manual refresh
    available. Draft text is retained during polling. This is not a live WebSocket chat.
 6. Conversation distinguishes student, Gemini AI, legacy preset FAQ, and administrator messages with timestamps.
@@ -31,7 +33,11 @@ but are no longer imported or routed. Student learning pages are unchanged.
 
 No example tickets are seeded. An empty database shows zero until a student signs in. Browser-only
 legacy tickets are not automatically uploaded, overwritten, or deleted. A student
-may review and re-submit an unresolved issue. No email notifications are sent.
+may review and re-submit an unresolved issue. Administrator replies to regular tickets
+queue email notifications for active owners with verified email or a linked Google
+account. Failed/skipped delivery is visible and retryable; provider acceptance does
+not prove inbox delivery. Recovery notes and status-only changes do not send email.
+See [asynchronous support follow-up](SUPPORT_FOLLOWUP.md) for queue and retry details.
 
 ## Storage and permissions
 
@@ -114,7 +120,8 @@ as staff replies. Counts apply to loaded matches; filters apply to the full data
 
 `GET /api/tickets` accepts `q` (up to 200 characters), `status`, `category`,
 `from` and `to` (YYYY-MM-DD, UTC), `hideEmpty`, `needsReply`, `humanOnly`
-(true/false), `sort` (newest/oldest) and an opaque `cursor`.
+(true/false), `sort` (newest/oldest/requested) and an opaque `cursor`.
+`requested` requires `humanOnly=true` and orders the waiting queue by request time.
 Keep the same filters for subsequent pages. A cursor from another filter is rejected.
 
 `POST /api/tickets/:id/human-support` accepts `{clientId: "<UUID>"}`.

@@ -12,6 +12,8 @@ async function startServer() {
     // second, empty database in the application directory.
     const database = require("./config/database");
     await database.initializeDatabase();
+    const { createOriginalStorage, cleanupDeletedOriginals } = require('./services/originalStorage');
+    await cleanupDeletedOriginals(database, createOriginalStorage(database.databasePath));
     const app = createApp({ database });
 
     const server = app.listen(PORT, process.env.HOST || "127.0.0.1", () => {

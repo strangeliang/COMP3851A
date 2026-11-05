@@ -3,7 +3,7 @@ const bcrypt = require("bcryptjs");
 const { randomUUID } = require("crypto");
 const { createSessionService, createRateLimiter } = require("../services/sessionService");
 const { StudyError, limits, validateRequest, normalizeFlashcardText } = require("../services/studyContracts");
-const { createOriginalStorage, validateOriginal } = require("../services/originalStorage");
+const { createOriginalStorage, validateOriginal, cleanupDeletedOriginals } = require("../services/originalStorage");
 const path = require("node:path");
 const { startLogin } = require('../services/startLogin');
 const { validAnswer, isCorrect } = require('../../../shared/quiz.mjs');
@@ -106,12 +106,61 @@ function createStudyRoutes({ database, gemini, mailer, sessions = createSessionS
     if (req.user.role !== 'Admin') throw new StudyError(403, 'ADMIN_REQUIRED', 'Administrator access is required.');
     res.json(await database.getDatabaseStatus());
   });
-  router.get("/history", authenticate, async (req, res) => res.json({
-    records: (await database.listHistory(req.user.id)).map((r) => ({ ...r, payload: JSON.parse(r.payload) })),
-    reviews: (await database.listReviews(req.user.id)).map((r) => ({ ...r, payload: JSON.parse(r.payload) })),
-    deletedRecords: (await database.listDeletedHistory?.(req.user.id) || []).map((r) => ({ ...r, payload: JSON.parse(r.payload) })),
-    sourceMaterials: await database.listHistorySources?.(req.user.id) || [],
-  }));
+  router.get("/history", authenticate, async (req, res) => {
+    const views = await database.listHistoryViews?.(req.user.id) || [];
+    res.json({
+      records: (await database.listHistory(req.user.id)).map((r) => ({ ...r, payload: JSON.parse(r.payload) })),
+      reviews: (await database.listReviews(req.user.id)).map((r) => ({ ...r, payload: JSON.parse(r.payload) })),
+      deletedRecords: (await database.listDeletedHistory?.(req.user.id) || []).map((r) => ({ ...r, payload: JSON.parse(r.payload) })),
+      sourceMaterials: await database.listHistorySources?.(req.user.id) || [],
+      viewed: { history: views.filter(v => v.page === 'history').map(v => v.record_id), review: views.filter(v => v.page === 'review').map(v => v.record_id) },
+    });
+  });
+  router.post('/history/:id/view', authenticate, async (req, res) => {
+    const body = req.body;
+    if (!body || Array.isArray(body) || Object.keys(body).some(key => key !== 'page') || !['history', 'review'].includes(body.page)) {
+      throw new StudyError(400, 'INVALID_VIEW', 'Choose Study History or Review Centre.');
+    }
+    const record = await database.getHistory(req.params.id, req.user.id);
+    if (!record || (body.page === 'review' && record.kind !== 'quiz')) throw new StudyError(404, 'NOT_FOUND', 'This study record is unavailable.');
+    await database.markHistoryViewed(record.id, req.user.id, body.page);
+    if (!await database.getHistory(record.id, req.user.id)) throw new StudyError(404, 'NOT_FOUND', 'This study record is unavailable.');
+    res.json({ ok: true });
+  });
+  async function flashcardRecord(req) {
+    const record = await database.getHistory(req.params.id, req.user.id);
+    if (!record || record.kind !== 'flashcards') throw new StudyError(404, 'NOT_FOUND', 'This flashcard set is unavailable.');
+    const cards = JSON.parse(record.payload).cards;
+    if (!Array.isArray(cards) || !cards.length || cards.length > 100 || cards.some(card => !card || typeof card !== 'object' || Array.isArray(card))) {
+      throw new StudyError(400, 'INVALID_FLASHCARDS', 'This flashcard set is invalid.');
+    }
+    const ids = cards.map((card, index) => String(card.id ?? index + 1));
+    if (ids.some(id => !/^[a-zA-Z0-9:_-]{1,100}$/.test(id) || ['__proto__', 'constructor', 'prototype'].includes(id)) || new Set(ids).size !== ids.length) {
+      throw new StudyError(400, 'INVALID_FLASHCARDS', 'This flashcard set has invalid card identifiers.');
+    }
+    return { record, ids };
+  }
+  async function progressResponse(req, res, ids) {
+    const rows = await database.listFlashcardProgress(req.params.id, req.user.id);
+    if (!await database.getHistory(req.params.id, req.user.id)) throw new StudyError(404, 'NOT_FOUND', 'This flashcard set is unavailable.');
+    res.json({ mastered: rows.map(row => row.card_id).filter(id => ids.includes(id)) });
+  }
+  router.get('/history/:id/flashcards-progress', authenticate, async (req, res) => {
+    const { ids } = await flashcardRecord(req);
+    await progressResponse(req, res, ids);
+  });
+  router.patch('/history/:id/flashcards-progress', authenticate, async (req, res) => {
+    const body = req.body;
+    if (!body || Array.isArray(body) || Object.keys(body).some(key => !['cardId', 'mastered'].includes(key))
+      || !['string', 'number'].includes(typeof body.cardId) || typeof body.mastered !== 'boolean') {
+      throw new StudyError(400, 'INVALID_FLASHCARD_PROGRESS', 'Choose a card and its mastered state.');
+    }
+    const { record, ids } = await flashcardRecord(req);
+    const cardId = String(body.cardId);
+    if (!ids.includes(cardId)) throw new StudyError(400, 'INVALID_FLASHCARD_PROGRESS', 'This card is not part of the saved flashcard set.');
+    await database.setFlashcardMastered(record.id, req.user.id, cardId, body.mastered);
+    await progressResponse(req, res, ids);
+  });
   router.post("/history/delete-all", authenticate, async (req, res) => {
     const result = await database.deleteAllHistory(req.user.id);
     res.json({ ok: true, count: result.changes });
@@ -159,11 +208,14 @@ function createStudyRoutes({ database, gemini, mailer, sessions = createSessionS
     const saved = await database.getHistory(`${req.user.id}:${id}`, req.user.id);
     if (!saved && kind === 'qa' && payload.conversationId && await database.hasDeletedQAConversation(req.user.id, courseId, payload)) throw new StudyError(409, 'HISTORY_DELETED', 'This conversation was deleted. Use Undo in Study History to restore it.');
     if (!saved && await database.getHistoryIncludingDeleted?.(`${req.user.id}:${id}`, req.user.id)) throw new StudyError(409, 'HISTORY_DELETED', 'This record was deleted. Use Undo in Study History to restore it.');
-    if (!saved) throw new StudyError(404, 'COURSE_NOT_FOUND', 'The course was removed before the record could be saved.');
+    if (!saved) {
+      if (await database.courseBelongsToOwner(courseId, req.user.id)) throw new StudyError(404, 'MATERIAL_NOT_FOUND', 'A source material was removed before the record could be saved.');
+      throw new StudyError(404, 'COURSE_NOT_FOUND', 'The course was removed before the record could be saved.');
+    }
     if (saved.kind !== kind || saved.course_id !== courseId || saved.payload !== JSON.stringify(payload)) {
       throw new StudyError(409, "HISTORY_CONFLICT", "This record ID has already been used for different content.");
     }
-    res.json({ ok: true });
+    res.json({ ok: true, id: saved.id });
   });
   router.post("/history/:id/review", authenticate, async (req, res) => {
     const record = await database.getHistory(req.params.id, req.user.id);
@@ -229,10 +281,9 @@ function createStudyRoutes({ database, gemini, mailer, sessions = createSessionS
     } catch (error) { mapDatabaseError(error); }
   });
   router.delete("/courses/:courseId", authenticate, async (req, res) => {
-    const files = database.listOriginalsForCourse ? await database.listOriginalsForCourse(req.params.courseId, req.user.id) : [];
     const result = await database.deleteCourse(req.params.courseId, req.user.id);
     if (result.changes !== 1) throw new StudyError(404, "COURSE_NOT_FOUND", "This course does not exist or does not belong to you.");
-    await Promise.all(files.map((file) => originals.remove(file.storage_key)));
+    await cleanupDeletedOriginals(database, originals);
     res.json({ ok: true });
   });
   router.get("/courses/:courseId/materials", authenticate, async (req, res) => {
@@ -311,10 +362,9 @@ function createStudyRoutes({ database, gemini, mailer, sessions = createSessionS
   router.delete("/materials/:materialId", authenticate, async (req, res) => {
     const id = Number(req.params.materialId);
     if (!Number.isSafeInteger(id) || id < 1) throw new StudyError(404, "MATERIAL_NOT_FOUND", "This material does not exist or does not belong to you.");
-    const material = database.getMaterialForOwner ? await database.getMaterialForOwner(id, req.user.id) : null;
     const result = await database.deleteMaterialForOwner(id, req.user.id);
     if (result.changes !== 1) throw new StudyError(404, "MATERIAL_NOT_FOUND", "This material does not exist or does not belong to you.");
-    await originals.remove(material?.storage_key);
+    await cleanupDeletedOriginals(database, originals);
     res.json({ ok: true });
   });
   router.get("/ai/status", authenticate, (req, res) => res.json(gemini.status()));

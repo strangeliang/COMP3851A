@@ -15,6 +15,7 @@ import { Link, NavLink, useLocation } from "react-router-dom";
 import { useAppData } from "../state/AppDataContext";
 import { useLanguage } from "../state/LanguageContext";
 import StudyLogo from "./StudyLogo";
+import { studyUnreadCounts } from '../utils/studyNotifications';
 import "./StudentSidebar.css";
 
 const links = [
@@ -29,9 +30,11 @@ const aiLinks = [
 ];
 
 export default function StudentSidebar() {
-  const { logout } = useAppData();
+  const { logout, currentUser, serverStudyHistory } = useAppData();
   const { language } = useLanguage();
   const location = useLocation();
+  const unread = studyUnreadCounts(serverStudyHistory, currentUser?.id);
+  const newBadge = count => count > 0 && <span className="study-new-badge sidebar-new-badge" data-react-i18n aria-label={language === 'zh' ? `${count} 条新记录` : `${count} new records`}>{language === 'zh' ? '新' : 'New'} {count}</span>;
   const currentMode = new URLSearchParams(location.search).get("mode") || "summary";
   const isAI = location.pathname === "/student/workspace" && aiLinks.some((item) => item.mode === currentMode);
 
@@ -76,8 +79,8 @@ export default function StudentSidebar() {
             ))}
           </div>
         </details>
-        <NavLink to="/student/history" className={({ isActive }) => isActive ? "active" : ""}><span className="nav-icon"><BookOpenText size={15} /></span>Study History</NavLink>
-        <NavLink to="/student/review" className={({ isActive }) => isActive ? "active" : ""}><span className="nav-icon"><ListChecks size={15} /></span>Review Centre</NavLink>
+        <NavLink to="/student/history" className={({ isActive }) => isActive ? "active" : ""}><span className="nav-icon"><BookOpenText size={15} /></span>Study History{newBadge(unread.history)}</NavLink>
+        <NavLink to="/student/review" className={({ isActive }) => isActive ? "active" : ""}><span className="nav-icon"><ListChecks size={15} /></span>Review Centre{newBadge(unread.review)}</NavLink>
       </nav>
       <div className="sidebar-spacer" />
       <p className="nav-label" data-react-i18n>{language === "zh" ? "账户" : "Account"}</p>

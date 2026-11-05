@@ -101,6 +101,17 @@ async function getDatabaseStatus() {
   };
 }
 
+// Check references in the INSERT itself: a source may be deleted after the route
+// validates it, before this statement reaches SQLite.
+const historySourceGuard = `AND NOT EXISTS(SELECT 1 FROM json_each(?) source
+  WHERE NOT EXISTS(SELECT 1 FROM materials m WHERE CAST(m.id AS TEXT)=CAST(source.value AS TEXT)
+    AND m.owner_id=? AND m.course_id=?))`;
+function historySourceParameters(payload, owner, course) {
+  const ids = [...(Array.isArray(payload.selectedMaterialIds) ? payload.selectedMaterialIds : [])];
+  if (payload.sourceFileId !== undefined && payload.sourceFileId !== '') ids.push(payload.sourceFileId);
+  return [JSON.stringify(ids), owner, course];
+}
+
 module.exports = {
   createLoginConversation: (id, owner) => {
     const now = new Date().toISOString();
@@ -124,17 +135,40 @@ module.exports = {
   getMaterialForOwner: (id, owner) => get("SELECT m.*, o.storage_key FROM materials m LEFT JOIN material_originals o ON o.material_id=m.id WHERE m.id=? AND m.owner_id=?", [id, owner]),
   saveOriginal: (id, owner, key, hash) => run("INSERT INTO material_originals(material_id,storage_key,sha256) SELECT id,?,? FROM materials WHERE id=? AND owner_id=?", [key, hash, id, owner]),
   listOriginalsForCourse: (course, owner) => all("SELECT o.storage_key FROM material_originals o JOIN materials m ON m.id=o.material_id WHERE m.course_id=? AND m.owner_id=?", [course, owner]),
-  saveHistory: (id, owner, kind, course, payload) => run("INSERT OR IGNORE INTO study_history(id,owner_id,kind,course_id,payload) SELECT ?,?,?,?,? WHERE EXISTS(SELECT 1 FROM courses WHERE id=? AND owner_id=?)", [id, owner, kind, course, JSON.stringify(payload), course, owner]),
+  listOriginalCleanup: () => all("SELECT storage_key FROM original_cleanup_queue ORDER BY storage_key"),
+  completeOriginalCleanup: (key) => run("DELETE FROM original_cleanup_queue WHERE storage_key=?", [key]),
+  saveHistory: (id, owner, kind, course, payload) => run(`INSERT OR IGNORE INTO study_history(id,owner_id,kind,course_id,payload) SELECT ?,?,?,?,? WHERE EXISTS(SELECT 1 FROM courses WHERE id=? AND owner_id=?) ${historySourceGuard}`, [id, owner, kind, course, JSON.stringify(payload), course, owner, ...historySourceParameters(payload, owner, course)]),
   saveQAMessage: (id, owner, course, payload) => run(`INSERT OR IGNORE INTO study_history(id,owner_id,kind,course_id,payload)
     SELECT ?,?,'qa',?,? WHERE EXISTS(SELECT 1 FROM courses WHERE id=? AND owner_id=?)
+    ${historySourceGuard}
     AND NOT EXISTS(SELECT 1 FROM study_history h JOIN study_history_deletions d ON d.record_id=h.id
       WHERE h.owner_id=? AND h.course_id=? AND h.kind='qa' AND json_extract(h.payload,'$.conversationId')=? AND json_extract(h.payload,'$.scopeKey')=?)`,
-  [id, owner, course, JSON.stringify(payload), course, owner, owner, course, payload.conversationId, payload.scopeKey]),
+  [id, owner, course, JSON.stringify(payload), course, owner, ...historySourceParameters(payload, owner, course), owner, course, payload.conversationId, payload.scopeKey]),
   hasDeletedQAConversation: (owner, course, payload) => get(`SELECT 1 FROM study_history h JOIN study_history_deletions d ON d.record_id=h.id
     WHERE h.owner_id=? AND h.course_id=? AND h.kind='qa' AND json_extract(h.payload,'$.conversationId')=? AND json_extract(h.payload,'$.scopeKey')=? LIMIT 1`,
   [owner, course, payload.conversationId, payload.scopeKey]),
   listHistory: (owner) => all("SELECT h.* FROM study_history h WHERE h.owner_id=? AND NOT EXISTS(SELECT 1 FROM study_history_deletions d WHERE d.record_id=h.id) ORDER BY h.created_at DESC,h.rowid DESC", [owner]),
   listHistorySources: (owner) => all("SELECT id,course_id,name FROM materials WHERE owner_id=? ORDER BY id", [owner]),
+  listHistoryViews: (owner) => all(`SELECT v.record_id,v.page FROM study_history_views v
+    JOIN study_history h ON h.id=v.record_id AND h.owner_id=v.owner_id
+    WHERE v.owner_id=? AND NOT EXISTS(SELECT 1 FROM study_history_deletions d WHERE d.record_id=h.id)`, [owner]),
+  markHistoryViewed: (id, owner, page) => run(`INSERT OR IGNORE INTO study_history_views(record_id,owner_id,page)
+    SELECT id,owner_id,? FROM study_history WHERE id=? AND owner_id=?
+      AND (?='history' OR kind='quiz')
+      AND NOT EXISTS(SELECT 1 FROM study_history_deletions d WHERE d.record_id=study_history.id)`, [page, id, owner, page]),
+  listFlashcardProgress: (id, owner) => all(`SELECT p.card_id FROM flashcard_progress p
+    JOIN study_history h ON h.id=p.record_id AND h.owner_id=p.owner_id
+    WHERE p.record_id=? AND p.owner_id=? AND h.kind='flashcards'
+      AND NOT EXISTS(SELECT 1 FROM study_history_deletions d WHERE d.record_id=h.id)
+    ORDER BY p.card_id`, [id, owner]),
+  setFlashcardMastered: (id, owner, cardId, mastered) => mastered
+    ? run(`INSERT INTO flashcard_progress(record_id,owner_id,card_id)
+        SELECT id,owner_id,? FROM study_history WHERE id=? AND owner_id=? AND kind='flashcards'
+          AND NOT EXISTS(SELECT 1 FROM study_history_deletions d WHERE d.record_id=study_history.id)
+        ON CONFLICT(record_id,card_id) DO UPDATE SET updated_at=CURRENT_TIMESTAMP`, [cardId, id, owner])
+    : run(`DELETE FROM flashcard_progress WHERE record_id=? AND owner_id=? AND card_id=?
+        AND EXISTS(SELECT 1 FROM study_history h WHERE h.id=flashcard_progress.record_id AND h.owner_id=? AND h.kind='flashcards'
+          AND NOT EXISTS(SELECT 1 FROM study_history_deletions d WHERE d.record_id=h.id))`, [id, owner, cardId, owner]),
   getLatestFlashcards: (owner, materialIds) => get(`SELECT h.payload FROM study_history h
     WHERE h.owner_id=? AND h.kind='flashcards'
       AND json_array_length(h.payload,'$.selectedMaterialIds')=?
@@ -203,8 +237,8 @@ module.exports = {
   ),
   createMaterialForOwner: async ({ courseId, ownerId, name, type, sizeBytes, content, readingNotes = "" }) => {
     const result = await run(
-      `INSERT INTO materials (course_id, owner_id, name, type, size_bytes, status, content, reading_notes)
-       SELECT id, owner_id, ?, ?, ?, 'Ready', ?, ? FROM courses
+      `INSERT INTO materials (id, course_id, owner_id, name, type, size_bytes, status, content, reading_notes)
+       SELECT (SELECT last_id+1 FROM material_id_sequence WHERE singleton=1), id, owner_id, ?, ?, ?, 'Ready', ?, ? FROM courses
        WHERE id = ? AND owner_id = ?
        AND (SELECT COUNT(*) FROM materials WHERE course_id=? AND owner_id=?) < ?
        AND (SELECT COUNT(*) FROM materials WHERE owner_id=?) < ?;`,

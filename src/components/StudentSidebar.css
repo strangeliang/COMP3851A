@@ -1,4 +1,6 @@
 .sidebar-ai-group { min-width: 0; }
+.study-new-badge { display: inline-flex; align-items: center; flex-shrink: 0; padding: 2px 7px; border-radius: 999px; background: #eee5ff; color: #6430c6; font-size: 10px; line-height: 1.5; font-weight: 700; white-space: nowrap; }
+.sidebar-new-badge { margin-left: auto; }
 .sidebar-ai-group summary {
   display: flex;
   align-items: center;

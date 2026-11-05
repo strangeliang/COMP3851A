@@ -60,7 +60,10 @@ test('file picker and drag/drop share a validated queue; upload is explicit and 
     const remove=renderer.root.findByProps({'aria-label':`Remove ${longName}`});
     assert.ok(remove.children.includes('Remove'),'Remove has a visible text label');
     assert.equal(remove.parent.props.className,'upload-queue-item','Button is outside the filename text');
-    await act(async()=>renderer.root.findAllByType('button').find(b=>b.children.includes('Clear pending files')).props.onClick());
+    assert.match(view(), /Remove and Remove all files only remove files waiting to upload/);
+    assert.match(view(), /up to 10 MB each/);
+    assert.match(view(), /text being read must be no larger than 20 MB after decompression/);
+    await act(async()=>renderer.root.findAllByType('button').find(b=>b.children.includes('Remove all files')).props.onClick());
     assert.equal(renderer.root.findAllByType('button').filter(b=>b.props['aria-label']?.startsWith('Remove ')).length,0);
     assert.equal(uploads.length,1,'Clearing queue must not trigger another upload');
   } finally {if(renderer)await act(async()=>renderer.unmount());}

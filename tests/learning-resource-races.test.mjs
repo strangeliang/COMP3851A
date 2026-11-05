@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import React from 'react';
 import { act, create } from 'react-test-renderer';
 import { deferred, jsonReply, loadSource, memoryWindow } from './helpers.mjs';
+import { studyUnreadCounts } from '../src/utils/studyNotifications.js';
 
 globalThis.IS_REACT_ACT_ENVIRONMENT = true;
 const user = { id: 1, name: 'Student', email: 'student@example.test', role: 'Student', status: 'Active' };
@@ -71,6 +72,29 @@ test('a material read started during deletion cannot restore the deleted materia
 });
 
 for (const resource of ['material', 'course']) {
+  test(`deleting a ${resource} removes its ready history snapshot and New badges without waiting for another read`, async t => {
+    const wrongQuiz = { questions: [{ id: 1, question: 'Choose one', options: ['Correct', 'Wrong'], answerIndex: 0 }], answers: { 1: 1 }, score: 0 };
+    const rows = [
+      { id: '1:quiz', kind: 'quiz', course_id: 'a', payload: { ...wrongQuiz, selectedMaterialIds: [1] } },
+      { id: '1:legacy', kind: 'summary', course_id: 'a', payload: { selectedMaterialIds: [], sourceFileId: '1', summary: { paragraph: 'Legacy source', concepts: [] } } },
+      { id: '1:cards', kind: 'flashcards', course_id: 'a', payload: { selectedMaterialIds: [2], cards: [] } },
+      { id: '1:other', kind: 'quiz', course_id: 'b', payload: { ...wrongQuiz, selectedMaterialIds: [3] } },
+    ].map(record => ({ ...record, owner_id: 1, created_at: '2026-11-05 00:00:00' }));
+    const app = await harness(t, call => call.url === '/api/history'
+      ? jsonReply({ records: rows, viewed: { history: ['1:legacy'], review: [] } }) : undefined);
+    assert.equal(app.data.serverStudyHistory.ready, true);
+    assert.deepEqual(studyUnreadCounts(app.data.serverStudyHistory, 1), { history: 3, review: 2 });
+    await act(async () => {
+      const result = resource === 'material' ? await app.data.deleteMaterial(1) : await app.data.deleteCourse('a');
+      assert.equal(result.ok, true);
+    });
+    assert.deepEqual(app.data.serverStudyHistory.records.map(record => record.id), resource === 'material' ? ['1:cards', '1:other'] : ['1:other']);
+    assert.deepEqual(app.data.serverStudyHistory.viewed, { history: [], review: [] });
+    assert.deepEqual(app.data.summaryRecords, [], 'An empty legacy selection cannot hide its explicit sourceFileId dependency');
+    assert.deepEqual(studyUnreadCounts(app.data.serverStudyHistory, 1), { history: resource === 'material' ? 2 : 1, review: 1 });
+    assert.equal(app.calls.filter(call => call.url === '/api/history').length, 1, 'An acknowledged permanent deletion can update the ready snapshot immediately');
+  });
+
   test(`a late history refresh cannot restore records removed with a ${resource}`, async t => {
     const oldHistory = deferred();
     let reads = 0;

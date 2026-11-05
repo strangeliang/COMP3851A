@@ -226,9 +226,9 @@ export default function AIChatBox({ selectedMaterials = [], currentCourse = null
                   <Message key={message.id || index} model={message} type="text">
                     {onPreviewSource && message.sources?.length > 0 && <Message.Footer>
                       <div className="qa-answer-sources" data-react-i18n aria-label={t("Sources cited in this answer", "本回答引用的来源")}>
-                        {message.sources.map(({ label, material }) => <button key={label} type="button"
+                        {message.sources.map(({ label, material, location }) => <button key={label} type="button"
                           title={material.name} aria-label={t(`View source ${label}: ${material.name}`, `查看来源 ${label}：${material.name}`)}
-                          onClick={() => onPreviewSource(material.id, label)}>{label}</button>)}
+                          onClick={() => onPreviewSource(material.id, label, location)}>{label}</button>)}
                       </div>
                     </Message.Footer>}
                   </Message>

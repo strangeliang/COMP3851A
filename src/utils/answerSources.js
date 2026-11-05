@@ -1,4 +1,5 @@
 import { sameId } from "./studyScope";
+import { parseSourceCitations } from "../../shared/sourceCitations.mjs";
 
 export function answerSources(record, provenance, scope, materials) {
   if (record.role !== "AI" || record.mode !== "api" || typeof record.text !== "string"
@@ -8,7 +9,7 @@ export function answerSources(record, provenance, scope, materials) {
   if (!Array.isArray(ids) || ids.length !== materials.length || new Set(ids.map(String)).size !== ids.length
     || !ids.every(id => materials.some(material => sameId(material.id, id)
       && sameId(material.courseId, scope.courseId) && (material.ownerId == null || sameId(material.ownerId, scope.userId))))) return [];
-  const cited = [...record.text.matchAll(/\[S([1-9]\d*)\]/g)].map(match => Number(match[1]));
-  return [...new Set(cited)].filter(index => Number.isSafeInteger(index) && index <= ids.length)
-    .map(index => ({ label: `[S${index}]`, material: materials.find(material => sameId(material.id, ids[index - 1])) }));
+  return parseSourceCitations(record.text).filter(citation => citation.source <= ids.length)
+    .map(citation => ({ label: citation.label, location: citation.location,
+      material: materials.find(material => sameId(material.id, ids[citation.source - 1])) }));
 }

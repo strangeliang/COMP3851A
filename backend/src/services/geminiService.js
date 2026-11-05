@@ -36,9 +36,14 @@ function createGeminiService({ apiKey = process.env.GEMINI_API_KEY || "", model 
             try {
               return mode === 'support' ? parseSupportOutput(await response.json()) : parseOutput(mode, await response.json(), validated);
             } catch (error) {
+              const repairable = ["summary", "quiz"].includes(mode)
+                && (["INVALID_AI_OUTPUT", "AMBIGUOUS_QUIZ", "OUTPUT_TRUNCATED"].includes(error.code) || error instanceof SyntaxError);
               // Content and transient HTTP failures share the same two attempts and timeout.
-              if (mode === "flashcards" && error.code === "FLASHCARDS_NOT_FRESH" && attempt === 0) {
+              if (attempt === 0 && ((mode === "flashcards" && error.code === "FLASHCARDS_NOT_FRESH") || repairable)) {
                 request = buildGeminiRequest(mode, validated);
+                if (repairable) request.contents.at(-1).parts[0].text += mode === "summary"
+                  ? "\n\nRESPONSE CHECK: The previous generation could not be used. Generate a new, concise, complete JSON object with exactly paragraph (string) and concepts (array of short strings), using only the supplied sources and valid source labels. Do not return prose outside JSON."
+                  : "\n\nRESPONSE CHECK: The previous generation failed format or answer-quality validation. Generate a new complete Quiz, independently verify each solution, and ensure all four options have distinct meanings and numerical values. Do not include exact and rounded forms of the same answer. Return only valid JSON matching the requested count and question type.";
                 continue;
               }
               throw error;

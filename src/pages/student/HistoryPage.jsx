@@ -12,6 +12,8 @@ import { formatStudyDate } from "../../utils/dateTime";
 import { historyMatchesQuery } from "../../utils/historySearch";
 import { latestPractice } from "../../utils/reviewDisplay";
 import { groupQAHistory, qaMessages, historyRecordIds } from "../../utils/qaHistory";
+import { recordIsNew } from '../../utils/studyNotifications';
+import useFlashcardProgress from '../../hooks/useFlashcardProgress';
 import { indices, correctIndices, isMultiple, isCorrect, validAnswer, toggleAnswer, answerText, createPracticeQuestions } from "../../../shared/quiz.mjs";
 
 export default function HistoryPage({ review = false, initialKind = "All", initialCourse = "All" }) {
@@ -19,8 +21,31 @@ export default function HistoryPage({ review = false, initialKind = "All", initi
   return <HistoryContent key={`${currentUser?.id ?? "signed-out"}:${review}:${initialKind}:${initialCourse}`} review={review} initialKind={initialKind} initialCourse={initialCourse} />;
 }
 
+function SavedFlashcards({ record }) {
+  const { currentUser } = useAppData();
+  const { language } = useLanguage();
+  const t = (en, zh) => language === 'zh' ? zh : en;
+  const progress = useFlashcardProgress({ recordId: record.id, userId: currentUser?.id ?? record.owner_id });
+  const cards = record.payload.cards || [];
+  const mastered = new Set(progress.mastered);
+  return <div className="history-flashcards" data-react-i18n>
+    <p role="status">{progress.loading ? t('Loading saved card progress…', '正在读取已保存的卡片进度…')
+      : progress.saving ? t('Saving progress to your account…', '正在将进度保存到账户…')
+        : t(`Mastered ${cards.filter((card, index) => mastered.has(String(card.id ?? index + 1))).length} / ${cards.length}`, `已掌握 ${cards.filter((card, index) => mastered.has(String(card.id ?? index + 1))).length} / ${cards.length}`)}</p>
+    {progress.error && <p role="alert" className="form-error">{progress.error} <button type="button" onClick={progress.reload}>{t('Retry progress', '重试进度同步')}</button></p>}
+    {cards.map((card, index) => {
+      const id = String(card.id ?? index + 1);
+      return <article className="history-flashcard" key={id}><details><summary>{card.front}</summary><p>{card.back}</p><small>{card.source}</small></details>
+        <button type="button" disabled={!progress.ready || progress.loading || progress.saving} aria-pressed={mastered.has(id)}
+          aria-label={t(`${mastered.has(id) ? 'Review' : 'Master'} saved card ${index + 1}`, `${mastered.has(id) ? '再次复习' : '掌握'}已保存卡片 ${index + 1}`)}
+          onClick={() => progress.toggle(id)}>{mastered.has(id) ? t('Review again', '再复习') : t('Mark as mastered', '标记已掌握')}</button>
+      </article>;
+    })}
+  </div>;
+}
+
 function HistoryContent({ review, initialKind, initialCourse }) {
-  const { studentCourses, summaryRecords, currentChatRecords, quizAttempts, refreshStudyHistory, studentMaterials = [] } = useAppData();
+  const { studentCourses, summaryRecords, currentChatRecords, quizAttempts, refreshStudyHistory, markStudyViewed, studentMaterials = [] } = useAppData();
   const { language } = useLanguage();
   const t = (en, zh) => language === "zh" ? zh : en;
   const kindLabel = (value) => ({ All: t("All", "全部"), summary: t("Summary", "总结"), qa: t("Q&A", "问答"), quiz: t("Quiz", "测验"), flashcards: t("Flashcards", "记忆卡") })[value] || value;
@@ -37,6 +62,8 @@ function HistoryContent({ review, initialKind, initialCourse }) {
   const [result, setResult] = useState(null);
   const [lastDeleted, setLastDeleted] = useState(null);
   const [notice, setNotice] = useState("");
+  const [viewError, setViewError] = useState(null);
+  const acknowledgedViews = useRef({ history: [], review: [] });
   const [practiceMode, setPracticeMode] = useState("wrong");
   const [practiceQuestions, setPracticeQuestions] = useState([]);
   const saving = useRef(false);
@@ -51,7 +78,12 @@ function HistoryContent({ review, initialKind, initialCourse }) {
     setPending(true); setError("");
     try {
       const value = await apiRequest("/history", { signal: controller.signal });
-      if (isCurrent()) { setData(value); setLoaded(true); }
+      if (isCurrent()) {
+        setData({ ...value, viewed: value.viewed && Object.fromEntries(['history', 'review'].map(page => [page,
+          [...new Set([...(value.viewed[page] || []), ...acknowledgedViews.current[page]])],
+        ])) });
+        setLoaded(true);
+      }
     } catch (err) { if (isCurrent()) setError(err.message); }
     finally { if (isCurrent()) { loadRequest.current = null; setPending(false); } }
   }, []);
@@ -73,6 +105,20 @@ function HistoryContent({ review, initialKind, initialCourse }) {
     if (pending) return;
     if (!review || selected?.id !== record.id) startPractice(record);
     setDetailsOpen(true);
+    markOpened(record);
+  }
+  async function markOpened(record) {
+    const page = review ? 'review' : 'history';
+    if (!recordIsNew(record, page, data.viewed)) return;
+    const ids = historyRecordIds(record).filter(id => !data.viewed[page].includes(id));
+    try {
+      if (markStudyViewed) await markStudyViewed(ids, page);
+      else await Promise.all(ids.map(id => apiRequest(`/history/${encodeURIComponent(id)}/view`, { method: 'POST', body: { page } })));
+      if (!mounted.current) return;
+      acknowledgedViews.current[page] = [...new Set([...acknowledgedViews.current[page], ...ids])];
+      setData(current => ({ ...current, viewed: { ...current.viewed, [page]: [...new Set([...(current.viewed?.[page] || []), ...ids])] } }));
+      setViewError(null);
+    } catch (error) { if (mounted.current) setViewError({ record, message: error.message }); }
   }
   useEffect(() => {
     if (loaded && selected && !groupQAHistory(data.records).some(record => record.id === selected.id)) {
@@ -188,7 +234,7 @@ function HistoryContent({ review, initialKind, initialCourse }) {
           {!selected.messageRecords && <p data-react-i18n>{t('Earlier message: this record has no conversation link, so it is kept separately to avoid mixing different chats.', '旧消息没有会话关联标记，保留单独显示，避免混入不同对话。')}</p>}
           {qaMessages(selected).map(message => <article className="history-qa-message" key={message.id}><strong data-react-i18n>{message.payload.role === 'User' ? t('You', '你') : t('AI answer', 'AI 回答')}</strong><p>{message.payload.text}</p></article>)}
           {selected.messageRecords && qaMessages(selected).at(-1)?.payload.role === 'User' && <p role="status" data-react-i18n>{t('No AI reply is saved for the last question yet. The question remains saved; this is not a successful AI answer.', '最后一个问题暂时没有已保存的 AI 回答。问题仍已保留，这不代表 AI 已成功回答。')}</p>}
-        </> : selected.kind === "summary" ? <><p>{selected.payload.summary?.paragraph}</p><ul>{selected.payload.summary?.concepts?.map((c, i) => <li key={i}>{c}</li>)}</ul></> : selected.payload.cards?.map((c, i) => <details key={i}><summary>{c.front}</summary><p>{c.back}</p><small>{c.source}</small></details>)}</div>}
+        </> : selected.kind === "summary" ? <><p>{selected.payload.summary?.paragraph}</p><ul>{selected.payload.summary?.concepts?.map((c, i) => <li key={i}>{c}</li>)}</ul></> : <SavedFlashcards key={selected.id} record={selected} />}</div>}
   </>;
   return <StudentLayout><div data-react-i18n className={`study-history-page${review ? " study-review-page" : ""}`}><header className="workspace-header history-heading"><span className="history-heading-icon">{review ? <ListChecks size={25} /> : <History size={25} />}</span><div><h1>{review ? t("Review Centre", "复习中心") : t("Study History", "学习历史")}</h1><p data-react-i18n>{review ? t("Practise wrong questions or retake a complete Quiz. Your original results are kept.", "可以只练错题或重新练习整份测验，原始成绩会保留。") : t("Study records saved to your account on the server.", "学习记录保存在服务器上的个人账户中。")}</p></div></header>
     <div className="user-card history-content">
@@ -198,6 +244,7 @@ function HistoryContent({ review, initialKind, initialCourse }) {
       </div>
       {!review && <p className="history-import-hint">{t("Imports summaries, quizzes and the currently selected Q&A conversation. Select other conversations in Q&A to import them separately.", "导入旧浏览器中的总结、测验和当前问答会话。其他问答会话需分别选择后导入。")}</p>}
       {error && (!detailsOpen || !selected) && <p role="alert" className="form-error">{error}</p>}{(!loaded && !error || pending && (!detailsOpen || !selected)) && <p role="status">{t("Loading…", "加载中…")}</p>}
+      {viewError && <p role="alert" className="form-error" data-react-i18n>{t("Could not save the viewed status. The New badge is kept until saving succeeds.", "暂时无法保存已读状态，成功保存前会保留新记录提示。")} {viewError.message} <button type="button" onClick={() => markOpened(viewError.record)}>{t("Retry viewed status", "重试保存已读状态")}</button></p>}
       {notice && <div className="history-undo-banner" role="status" data-react-i18n><span>{notice}</span>{deletedRecords.some(r => r.id === lastDeleted) && <button type="button" disabled={pending} onClick={() => restoreRecord(deletedRecords.find(r => r.id === lastDeleted))}>{t("Undo", "撤销")}</button>}</div>}
       <div className="history-search" data-react-i18n><label className="user-field" htmlFor="history-search">{t("Search records", "搜索学习记录")}</label><div><input id="history-search" type="search" value={search} disabled={pending} placeholder={t("Search questions, material names or content", "搜索问题、资料名称或内容")} onChange={event => { setSearch(event.target.value); setSelected(null); setDetailsOpen(false); }} />{search && <button type="button" disabled={pending} onClick={() => { setSearch(""); setSelected(null); setDetailsOpen(false); }}>{t("Clear search", "清除搜索")}</button>}</div></div>
       <div className="history-filters"><label className="user-field">{t("Course", "课程")}<select disabled={pending} value={course} onChange={(e) => { setCourse(e.target.value); setSelected(null); setDetailsOpen(false); }}><option value="All">{t("All", "全部")}</option>{studentCourses.map((c) => <option key={c.id} value={c.id}>{courseLabel(c)}</option>)}</select></label>
@@ -206,7 +253,7 @@ function HistoryContent({ review, initialKind, initialCourse }) {
       </div>
       {loaded && <p className="history-record-count" data-react-i18n>{t(`${records.length} ${review ? records.length === 1 ? "quiz available for practice" : "quizzes available for practice" : records.length === 1 ? "study record shown" : "study records shown"}`, `${records.length} ${review ? "份测验可供练习" : "条学习记录"}`)}</p>}
       {loaded && !records.length && <p>{search.trim() ? t("No records match your search. Try another keyword or clear the search.", "没有匹配的学习记录，请尝试其他关键词或清除搜索。") : review ? practiceMode === "all" ? t("No saved quizzes for this filter.", "当前筛选条件下没有测验记录。") : t("No saved wrong questions for this filter.", "当前筛选条件下没有错题记录。") : t("No saved records for this filter yet.", "当前筛选条件下暂无学习记录。")}</p>}
-      {records.map((r) => { const Icon = kindIcon[r.kind] || History; const latest = review ? latestPractice(data.reviews, r.id) : null; return <div key={r.id} className={`history-record-row history-kind-${r.kind}${selected?.id === r.id ? " is-selected" : ""}`}><div><button className="history-record-open" type="button" data-react-i18n aria-pressed={selected?.id === r.id} disabled={pending} onClick={() => openRecord(r)}><Icon size={17} aria-hidden="true" />{kindLabel(r.kind)} · {formatStudyDate(r.created_at, language)} · {courseLabel(studentCourses.find((c) => c.id === r.course_id)) || t("Archived course", "已归档课程")}{r.kind === "quiz" ? ` · ${r.payload.score}% · ${wrong(r).length} ${t("wrong", "道错题")}` : ""}</button>{review && <><small className="history-practice-count">{t(`${data.reviews.filter((a) => a.record_id === r.id).length} practice attempt(s)`, `已练习 ${data.reviews.filter((a) => a.record_id === r.id).length} 次`)}</small>{latest && <div className="history-latest-practice" data-react-i18n><span>{latest.payload.mode === "all" ? t("Latest full retake", "最近整份重练") : t("Latest wrong-question practice", "最近错题练习")}</span><strong>{latest.payload.correct}/{latest.payload.total} {t("correct", "题正确")}{latest.payload.mode === "all" ? ` (${Math.round(latest.payload.correct / latest.payload.total * 100)}%)` : ""}</strong><time dateTime={latest.created_at}>{formatStudyDate(latest.created_at, language)}</time></div>}</>}</div>{!review && <button type="button" className="history-delete-button" data-react-i18n disabled={pending} aria-label={`${t("Delete", "删除")} ${kindLabel(r.kind)} · ${formatStudyDate(r.created_at, language)}`} onClick={() => deleteRecord(r)}><Trash2 size={14} aria-hidden="true" />{t("Delete", "删除")}</button>}</div>; })}
+      {records.map((r) => { const Icon = kindIcon[r.kind] || History; const latest = review ? latestPractice(data.reviews, r.id) : null; return <div key={r.id} className={`history-record-row history-kind-${r.kind}${selected?.id === r.id ? " is-selected" : ""}`}><div><button className="history-record-open" type="button" data-react-i18n aria-pressed={selected?.id === r.id} disabled={pending} onClick={() => openRecord(r)}><Icon size={17} aria-hidden="true" />{kindLabel(r.kind)} · {formatStudyDate(r.created_at, language)} · {courseLabel(studentCourses.find((c) => c.id === r.course_id)) || t("Archived course", "已归档课程")}{r.kind === "quiz" ? ` · ${r.payload.score}% · ${wrong(r).length} ${t("wrong", "道错题")}` : ""}{recordIsNew(r, review ? "review" : "history", data.viewed) && <span className="study-new-badge history-new-badge">{t("New", "新")}</span>}</button>{review && <><small className="history-practice-count">{t(`${data.reviews.filter((a) => a.record_id === r.id).length} practice attempt(s)`, `已练习 ${data.reviews.filter((a) => a.record_id === r.id).length} 次`)}</small>{latest && <div className="history-latest-practice" data-react-i18n><span>{latest.payload.mode === "all" ? t("Latest full retake", "最近整份重练") : t("Latest wrong-question practice", "最近错题练习")}</span><strong>{latest.payload.correct}/{latest.payload.total} {t("correct", "题正确")}{latest.payload.mode === "all" ? ` (${Math.round(latest.payload.correct / latest.payload.total * 100)}%)` : ""}</strong><time dateTime={latest.created_at}>{formatStudyDate(latest.created_at, language)}</time></div>}</>}</div>{!review && <button type="button" className="history-delete-button" data-react-i18n disabled={pending} aria-label={`${t("Delete", "删除")} ${kindLabel(r.kind)} · ${formatStudyDate(r.created_at, language)}`} onClick={() => deleteRecord(r)}><Trash2 size={14} aria-hidden="true" />{t("Delete", "删除")}</button>}</div>; })}
       {!review && deletedRecords.length > 0 && <details className="history-deleted-records" data-react-i18n><summary>{t("Deleted records", "已删除的记录")} ({deletedRecords.length})</summary><p>{t("Undo restores the record and its saved practice attempts. Records cannot be restored after their course or source material is deleted.", "撤销会恢复原记录及关联练习。课程或来源材料被删除后，对应记录无法恢复。")}</p>{deletedRecords.map(r => <div className="history-record-row" key={r.id}><span>{kindLabel(r.kind)} · {formatStudyDate(r.created_at, language)}</span><button type="button" disabled={pending} aria-label={`${t("Undo deletion of", "撤销删除")} ${kindLabel(r.kind)} · ${formatStudyDate(r.created_at, language)}`} onClick={() => restoreRecord(r)}>{t("Undo", "撤销")}</button></div>)}</details>}
       {selected && (detailsOpen ? <HistoryRecordDialog
         title={detailsTitle}

@@ -46,21 +46,28 @@ with private ADMIN_EMAIL, ADMIN_NAME and ADMIN_PASSWORD environment variables.
 The command refuses to change an existing account. Remove ADMIN_PASSWORD afterwards.
 No default public administrator is created.
 
-## One-time email verification and password reset
+## Registration email, verification links and password reset
 
-Set RESEND_API_KEY, MAIL_FROM and PUBLIC_APP_URL on the backend.
-MAIL_FROM must be an approved sender for the provider; verify your sender domain
-for public recipients. No credentials are shipped.
-Official API: https://resend.com/docs/api-reference/emails/send-email
+Configure the backend mail provider, MAIL_FROM and PUBLIC_APP_URL. The default
+Resend adapter requires RESEND_API_KEY and an approved sender domain for public
+recipients. SMTP is also supported with MAIL_PROVIDER=smtp; see [SMTP setup](SMTP_SETUP.md).
+No credentials are shipped.
+
+New email/password registration requires a six-digit code before the Student
+account is created. Codes expire in 10 minutes, allow five attempts, and can be
+resent after 60 seconds, at most three per email per hour. Only the newest code
+works. Registration is unavailable when mail is unconfigured or cannot send the code.
 
 /verify-email requests an email ownership link. /reset-password requests a reset
 link. Each link expires in 15 minutes and is consumed only on an explicit form submit.
 The token is sent in a URL fragment, removed from the address bar by the page,
 and stored only as a hash in SQLite. Reset invalidates old sessions and pending links.
-Verification is optional and does not block login. Google-only accounts use Google
+The separate verification-link flow is optional for existing password accounts;
+legacy unverified status does not block their login. This does not bypass the code
+required for new email/password registration. Google-linked accounts use Google
 login and Google's recovery service.
 
-Public requests return the same response for existing and unknown accounts.
+Verification/reset link requests return the same response for existing and unknown accounts.
 A client request ID is sent at most once, with provider idempotency too.
 An accepted request does not prove inbox delivery. Failed sending invalidates the
 link; request a new link later. Check provider delivery logs when investigating.
@@ -69,7 +76,8 @@ Support recovery tickets are separate: closing a ticket never changes a password
 ## Release checks and backup
 
 Run npm run check. On the hosted app:
-1. Register, verify email, reset password, and check old sessions are rejected.
+1. Register with a real email code, reset the password, and check old sessions are
+   rejected. Check the separate verification-link flow with an eligible existing account.
 2. Test two student accounts and Admin for data isolation and permitted actions.
 3. Upload an original, save Quiz/History/Review records, and exchange support replies.
 4. Restart and redeploy, sign in again, and verify all records and files remain.
