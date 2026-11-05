@@ -1,5 +1,7 @@
 # PR #9 local merge notes
 
+Historical merge record. Its dependency findings and test counts describe PR #9, not the current release. Use the [README](../README.md) and [final verification](FINAL_VERIFICATION_2026-11-05.md) for current setup and validation.
+
 Compared the user-provided `COMP3851A-main (24).zip` (74 files, identical to
 main commit `02a3d5456933d3aab8ae0d4306a3b16aa30682e5`) with update commit
 `08fdaa4f291f436dc268c135fdfd1089283b2b3c`.

@@ -1,5 +1,7 @@
 # Completion candidate, 20 October 2026
 
+Historical acceptance snapshot. The changes and test results below apply to 20 October 2026. Use the [README](../README.md) and [final verification](FINAL_VERIFICATION_2026-11-05.md) for the current release.
+
 Base: main `a3e05e227bd60bcf5cc337609ba7f88f0353ca47`.
 Working branch: `codex/completion-oct20`.
 This record describes local implementation and testing, not production acceptance.

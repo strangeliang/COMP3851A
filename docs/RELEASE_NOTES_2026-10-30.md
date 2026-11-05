@@ -1,42 +1,44 @@
-# Study Companion 2026年10月30日修改与部署说明
+# Study Companion Release Handoff: 2026-10-30
 
-供组长审核、合并和部署使用。本次更新包含学习功能、页面交互、后端接口和可靠性修复，需要同时部署前端与后端，并重新安装锁定版本的依赖。现有数据库在后端启动时自动升级，不需要清空账号、课程、资料或学习记录。
+> Historical snapshot recorded on **2026-10-30** for PR #21 and commit `7178c5d`. PR status, test counts, release instructions, and limitations below reflect that date; they do not establish the current merge or deployment state. For the current application and verification results, see the [README](../README.md) and [final verification record](FINAL_VERIFICATION_2026-11-05.md).
 
-## 版本与合并范围
+This handoff was prepared for the team lead's review, merge, and deployment. The release covered study features, page interactions, backend APIs, and reliability fixes. It required deploying the frontend and backend together and installing the locked dependencies. Backend startup automatically upgraded the existing database without requiring accounts, courses, materials, or study records to be cleared.
 
-| 项目 | 内容 |
+## Version and merge scope
+
+| Item | Recorded value |
 | --- | --- |
-| 仓库 | `strangeliang/COMP3851A` |
-| 本次合并入口 | [PR #21 — Complete study workspace improvements and reliability fixes](https://github.com/strangeliang/COMP3851A/pull/21) |
-| 开发分支 | `codex/study-workspace-final-20261030` |
-| 更新前的基准提交 | `6f1ef489758fa513a8a522d27e7c4e79c560ba9b` |
-| 第一项提交 | `acfdbd0` — Quiz 首题导航与 Flashcards 重新生成 |
-| 本次代码最终提交 | `7178c5dbfe14021fb9d35f38106443989c3e5dfc` |
+| Repository | `strangeliang/COMP3851A` |
+| Pull request | [PR #21: Complete study workspace improvements and reliability fixes](https://github.com/strangeliang/COMP3851A/pull/21) |
+| Development branch | `codex/study-workspace-final-20261030` |
+| Baseline commit | `6f1ef489758fa513a8a522d27e7c4e79c560ba9b` |
+| First commit | `acfdbd0`: first-question Quiz navigation and Flashcards regeneration |
+| Final code commit for this handoff | `7178c5dbfe14021fb9d35f38106443989c3e5dfc` |
 
-2026年10月30日核对时，PR #21 尚未合并，GitHub 显示没有合并冲突；仍需按照仓库原有审核规则完成审批。旧 [PR #20](https://github.com/strangeliang/COMP3851A/pull/20) 已关闭，其功能已经包含在 #21 中，不需要重复合并。
+As checked on **2026-10-30**, PR #21 was unmerged, and GitHub reported no merge conflicts. Approval under the repository's existing review rules was still required. [PR #20](https://github.com/strangeliang/COMP3851A/pull/20) had been closed; its changes were included in #21 and did not need a separate merge.
 
-以下是相对上述基准版本的修改说明。Settings、个人简介、历史删除与撤销、错题或全部重练等既有功能继续保留，本次同时完善它们与新界面及数据保存的衔接。
+The changes below are relative to the baseline above. Existing Settings, profile, history deletion and undo, and retrying incorrect or all quiz questions were retained, with their integration into the updated interface and data-saving behavior improved.
 
-## 今天修改的内容
+## Changes included
 
-| 模块 | 修改说明 |
+| Area | Release changes |
 | --- | --- |
-| Quiz | 修复第一题仍显示 Previous 的问题。第一题没有 Previous，最后一题没有 Next；只有一道题时两个方向按钮均隐藏。保留原有题型、数量、难度和评分规则。 |
-| Flashcards | 保持每组生成六张。重新生成会参考当前卡片，以及同一用户、同一资料组合最近保存的未删除卡片，检查重复内容并在必要时重试。新增已掌握标记、待复习数量及筛选；成功生成新一组后重置该组的掌握状态。 |
-| 学习历史与复习中心 | 点击记录打开独立弹窗；复习可以直接在弹窗内完成，页面下方不再重复显示整套练习，并提供重新展开的提示。新增内容搜索，统一筛选框样式、日期显示和来源名称。完善切换练习、保存结果和删除记录同时发生时的处理，原测验成绩与重练成绩分开保存。 |
-| Dashboard 与课程 | 四项统计卡片可以打开预览，统计与账号中的记录保持一致；课程卡片空白区域也可以选择课程。增加课程名称和代号编辑，完善新用户空状态与引导，改进 Continue Studying 对有效课程、资料和学习模式的恢复。 |
-| 上传与资料 | 调整资料卡片的信息层级、间距、状态和操作布局，增加当前课程资料搜索。完善完整提取文本、原文件预览或下载，以及文件读取提示的展示。读取提示随资料保存，重新登录后仍可使用。 |
-| AI 学习工作区 | 增加资料来源预览和回答中的来源入口，以及总结复制功能。完善 AI 配置状态、失败提示和停止生成处理；重新生成失败或取消时保留已有结果。切换账号、课程或资料后，旧请求不会覆盖新的页面内容。 |
-| Ask Me 与管理员支持 | 改进聊天窗口打开、关闭和大小切换效果，修正关闭按钮位置；优化小屏幕与屏幕键盘出现时的布局。英文界面的日期筛选使用英文提示，管理员筛选输入格式得到统一。完善聊天草稿、请求重试和重复发送处理。 |
-| 品牌与通用页面 | 应用统一的 Study Companion 图标和网站 favicon；增加未知页面提示与页面错误恢复入口，完善键盘焦点、弹窗关闭和移动端显示。 |
-| 账号与状态处理 | 修复头像读取及预览资源清理、个人简介进度显示、登录或退出期间的异步状态、重复保存及失效资料引用等问题。增强服务器对资料归属、输入参数及学习记录保存的检查。 |
-| 依赖与回归测试 | 更新 Vite、Nodemailer 及相关锁文件中的依赖；补充页面、接口、数据库、状态切换和异常情况的回归测试。 |
+| Quiz | Corrected navigation so the first question had no Previous button, the last had no Next button, and a one-question quiz showed neither. Existing question types, quantity, difficulty, and scoring rules were retained. |
+| Flashcards | Retained six cards per set. Regeneration used the current cards and recent saved, undeleted cards for the same user and material combination to detect duplicates and retry when needed. Added mastered status, a remaining-review count, and filters. Successfully generating a new set reset that set's mastery state. |
+| Study history and Review Centre | Records opened in a dedicated dialog where review could be completed, without repeating the entire exercise below the page. Added a prompt for reopening exercises, content search, consistent filter styling, dates, and source names. Improved handling when switching exercises, saving results, and deleting records overlapped. Original quiz scores and review scores were stored separately. |
+| Dashboard and courses | Made all four statistics cards open previews and kept their counts consistent with the account's records. Course cards could also be selected through their blank areas. Added course-name and code editing, improved new-user empty states and guidance, and strengthened Continue Studying restoration of valid courses, materials, and study modes. |
+| Uploads and materials | Improved information hierarchy, spacing, status, and actions on material cards. Added material search within the current course. Improved full extracted-text display, original-file preview or download, and extraction-warning display. Warnings were saved with materials and remained available after login. |
+| AI study workspace | Added source previews, source links in answers, and Summary copying. Improved AI configuration status, errors, and stopping generation. Existing results were retained when regeneration failed or was cancelled. Requests from a previous account, course, or material selection could not overwrite the new workspace. |
+| Ask Me and administrator support | Improved chat opening, closing, and resizing, corrected the close-button position, and improved small-screen and onscreen-keyboard layouts. English date filters used English prompts, administrator filter formats were consistent, and draft handling, retries, and duplicate-send handling were improved. |
+| Branding and shared pages | Applied a consistent Study Companion icon and favicon. Added unknown-page guidance and page-error recovery, and improved keyboard focus, dialog closing, and mobile display. |
+| Accounts and state handling | Fixed avatar loading and preview-resource cleanup, profile-progress display, asynchronous state during login or logout, duplicate saves, and stale material references. Strengthened server checks for material ownership, input parameters, and saved study records. |
+| Dependencies and regression tests | Updated Vite, Nodemailer, and related lockfile dependencies. Added regression coverage for pages, APIs, databases, state transitions, and failure cases. |
 
-Flashcards 的去重会拦截重复的正面或解释文本，但不能保证所有改写在语义上绝对不同。资料不足以支持六张新卡片时会显示错误并保留旧卡，不会用固定演示答案代替。
+Flashcard duplicate detection rejected repeated front text or explanation text, but did not guarantee that every paraphrase was semantically distinct. When the material could not support six new cards, generation returned an error and retained the previous set rather than substituting fixed demonstration answers.
 
-## 合并前检查
+## Pre-merge checks
 
-审核 PR #21 的完整改动，尤其是前后端接口配套和数据库兼容处理。准备发布的版本应在仓库根目录运行：
+The handoff required reviewing the full PR #21 diff, especially matching frontend and backend API changes and database compatibility. The candidate release was to be checked from the repository root:
 
 ```sh
 npm ci
@@ -44,103 +46,103 @@ npm --prefix backend ci
 npm run check
 ```
 
-需要 Node.js 22.13 或更新版本。`npm run check` 包含 ESLint、前端测试、后端测试及生产构建；不要只安装项目根目录的依赖而遗漏 `backend`。
+The release required Node.js 22.13 or later. `npm run check` included ESLint, frontend tests, backend tests, and the production build. Both the root and `backend` dependencies needed installation.
 
-如果合并前又有其他成员更新 `main`，应在整合后的版本上重新运行检查。合并完成后，部署合并后的 `main` 实际提交；使用 squash merge 时提交编号会变化，不要求它与开发分支的编号相同。
+If another team member updated `main` before the merge, the integrated version needed another check. Deployment was to use the resulting merged `main` commit. A squash merge could produce a different commit ID from the development branch.
 
-## 数据库与现有数据
+## Database and existing data
 
-本次数据库新增 `materials.reading_notes` 字段，以及 `idx_history_owner_kind_created` 索引。后端启动时会自动执行兼容升级，可以重复启动，无需手动运行 SQL。
+This release added the `materials.reading_notes` field and the `idx_history_owner_kind_created` index. Backend startup applied the compatible upgrade automatically and supported repeated starts without manual SQL.
 
-`reading_notes` 保存文件提取或 OCR 时的读取提示，默认值为空字符串，最长 2,000 字符；它不是用户手写学习笔记。升级保留已有资料正文，旧资料也不会自动补出过去未保存的提示。
+`reading_notes` stored extraction or OCR warnings, with an empty-string default and a 2,000-character limit. It was not a field for handwritten study notes. The upgrade preserved existing material text but could not recreate extraction warnings that had not previously been saved.
 
-发布前应停止后端写入，将 SQLite 数据库与上传原文件目录一起备份。仓库已有备份和验证脚本，使用方法见 [部署说明的备份与恢复部分](DEPLOYMENT.md#backup--recovery-commands)。备份应放在持久且非公开的位置，验证完成后再进行升级。
+Before deployment, the handoff required stopping backend writes and backing up the SQLite database together with the original-upload directory. The repository's backup and verification scripts are described in [Deployment: backup and recovery commands](DEPLOYMENT.md#backup--recovery-commands). Backups needed durable, non-public storage and verification before the upgrade.
 
-Git 同步的是代码，不会复制本机的账号、数据库、上传文件、私有环境变量或浏览器偏好。Flashcards 掌握标记和部分工作区临时状态属于当前浏览器会话，不承诺跨设备同步。旧资料若原本没有保存原文件，仍需要重新上传才能提供原文件下载。
+Git synchronized code; it did not copy local accounts, databases, uploaded files, private environment variables, or browser preferences. At this release, Flashcard mastery marks and some temporary workspace state belonged to the current browser session and did not promise cross-device synchronization. Materials without a saved original file needed re-uploading before original-file download could be offered.
 
-## Render 部署步骤
+## Render deployment procedure for this release
 
-### 确认环境配置
+### Confirm environment configuration
 
-本次没有新增必填环境变量，也不要求更换 Gemini 密钥。保留现有有效配置，并确认以下项目：
+The release introduced no new required environment variables and did not require replacing the Gemini key. Existing valid configuration was to be retained, with these settings checked:
 
-| 配置 | 要求 |
+| Setting | Requirement at this release |
 | --- | --- |
-| Node.js | 22.13 或更新版本 |
+| Node.js | 22.13 or later |
 | `NODE_ENV` | `production` |
 | `HOST` | `0.0.0.0` |
-| `FRONTEND_URL`、`PUBLIC_APP_URL` | 与实际部署网站的 HTTPS 地址一致 |
-| `GEMINI_API_KEY`、`GEMINI_MODEL` | 保留服务器上的有效配置，不放进前端代码 |
-| Google 登录、邮件配置 | 继续保留已有配置；相应功能需要对应服务配置有效 |
-| `STUDY_DATABASE_PATH` | 指向实际挂载的持久化磁盘中的数据库 |
-| `STUDY_UPLOAD_PATH` | 指向同样具备持久化能力的原文件目录 |
-| `STUDY_SEED_DEMO` | 正式环境保持关闭，不启用公开演示账号 |
+| `FRONTEND_URL`, `PUBLIC_APP_URL` | The deployed site's actual HTTPS address |
+| `GEMINI_API_KEY`, `GEMINI_MODEL` | Valid server-side configuration, kept out of frontend code |
+| Google login and email configuration | Existing valid service configuration for the relevant features |
+| `STUDY_DATABASE_PATH` | The database on the actual mounted persistent disk |
+| `STUDY_UPLOAD_PATH` | The original-file directory on persistent storage |
+| `STUDY_SEED_DEMO` | Disabled in production; no public demonstration accounts |
 
-两个存储路径必须对应真实的持久化磁盘。仅填写一个路径不代表数据会在重新部署后保留，也不要把已有正确路径改成示例路径或本机路径。
+Both storage paths needed actual persistent storage behind them. A configured path alone did not establish survival across deployments. Existing correct paths were not to be replaced with example paths or local-machine paths.
 
-### 构建并部署
+### Build and deploy
 
-Render 服务的项目根目录应是仓库根目录，部署分支使用合并后的 `main`。
+The Render service was to use the repository root as its project root and merged `main` as its deployment branch.
 
-Build Command：
+Build Command:
 
 ```sh
 npm ci && npm --prefix backend ci && npm run build
 ```
 
-Start Command：
+Start Command:
 
 ```sh
 npm run backend
 ```
 
-Health Check Path：
+Health Check Path:
 
 ```text
 /api/health
 ```
 
-确认备份与配置后再触发部署。如果启用了自动部署，合并前完成这些准备；若未启用，合并后手动部署最新提交。核对 Render 显示的部署提交与本次合并结果一致，并查看构建和启动日志。
+Deployment was to follow backup and configuration checks. With automatic deployment enabled, these preparations needed completion before merging; otherwise, the latest merged commit could be deployed manually. The Render deployment commit needed to match the merge result, with build and startup logs reviewed.
 
-后端从 `backend/src/server.js` 启动并提供构建后的前端。本次新增课程编辑接口，并扩展学习历史接口返回的来源数据，不能只上传新的静态页面而继续运行旧后端。
+The backend started from `backend/src/server.js` and served the built frontend. This release added course-editing endpoints and extended source data returned by study-history endpoints, so deploying only new static pages with the old backend was insufficient.
 
-后端重启后，现有内存登录会话会失效，用户需要重新登录；这与账号和学习数据是否保留是两回事。页面仍显示旧界面时，可刷新页面后再核对部署版本。
+Backend restarts invalidated the in-memory login sessions in this version, requiring users to log in again. That behavior was separate from preservation of accounts and study data. If an old interface remained visible, refreshing the page and checking the deployed version formed part of verification.
 
-## 部署后的验收
+## Post-deployment acceptance checks
 
-使用单独的测试账号、测试课程和测试资料检查以下流程，避免删除真实用户的数据：
+The handoff called for a dedicated test account, course, and materials to verify these flows without deleting real user data:
 
-- 网站及 `/api/health` 正常响应；新注册用户显示自己的空状态，旧用户重新登录后仍能看到自己的数据。
-- 创建、选择和编辑课程；上传资料后能查看提取文本，支持的文件可预览原件，已保存的原文件可下载。
-- Summary、Q&A 和 Quiz 能通过真实 Gemini 服务生成；第一道和最后一道题的方向按钮正确，提交成绩后记录正常保存。
-- Flashcards 生成六张，翻面、掌握标记和筛选可用；重新生成成功时替换卡片，失败时保留原组。
-- 学习历史可以搜索和打开弹窗，删除测试记录后可撤销；复习中心可重练错题或全部题目，原成绩不被重练成绩覆盖。
-- 学生通过 Ask Me 发起求助，管理员能够查看、回复并更新状态，学生端能够看到更新。需要邮件通知时实际检查收件箱及发送状态。
-- 不同学生账号看不到彼此的课程、资料和学习记录；普通学生不能进入管理员工作区。
-- 手机尺寸下可以完成主要操作，Ask Me、弹窗及输入区域不超出可见范围。
-- 在受控的后端重启及重新部署后再次登录，确认原账号、资料原文件、历史和工单仍然存在，以核对部署存储配置。
+- The site and `/api/health` responded correctly. Newly registered users saw their own empty state, and returning users retained their data after login.
+- Courses could be created, selected, and edited. Uploaded materials exposed extracted text, supported originals could be previewed, and saved originals could be downloaded.
+- Summary, Q&A, and Quiz generated through the real Gemini service. Quiz navigation was correct at the first and last question, and submitted scores were saved.
+- Flashcards produced six cards. Flipping, mastery marks, and filtering worked. Successful regeneration replaced the set; failed regeneration retained it.
+- Study history supported search, record dialogs, and undo after deleting test records. Review Centre supported retrying incorrect or all questions without overwriting the original score.
+- Students could request help through Ask Me. Administrators could view, reply, and update status, and students could see the updates. Email notifications required checking both delivery status and the actual inbox.
+- Student accounts could not access one another's courses, materials, or study records. Ordinary students could not enter the administrator workspace.
+- Main workflows remained usable at phone widths, with Ask Me, dialogs, and inputs within the visible area.
+- After a controlled backend restart and redeployment, accounts, original files, history, and support tickets remained available after login, confirming the deployment's storage configuration.
 
-## 已完成的本地验证
+## Local validation completed on 2026-10-30
 
-2026年10月30日针对代码提交 `7178c5d` 的检查结果：
+These results were recorded for commit `7178c5d`:
 
-| 检查 | 结果 |
+| Check | Recorded result |
 | --- | --- |
-| ESLint | 通过 |
-| 前端回归测试 | 197 项通过，0 项失败 |
-| 后端接口及数据库测试 | 82 项通过，0 项失败 |
-| 生产构建 | 通过 |
-| 前后端依赖审计 | 当次检查均为 0 项已知漏洞 |
-| 隔离环境浏览器检查 | 覆盖上传及原文件访问、AI 学习流程、卡片、历史与重练、设置及个人简介、账号隔离、管理员支持和 390px 窄屏 |
+| ESLint | Passed |
+| Frontend regression tests | 197 passed, 0 failed |
+| Backend API and database tests | 82 passed, 0 failed |
+| Production build | Passed |
+| Frontend and backend dependency audits | Zero known vulnerabilities in both audits at that time |
+| Browser checks in an isolated environment | Covered uploads and original-file access, AI study flows, Flashcards, history and review, Settings and profile, account isolation, administrator support, and a 390px viewport |
 
-自动测试和上述浏览器检查使用模拟的 AI 与邮件响应。真实 Gemini 调用、邮件实际送达、Render 配置及部署后的数据持久化，应按上面的上线验收重新确认。本地检查通过不等于 GitHub CI 或线上部署已经通过。
+Automated tests and the browser checks used simulated AI and email responses. Real Gemini calls, actual email delivery, Render configuration, and deployed data persistence still required the post-deployment acceptance checks above. Passing local checks did not establish that GitHub CI or a live deployment had passed.
 
-构建仍有较大 JavaScript 分包提示，测试有 `react-test-renderer` 弃用提示；当次检查未因此失败。
+The build still reported a large JavaScript chunk, and tests reported the `react-test-renderer` deprecation warning. Neither caused the recorded checks to fail.
 
-## 出现问题时的处理
+## Troubleshooting and rollback guidance
 
-如果出现接口不存在、课程不能编辑或数据未加载，先核对前端与后端是否属于同一次发布，以及后端是否已经重启。AI 请求失败时检查服务器配置、模型权限和额度，不要在网页中加入真实密钥或用固定答案掩盖错误。
+For missing endpoints, failed course editing, or unloaded data, the handoff advised first checking that frontend and backend belonged to the same release and that the backend had restarted. AI failures required checking server configuration, model access, and quota. Real keys were to remain outside the webpage, and errors were not to be concealed with fixed answers.
 
-如需回退，前端与后端一起回到上一个已验证版本，并重新安装对应依赖和构建。本次数据库变化为新增字段和索引，不需要为回退主动删除它们；旧版本与当前数据的配合仍需检查。确实需要恢复数据库时，先保留当前数据，再恢复到独立目录验证，注意备份之后的新记录不会自动出现在旧备份中。
+Rollback required restoring the frontend and backend together to the previous verified version, installing its dependencies, and rebuilding. The database additions were a field and an index, so rollback did not require deleting them; compatibility between the older application and current data still needed checking. If database restoration was necessary, current data was to be preserved first and the backup restored into a separate directory for validation. Records created after the backup would not automatically exist in it.
 
-完整部署参数与备份操作见 [DEPLOYMENT.md](DEPLOYMENT.md)，首次本地启动见 [README.md](../README.md)。
+See [Deployment](DEPLOYMENT.md) for full deployment parameters and backup operations, and the [README](../README.md) for local setup. The [final verification record](FINAL_VERIFICATION_2026-11-05.md) documents the later local validation snapshot.

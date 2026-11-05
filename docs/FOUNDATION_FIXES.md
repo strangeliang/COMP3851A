@@ -1,56 +1,60 @@
-# 学生端地基修复记录 — 1.1.0
+# Foundation Fixes: Version 1.1.0
 
-检查日期：2026-09-01。对象为本次上传的 `COMP3851A-main.zip`。本轮以学生主要功能为范围，管理员的 5 个页面、布局和侧栏共 7 个源文件逐字节比对未变。共享登录与状态层有必要调整，因此管理员登录也经过服务器校验，但管理员页面中的管理操作没有升级为服务端管理。
+> Historical snapshot recorded on **2026-09-01** for the uploaded `COMP3851A-main.zip`. The scope, test counts, and limitations below describe that version and validation environment. For the current application and verification results, see the [README](../README.md) and [final verification record](FINAL_VERIFICATION_2026-11-05.md).
 
-## 修复内容
+This work focused on the main student workflows. A byte-for-byte comparison confirmed that the five administrator pages, administrator layout, and administrator sidebar (seven source files in total) were unchanged. Changes to shared authentication and state handling also added server validation to administrator login; administrator management operations were outside this phase's server-side implementation scope.
 
-| 原问题 | 本次行为 | 关键位置 |
+## Fixes included
+
+| Previous issue | Behavior introduced in this version | Key files |
 | --- | --- | --- |
-| 总结、测验返回固定演示数据 | 两者与问答共用后端 Gemini，按既定提示词生成 | `src/services/aiService.js`、`backend/src/services/studyContracts.js` |
-| API key 放在 Vite/浏览器中 | 只从后端环境读取，浏览器请求本项目 `/api` | `backend/src/services/geminiService.js` |
-| 登录只相信前端缓存 | 后端 SQLite/bcrypt 校验，HttpOnly 会话；缓存不能赋予身份 | `backend/src/routes/studyRoutes.js`、`src/state/AppDataContext.jsx` |
-| 问答消息默认按 HTML 渲染 | 用户及模型消息均使用聊天库纯文本模式 | `src/components/AIChatBox.jsx` |
-| 资料只取开头 13,000 字符，多文件被分别缩短 | 完整发送经过限制检查的资料；每次最多 3 份、合计 100,000 字符 | `shared/studyLimits.json`、`backend/src/services/studyContracts.js` |
-| 混合 PDF 一旦有文字就跳过扫描页 | 逐页决定直接取字或 OCR，保留页码；空白识别结果不导致整份失败 | `src/utils/fileTextExtractor.js` |
-| OCR 仅英语且只读前 8 页 | 英语及简体中文；最多 20 个需 OCR 的页面，超限明确拒绝并要求拆分 | `src/utils/fileTextExtractor.js` |
-| 错误、超时、截断被误认为成功或一直等待 | 限时、取消、最多一次临时故障重试、完成状态与结构校验 | `src/hooks/useAIRequest.js`、`backend/src/services/geminiService.js` |
-| 切换资料后旧回答进入新会话 | 范围包含用户、课程和全部选中文件；取消或丢弃过期响应 | `src/utils/studyScope.js`、`src/hooks/useAIRequest.js` |
-| 返回聊天页面不恢复消息，没有追问上下文 | 恢复对应范围的历史；发送最多 10 条且 32,000 字符以内的近期对话 | `src/components/AIChatBox.jsx` |
-| 连续上传可绕过文件总数限制 | 同步占用上传锁、前后检查配额，整个批次一起提交 | `src/state/AppDataContext.jsx` |
-| 上传中换账号或储存失败仍提交数据 | 取消旧任务；存储失败回滚本批上传并明确提示 | `src/state/AppDataContext.jsx` |
-| 不同学生的测验分数混在一起 | 按用户筛选记录与平均分 | `src/state/AppDataContext.jsx` |
-| 删除多资料中的非首个文件仍留下相关记录 | 检查记录使用的全部文件，清理依赖该文件的记录 | `src/state/AppDataContext.jsx` |
-| 找回密码页面暗示已发送邮件 | 改为如实说明尚未提供自动重置功能 | `src/pages/ForgotPasswordPage.jsx` |
-| 启动脚本只启动前端 | 安装缺少的前后端依赖，启动两个服务，提供后端空配置 | `start-demo.bat`、`README.md` |
+| Summary and Quiz returned fixed demonstration data. | Both used the backend Gemini service, alongside Q&A, with the defined generation prompts. | `src/services/aiService.js`, `backend/src/services/studyContracts.js` |
+| The API key was read by Vite or the browser. | Only the backend read the key; the browser called this application's `/api` routes. | `backend/src/services/geminiService.js` |
+| Login trusted cached frontend state. | SQLite and bcrypt validated credentials on the server, with HttpOnly sessions. Cached state could not establish an authenticated identity. | `backend/src/routes/studyRoutes.js`, `src/state/AppDataContext.jsx` |
+| Chat messages rendered as HTML by default. | User and model messages used the chat library's plain-text mode. | `src/components/AIChatBox.jsx` |
+| Material was cut to its first 13,000 characters, with separate truncation for multiple files. | The complete selected text was sent after limit checks: up to three files and 100,000 characters in total per request. | `shared/studyLimits.json`, `backend/src/services/studyContracts.js` |
+| A mixed PDF skipped scanned pages whenever any text was found. | Each page independently used direct text extraction or OCR, retaining page numbers. Empty recognition results did not fail the entire document. | `src/utils/fileTextExtractor.js` |
+| OCR supported only English and the first eight pages. | OCR supported English and Simplified Chinese, with a maximum of 20 pages requiring OCR. Larger inputs were explicitly rejected with a request to split the document. | `src/utils/fileTextExtractor.js` |
+| Errors, timeouts, or truncated outputs could appear successful or leave requests waiting indefinitely. | Requests gained time limits, cancellation, at most one retry for a transient failure, and completion-state and output-structure validation. | `src/hooks/useAIRequest.js`, `backend/src/services/geminiService.js` |
+| A response from previously selected material could enter a new session. | Request scope included the user, course, and every selected file; stale responses were cancelled or discarded. | `src/utils/studyScope.js`, `src/hooks/useAIRequest.js` |
+| Returning to chat did not restore messages, and follow-up requests lacked conversation context. | Chat restored the history for the matching scope and sent up to 10 recent messages within a 32,000-character limit. | `src/components/AIChatBox.jsx` |
+| Consecutive uploads could bypass the total file limit. | A synchronously acquired upload lock and quota checks before and after processing protected the batch, which was committed together. | `src/state/AppDataContext.jsx` |
+| An upload could commit after an account change or storage failure. | Account changes cancelled earlier work; storage failures rolled back the upload batch and displayed an explicit error. | `src/state/AppDataContext.jsx` |
+| Quiz scores from different students were combined. | Records and average scores were filtered by user. | `src/state/AppDataContext.jsx` |
+| Deleting a non-first file in a multi-file selection left dependent records behind. | Deletion checked all files referenced by each record and removed records dependent on the deleted file. | `src/state/AppDataContext.jsx` |
+| Password recovery implied that an email had been sent. | The page stated that automatic password reset was not yet available in that version. | `src/pages/ForgotPasswordPage.jsx` |
+| The startup script launched only the frontend. | The script installed missing frontend and backend dependencies, launched both services, and supplied an empty backend configuration template. | `start-demo.bat`, `README.md` |
 
-## 已执行验证
+## Validation completed on 2026-09-01
 
-- ESLint：通过。
-- 学生端/状态/解析回归：20 项通过，0 失败。
-- 后端契约/接口/SQLite 回归：20 项通过，0 失败。
-- Vite 生产构建：通过。
-- 真实 Express + SQLite 与 Vite 开发代理 HTTP 联调：健康检查、登录、未配置 AI 的明确错误、深层路径页面及退出登录通过。
-- Vite 构建预览代理，以及 Express 直接提供构建页面：相同 HTTP 联调通过。
-- 生产 JS 产物检查：不含直接 Gemini 请求地址或前端 Gemini 密钥读取入口。
-- 清单/锁文件核对：前后端版本和依赖一致。
-- 管理员文件比对：上述 7 个源文件无修改。
+| Check | Recorded result |
+| --- | --- |
+| ESLint | Passed |
+| Student UI, state, and extraction regression tests | 20 passed, 0 failed |
+| Backend contract, API, and SQLite regression tests | 20 passed, 0 failed |
+| Vite production build | Passed |
+| HTTP integration with real Express, SQLite, and the Vite development proxy | Health check, login, explicit error for unconfigured AI, deep-page routes, and logout passed |
+| Vite build-preview proxy and Express serving the production build directly | The same HTTP integration checks passed |
+| Production JavaScript inspection | No direct Gemini request URL or frontend Gemini-key read path found |
+| Package manifests and lockfiles | Frontend and backend versions and dependencies were consistent |
+| Administrator source comparison | All seven files identified above were unchanged |
 
-测试代码随包提供，运行方法为项目根目录执行 `npm run check`。回归内容包括迟到回答隔离、历史恢复、HTML 转义、并发上传、登出中止、存储失败、用户统计隔离、关联删除、真实页面事件到接口调用的总结/测验流程、整篇文本保留、Office 解压限制、混合 PDF 分页处理、OCR 初始化超时、输入和输出校验、服务端鉴权、限次重试、取消及数据库重复初始化。
+The tests were included in the package and could be run from the repository root with `npm run check`. Coverage included stale-response isolation, history restoration, HTML escaping, concurrent uploads, logout cancellation, storage failures, per-user statistics, dependent-record deletion, Summary and Quiz flows from page events to API calls, complete text retention, Office archive limits, mixed-PDF page handling, OCR initialization timeouts, input and output validation, server authentication, bounded retries, cancellation, and repeated database initialization.
 
-## 验证边界
+## Validation limits at that date
 
-Gemini 网络层使用模拟响应，未使用任何真实密钥、用户资料或付费额度。回归测试能证实调用链和边界处理，不能证实真实 Gemini 的准确率、引用质量或延迟。
+The Gemini network layer used simulated responses. No real API keys, user materials, or paid quota were used. These tests verified request flow and boundary handling; they did not establish real Gemini answer accuracy, citation quality, or latency.
 
-组件状态测试运行真实 React 与应用代码，并以轻量替身代替依赖浏览器布局的聊天控件；HTML 安全测试另外使用实际聊天库做静态渲染检查。PDF/OCR 分页决策使用受控 PDF 页面与 OCR 返回；TXT 和 Office 解压流程实际执行。没有把这些测试描述为真实浏览器端到端测试或 OCR 识别准确率测试。当前环境无法连接到可访问本项目的交互浏览器，视觉和真实浏览器行为仍需在本机确认。
+Component-state tests ran the real React and application code with a lightweight substitute for the chat widget that depended on browser layout. A separate HTML-safety test statically rendered the actual chat library. PDF/OCR page decisions used controlled PDF pages and OCR results; TXT extraction and Office archive processing ran directly. These checks were not real-browser end-to-end tests or OCR accuracy tests. An interactive browser capable of accessing the application was unavailable in that environment, so visual behavior and real-browser interaction remained unverified for this snapshot.
 
-验证环境是 Linux/Node.js 24。SQLite 安装程序在当前工作区遇到了文件属主属性写入限制，测试使用同版本官方安装缓存中的预构建模块；未改动依赖版本来规避问题。Windows 启动脚本经过静态检查，尚未在 Windows 实机运行。依赖安装和语言模型下载需要网络。
+Validation ran on Linux with Node.js 24. The SQLite installer encountered a file-ownership attribute restriction in the workspace, so tests used the prebuilt module from the official installation cache for the same version. Dependency versions were not changed to work around that restriction. The Windows startup script received static review but had not been run on a Windows machine during this validation. Dependency installation and OCR language-model downloads required network access.
 
-构建提示主 JS 块大于 500 kB；这不阻止构建，但首次加载仍有优化空间。react-test-renderer 的弃用提示来自开发测试依赖，不参与正式运行逻辑。
+The build reported a main JavaScript chunk above 500 kB. It still passed, with initial-load optimization remaining open. The `react-test-renderer` deprecation warning came from a development test dependency and did not affect production runtime logic.
 
-## 当前保留范围
+## Scope retained in version 1.1.0
 
-课程、提取后的资料文字和学习记录仍存在当前浏览器，不是完整的服务器数据库业务。浏览器缓存的用户过滤不等于多用户存储隔离；管理员管理页面、正式账号管理、跨设备同步和生产部署仍需后续实现。测验是本地练习，不提供考试防作弊保证。
+At this phase, courses, extracted material text, and study records remained in the current browser rather than a complete server database workflow. Filtering browser-cached data by user did not provide multi-user storage isolation. Administrator management operations, full account management, cross-device synchronization, and production deployment remained future work at that date. Quizzes were local practice exercises and offered no exam anti-cheating guarantees.
 
-PDF/Office/OCR 只做文本提取，不保证准确解释图片、公式、表格或图表。代码会显示读取提示并将提示传给模型；未知内容仍需要回到原件检查。
+PDF, Office, and OCR processing extracted text; it did not guarantee correct interpretation of images, formulas, tables, or charts. The application displayed extraction warnings and passed them to the model. Uncertain content still needed comparison with the original document.
 
-下一轮真实效果验证可使用少量有标准答案的课程资料，分别覆盖资料末尾的问题、跨文件问题、中文扫描页、资料中不存在的问题和带公式的页面。核对答案是否有依据，再决定是否需要改变模型、提示词或解析方式。现在没有加入检索数据库、多模型路由或自动执行工具。
+The proposed next validation used a small set of course materials with known answers, covering questions about the end of a document, questions across files, scanned Chinese pages, information absent from the materials, and pages containing formulas. Answers would be checked against their sources before changing the model, prompts, or extraction process. This phase did not introduce a retrieval database, routing between multiple models, or tools that executed actions automatically.

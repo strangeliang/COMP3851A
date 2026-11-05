@@ -1,4 +1,4 @@
-> Historical integration note for the original uploaded archive. This document is retained as project history and does not describe version 1.1.0. The current implementation and limits are documented in `README.md` and `docs/FOUNDATION_FIXES.md`.
+> Historical integration snapshot of the original uploaded archives. The comparisons and prototype limitations below describe that integration stage, not the current application. For current functionality and limits, use the [README](../README.md) and [final verification](FINAL_VERIFICATION_2026-11-05.md).
 
 # Feature Comparison and Integration Notes
 

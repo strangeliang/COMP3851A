@@ -1,87 +1,96 @@
-# Study Companion 最终演示版本验收
+# Study Companion: Final Verification and Handoff
 
-检查日期：2026 年 11 月 5 日。对象为本地 `COMP3851A` 当前工作目录，分支 `codex/teacher-feedback-20261105`。现有功能及本轮收尾修复通过以下本地检查，可以开始整理 PPT 和演示流程。GitHub 同步和审批状态以对应合并请求为准；本地验收通过不代表线上已部署，发布后仍需线上验收。
+**Verification date:** 5 November 2026
 
-## 读取范围
+**Branch:** `codex/teacher-feedback-20261105`
 
-逐文件核对现有项目的 212 份源码、测试、配置和文档，覆盖 `src`、`backend/src`、`backend/scripts`、`shared`、前后端全部测试、公共 Logo、启动及部署配置。前端界面、状态与测试、后端分别审查，并对新增数据库并发修复做了独立复核。读取清单与实际文件列表核对，没有遗漏上述范围内的文件。
+**Delivery:** [Pull request #23](https://github.com/strangeliang/COMP3851A/pull/23), open at this review. Refer to the pull request for its current revision and merge status.
 
-两份依赖锁文件通过锁定依赖及 `npm audit` 检查；空 `.gitkeep` 不计入阅读数。没有把 `node_modules`、`dist`、Git 对象、运行数据库、上传原件和真实 `.env` 计作项目源码阅读。真实 AI 小量实测由现有后端配置加载密钥，没有输出密钥内容。
+The local version passed the checks recorded below and is ready for the demonstration and deployment handoff. These results establish local acceptance; deployment and live service acceptance remain separate steps.
 
-## 本轮修复
+## Review scope
 
-| 问题 | 最终处理 |
+The review covered 212 existing source, test, configuration, and documentation files across `src`, `backend/src`, `backend/scripts`, `shared`, all frontend and backend tests, the public logo, and startup and deployment configuration. The reading inventory was checked against the actual file list. The database concurrency fixes also received an independent review.
+
+The count excludes the two dependency lockfiles, empty `.gitkeep` files, installed dependencies, build output, Git objects, runtime databases, uploaded originals, and private `.env` files. Dependency checks used the lockfiles and `npm audit`. The real AI smoke test used the backend's existing private configuration without displaying secrets.
+
+## Fixes included
+
+| Issue | Resolution |
 | --- | --- |
-| 删除课程或资料后，已加载的历史快照和 New 数量可能保留旧记录 | 服务器确认删除后立即移除对应快照；保留账号隔离及迟到请求保护。兼容空选择数组下的旧 `sourceFileId`。 |
-| 资料在校验后、历史保存前被删除，迟到结果可能重新出现 | 两条历史写入路径均在 SQLite 插入语句内再次检查全部来源，不允许重新写入已删除资料的记录。 |
-| 原件上传与资料／课程删除同时发生，原件文件可能残留 | 数据库删除触发器原子记录待清理文件键；删除流程和启动时清理，失败项保留供下次重试。 |
-| SQLite 可能重用刚删除的最高资料编号 | 新增持久化递增编号，保留现有编号，避免旧历史或原件请求关联到后来上传的另一份资料。 |
-| Docker 构建没有复制公共 Logo | 补齐 `public` 的构建上下文及复制指令。 |
-| Compose 未传入 SMTP 配置 | 显式转发 `MAIL_PROVIDER` 和 SMTP 参数；保留默认 Resend 行为，秘密值仍由私有环境配置提供。 |
-| Ask Me 的 AI 产品说明仍提到旧标签 | 与当前 AI help、Human support、History 三个入口保持一致。 |
-| API 和支持说明含旧版描述 | 更新实际 Cookie 鉴权、注册验证码、学习接口、已读／掌握状态、支持通知和管理员路由说明。 |
+| Deleted courses or materials could remain in loaded history and New counts. | Remove the relevant snapshots after server-confirmed deletion, retaining account isolation and stale-request guards. Handle legacy `sourceFileId` when the selected-source array is empty. |
+| A material deleted between validation and history saving could reappear in a late result. | Both history insertion paths check every source inside the SQLite insert statement. |
+| Concurrent original-file upload and course or material deletion could leave files behind. | Database deletion triggers atomically queue original-file keys for cleanup. Deletion and startup processing retry failed items. |
+| SQLite could reuse the highest deleted material ID. | A persistent increasing sequence preserves existing IDs and prevents old history or original-file requests from pointing to a later upload. |
+| Docker builds omitted the public logo. | Include `public` in the build context and copy it during the build. |
+| Compose omitted SMTP settings. | Forward `MAIL_PROVIDER` and SMTP parameters explicitly, retaining the default Resend behavior and private secret configuration. |
+| Ask Me product guidance used outdated tab names. | Align guidance with AI help, Human support, and History. |
+| API and support documentation described outdated behavior. | Document current cookie authentication, registration codes, study endpoints, read and mastery state, support notifications, and administrator routes. |
 
-主要代码位置：`src/state/AppDataContext.jsx`、`backend/src/config/database.js`、`backend/src/config/schema.js`、`backend/src/routes/studyRoutes.js`、`backend/src/services/originalStorage.js`、`backend/src/server.js`、`backend/src/services/supportAiContracts.js`、`Dockerfile`、`.dockerignore`、`compose.yaml`。没有重新加入已取消的按页面延迟加载优化。
+The previously removed page-level lazy-loading change was not reintroduced.
 
-## 自动化检查
+## Automated verification
 
-| 检查 | 结果 |
+| Check | Recorded result |
 | --- | --- |
-| ESLint | 通过 |
-| 前端全部回归 | 225 项通过，0 失败 |
-| 后端全部回归 | 98 项通过，0 失败 |
-| 合计 | 323 项通过，0 失败 |
-| Vite 生产构建 | 通过 |
-| 前端及后端 `npm audit` | 均为 0 个已知漏洞 |
-| `git diff --check` | 通过；存在 Windows 行尾转换提示，不影响结果 |
+| ESLint | Passed |
+| Frontend regression suite | 225 passed, 0 failed |
+| Backend regression suite | 98 passed, 0 failed |
+| Total | **323 passed, 0 failed** |
+| Vite production build | Passed |
+| Frontend and backend `npm audit` | 0 known vulnerabilities in each |
+| `git diff --check` | Passed; Windows line-ending conversion warnings remained |
 
-完整执行了 `npm run check`；随后修正帮助提示词标签，又执行了 ESLint 和全部后端测试，仍通过。新回归覆盖删除后的现成历史快照、删除与保存交错、原件并发删除及清理重试、编号迁移和删除后重新上传。独立并发探测验证了跨课程并发分配不产生重复编号，删除及重新初始化不回退编号，显式导入较大编号后继续递增。
+The complete `npm run check` passed. After the final help-prompt wording update, ESLint and the full backend suite passed again.
 
-现有测试还覆盖注册和恢复、Cookie 身份、Google 验证器边界、账号／资料隔离、来源校验、上传限制与回滚、解析边界、停止生成和过期请求、历史与重练、已读和掌握进度、工单权限、通知队列，以及隔离后端的原件保存和重启持久性。
+New regressions cover loaded history after deletion, deletion interleaved with saving, concurrent original-file deletion and cleanup retries, ID migration, and uploading again after deletion. An independent concurrency probe confirmed unique IDs across concurrent course uploads, no sequence rollback after deletion or reinitialization, and continued incrementing after an explicitly imported larger ID.
 
-主 JS 约 693 KB，Vite 仍提示大于 500 KB。测试工具仍有 `react-test-renderer` 弃用提示。这两项不是测试失败；本轮保留现有加载方式和测试框架。
+Existing tests also cover registration and recovery, cookie identity, Google verifier boundaries, account and material isolation, source validation, upload limits and rollback, parsing boundaries, cancellation and stale requests, history and retry flows, read and mastery progress, ticket permissions, notification queues, and original-file persistence across an isolated backend restart.
 
-## 浏览器验收
+The main JavaScript bundle remains approximately 693 KB, triggering Vite's 500 KB warning. The test tooling also reports a `react-test-renderer` deprecation warning. Neither caused a failed check; the current loading approach and test framework remain in place.
 
-使用本机回环地址的隔离 SQLite 测试站点和自建短文本，不使用或修改正式运行数据库。浏览器中的学习 AI 返回采用固定测试替身，真实 Gemini 另行进行下一节的小量实测。
+## Browser acceptance
 
-| 范围 | 已观察的结果 |
+Browser checks used a loopback test site, an isolated SQLite database, and synthetic short text. They did not modify the production runtime database. Study AI responses in these checks used fixed test fixtures; the separate real Gemini smoke test is recorded below.
+
+| Area | Observed result |
 | --- | --- |
-| 学生登录与主页 | 登录／退出成功；统计预览可打开；保存的测验显示 1 次、50%，与本次作答一致。 |
-| 上传 | 文本文件选择、队列、上传、服务器原件链接和资料详情弹窗正常；上传结果使用 uploaded。 |
-| 总结与问答 | 总结保存；引用可定位 Slide 2 并高亮；问题与回复保存为对应对话。 |
-| Quiz | 首题没有 Previous，末题没有 Next；未答完 Submit 禁用；混合题型完成后正确／错误分别展示。 |
-| Flashcards | 一组 6 张；标记掌握后历史详情显示 1/6；不同账号的进度和记录分开。 |
-| Review Centre | 新测验提示可见；打开后清除该页面的 New；错题练习保存为 1/1，原成绩仍为 50%；全部重做展示两题。 |
-| Study History | 未查看记录显示 New；与 Review Centre 已读状态独立；单条删除／撤销、全部删除／撤销可用。 |
-| 设置及个人资料 | 语言菜单可展开并切换中英文；英文模式头像选择控件为英文。 |
-| Ask Me | 三入口可用；人工支持表单直接创建独立工单；等待回复时为 Add information。 |
-| 管理员支持 | 能看到等待队列、读取问题、保存回复、更新为 Resolved；学生重新登录后可查看同一回复和状态。 |
-| 手机宽度 | 在 390 × 720 视口检查 Compact 帮助窗口，窗口未超出可用宽度，关闭图标正常。 |
-| 空账号首次使用 | 第二学生账号初始为 0 课程、0 资料、0 测验且没有 New；建课、上传、首次生成 6 张卡片、保存进度和独立历史均可用。 |
+| Student access and dashboard | Login and logout worked. Statistics opened and showed one saved quiz at 50%, matching the submitted answers. |
+| Upload | File selection, queueing, upload, the server original-file link, and material details worked. The result used the `uploaded` status. |
+| Summary and Q&A | A summary was saved. A citation opened and highlighted Slide 2. Questions and answers were saved to the relevant conversation. |
+| Quiz | Previous was absent on the first question and Next on the last. Submit remained disabled until all questions were answered. Mixed question types displayed correct and incorrect results. |
+| Flashcards | A set contained six cards. Marking one mastered produced 1/6 in history details. Progress and records remained separate between accounts. |
+| Review Centre | New quiz indicators appeared and cleared when opened. Wrong-answer practice saved a 1/1 result while the original score remained 50%. Retry all displayed both questions. |
+| Study History | Unopened records displayed New independently of Review Centre. Single-record and delete-all actions both supported undo. |
+| Settings and profile | The language menu switched between English and Chinese. The avatar selector used English in English mode. |
+| Ask Me and support | All three tabs worked. Human support created a separate ticket and displayed Add information while awaiting a reply. An administrator read the waiting ticket, saved a reply, and marked it Resolved; the student saw the same reply and status after logging in again. |
+| Mobile width | The Compact help window fitted a 390 × 720 viewport, with a working close icon. |
+| Empty-account first use | A second student account started with zero courses, materials, and quizzes, and no New indicators. Course creation, upload, the first six-card generation, progress saving, and independent history worked. |
 
-本轮测试标签页捕获的浏览器控制台 error 为 0。空账号流程使用已存在但没有学习数据的测试账号；真实邮箱注册收信由部署验收确认。
+The captured test-tab browser console contained zero errors. The empty-account check used an existing test account with no study data; it did not verify delivery of registration email to a new real mailbox.
 
-## 真实 Gemini 小量实测
+## Real Gemini smoke test
 
-通过当前后端服务和现有私有密钥，以自建向量知识短文本发起真实请求：Summary 返回有效总结，Q&A 返回回答，Quiz 返回 2 道题，Flashcards 返回 6 张卡片，Ask Me 返回网站使用帮助。没有发送老师原 PPT 或个人课程资料。
+Five services were exercised through the current backend using its existing private key and synthetic short text about vectors: Summary returned a valid summary, Q&A returned an answer, Quiz returned two questions, Flashcards returned six cards, and Ask Me returned website guidance. No original teaching slides or personal course materials were sent.
 
-帮助测试脚本首次缺少接口要求的语言和历史参数，被输入校验拒绝；补齐参数后仅重试帮助请求并成功。这不是已部署页面故障。
+This confirms successful connectivity and acceptable response structure at the time of the test. It does not establish course-wide answer accuracy, semantic uniqueness of every card, or future quota availability. Formula extraction and question accuracy require checks against the relevant original slides; scanned-document OCR requires checks against the actual scans.
 
-这次实测证明当时的配置可以连接并得到合格结构，不能证明所有课程问题答案正确、所有卡片语义不重复或未来额度持续可用。老师原 PPT 的公式提取和题目准确性，以及真实扫描件 OCR 质量，仍需使用对应原件核对。
+## Merge and deployment handoff
 
-## 组长合并和部署
+Deploy the frontend and backend from the same revision. Install the locked dependencies, run `npm run check`, and follow [Deployment](DEPLOYMENT.md). Preserve the private environment configuration, existing database, and original-file directory, with a paired database-and-originals backup before deployment. Do not replace existing data with the test database.
 
-前端与后端必须作为同一版本部署。重新安装锁定依赖并运行 `npm run check`，再按 [部署说明](DEPLOYMENT.md) 构建、启动或重新部署。保持现有私有环境、数据库和原件目录；不要用测试数据库覆盖现有数据。
+Backend startup creates `original_cleanup_queue`, `material_id_sequence`, and their triggers automatically. **No database reset is required**; existing material IDs and content are preserved. History read state and flashcard mastery also require the updated backend. Sessions are held in memory, so users must log in again after a restart.
 
-本轮新增的 `original_cleanup_queue`、`material_id_sequence` 及触发器由后端启动自动创建，不需要重置数据库，不改写现有资料编号和内容。此前新增的历史已读和卡片掌握状态同样需要新版后端。部署前保留数据库与原件的成套备份。会话保存在内存，重启后需要重新登录。
+Docker configuration was corrected, but the local Docker daemon was not running, so an actual container build was not verified. If deploying with Docker, build with a running engine and check `/api/health`. The successful Vite production build does not replace container verification.
 
-Docker 配置已修正，但本机 Docker 引擎没有启动，未完成实际容器构建。若采用 Docker 部署，应在可用引擎上执行构建及 `/api/health` 验收；普通 Vite 生产构建已通过。云端数据库和原件是否真正持久化，必须以线上重启／重新部署后的数据仍存在为准。
+Complete these checks on the actual deployment:
 
-上线后使用两个学生账号及一个管理员账号快速走完：上传、总结、问答、Quiz、Flashcards、历史与重练、支持工单回复；确认 New／掌握状态重新登录后保留。实际邮箱验证码／重置邮件收件、Google 登录及云端 Gemini 配额需要在实际部署中确认，不能用本地模拟测试代替。
+- Use two student accounts and one administrator account to exercise upload, Summary, Q&A, Quiz, Flashcards, history, retry, and support replies. Confirm New and mastery state survive logging in again.
+- Verify receipt of registration and password-reset emails, Google login, and the deployed Gemini configuration and quota.
+- Restart or redeploy and confirm both database records and uploaded originals remain available. Configured paths and local restart tests alone do not prove cloud persistence.
 
-## PPT 和小组演示范围
+## Demonstration boundaries
 
-可以围绕“建课与上传 → AI 学习 → 历史保存 → 针对性复习 → 网站帮助”介绍已完成流程，配合账号隔离、来源引用、错误反馈和测试结果说明质量。测试数字可写为“本地自动化检查 323 项通过”，真实 AI 可写为“使用短文本完成五类服务小量实测”，不要把它写为全部课程准确率验证。
+The demonstrated student workflow is course creation and upload, AI study tools, saved history, targeted review, and website help. Report the evidence as **323 local automated tests passed** and **five real AI services smoke-tested with synthetic short text**; neither figure establishes accuracy for all course materials.
 
-当前管理员可演示入口为 Support Tickets，包含搜索筛选、人工等待队列、详情、回复及状态管理。旧 Users、Materials、AI Outputs 等页面源码仍在，但未作为现有管理员功能挂载路由，不应列入已完成演示范围。自然语言模型解释、OCR 及云端收信／存储的实际边界可作为项目限制和后续方向简要说明。
+The current administrator entry point is **Support Tickets**, including search and filters, the waiting queue, ticket details, replies, and status management. Legacy Users, Materials, and AI Outputs page sources remain in the repository but are not routed as current administrator features. Exclude them from the completed feature demonstration. Model interpretation, OCR quality, live email delivery, and cloud persistence remain subject to the limits and deployment checks above.

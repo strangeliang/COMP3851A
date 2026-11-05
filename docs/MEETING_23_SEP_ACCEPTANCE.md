@@ -1,5 +1,7 @@
 # 23 September meeting — implementation and acceptance record
 
+Historical meeting and implementation snapshot. Use the [README](../README.md) and [final verification](FINAL_VERIFICATION_2026-11-05.md) for current behaviour and release acceptance.
+
 Updated: 1 October 2026. This describes the local working tree, not a deployed release.
 The meeting minutes are requirements/evidence; this file does not change the agreed
 team ownership, deadlines or 7 October meeting agenda.

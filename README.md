@@ -1,155 +1,176 @@
-# COMP3851A Study Companion 1.1.0
+# Study Companion
 
-当前版本包含 Gemini 总结、问答、测验与六张复习卡片，服务器学习历史删除/撤销、错题或全部重练、学生设置与个人简介，以及学生 Ask Me 与管理员工单。部署使用 `backend/src/server.js`，配置见 [部署说明](docs/DEPLOYMENT.md)。
+Study Companion is a course-based learning website built for the COMP3851 Work Integrated Learning project. Students organise materials, generate summaries and revision activities with Google Gemini, and revisit saved work in Study History and Review Centre. Ask Me provides website help and access to administrator support.
 
-## 启动
+The application uses React and Vite, an Express backend, SQLite account storage and private filesystem storage for uploaded originals. API credentials stay on the backend. The current administrator workspace manages support tickets; legacy user, material and AI-output administration pages are not routed.
 
-需要 Node.js **22.13 或更新版本**、npm，以及较新的 Chrome 或 Edge。前端和后端都需要启动。
+## Features
 
-在项目根目录安装锁定的依赖：
+| Area | Available functionality |
+| --- | --- |
+| Courses and materials | Create, rename and select courses; upload notes, PDF, Office and image files; inspect extracted text and available originals. |
+| Summary | Generate an overview and key concepts, copy the result and inspect cited sources. |
+| Q&A | Ask follow-up questions using Simple, Detailed, Example or Hint Only answers. Conversations are scoped to the account, course and selected materials. |
+| Quiz | Choose question count, difficulty and single-answer, multiple-answer or mixed questions. Track unanswered questions, jump between them and inspect results. |
+| Flashcards | Generate six cards, reveal answers, inspect citations and save mastery to the account. Regeneration checks previous cards for repeated text. |
+| Study History | Search and filter saved work; preview records; delete and restore individual records or all records. New badges clear after a record is opened and acknowledged. |
+| Review Centre | Practise wrong questions or retake a complete saved quiz. Separate practice results preserve the original score. History and Review Centre have independent read states. |
+| Profile and settings | Edit a personal profile and avatar; choose English or Simplified Chinese, reading and chat sizes, and defaults for new workspaces. Display preferences are saved in the current browser. |
+| Ask Me and support | Use AI help, submit a separate human-support request and review saved conversations. Administrators search, reply, manage the waiting queue and update ticket status. |
+
+## Run locally
+
+Use **Node.js 22.13 or newer**, npm, and a recent Chrome or Edge browser. To create a new local copy:
 
 ```sh
+git clone https://github.com/strangeliang/COMP3851A.git
+cd COMP3851A
 npm ci
 npm --prefix backend ci
 ```
 
-把 `backend/.env.example` 复制为 `backend/.env`，在本机编辑：
+Run the remaining commands from the repository root. Copy `backend/.env.example` to `backend/.env`. In PowerShell:
+
+```powershell
+Copy-Item backend/.env.example backend/.env
+```
+
+Edit the new private file. Minimum local configuration:
 
 ```dotenv
 PORT=8000
 HOST=127.0.0.1
 FRONTEND_URL=http://localhost:5173
+PUBLIC_APP_URL=http://localhost:5173
 GEMINI_API_KEY=
 GEMINI_MODEL=gemini-2.5-flash
-# 仅本机演示需要；不要在 Render 等公网环境开启
-STUDY_SEED_DEMO=1
 ```
 
-在 `GEMINI_API_KEY=` 后填写你自己的 Gemini 密钥。**密钥只放在 `backend/.env`。不要再使用 `VITE_GEMINI_API_KEY` 或浏览器保存的密钥。** 修改后端环境变量后需要重启后端。下载包不包含真实密钥；未配置时，登录和资料管理仍可使用，AI 页面会显示未配置状态。
+Set `GEMINI_API_KEY` to your own key to enable AI. Never put it in a `VITE_*` variable, frontend code or Git. Restart the backend after changing environment variables. Without a configured key, sign-in and material management remain available, while AI features report their unavailable state.
 
-打开两个终端，都在项目根目录运行：
+For a local demonstration with an empty database, add `STUDY_SEED_DEMO=1` before the first backend start. This creates the demonstration accounts below. Keep it disabled on public deployments. New email registration requires a configured mail provider; see [deployment](docs/DEPLOYMENT.md).
+
+Open two terminals at the repository root:
 
 ```sh
-# 终端一：后端
+# Terminal 1: backend
 npm run backend
 ```
 
 ```sh
-# 终端二：前端
+# Terminal 2: frontend
 npm run dev
 ```
 
-浏览器打开 **http://localhost:5173**。保持两个终端运行。Windows 也可以双击 `start-demo.bat`，它会安装缺少的依赖；首次创建后端配置后会提示先填写配置，再次运行才能启动两个服务。本机空数据库演示需要启用 `STUDY_SEED_DEMO=1`，否则不会生成上面的演示账号。
+Open **http://localhost:5173** and keep both terminals running. Windows users can also run `start-demo.bat`; it installs missing dependencies and prompts for configuration when needed. If the backend port changes, update both proxy targets in `vite.config.js`.
 
-如果是覆盖旧目录更新，先关闭旧服务，再重新执行两条 `npm ci`。改变后端端口时，还需要同步修改 `vite.config.js` 中的代理地址。
+### Local demonstration accounts
 
-## 演示账号
-
-| 身份 | 邮箱 | 密码 |
+| Role | Email | Password |
 | --- | --- | --- |
-| 学生 Alex | student@example.com | student123 |
-| 学生 Mia | mia@student.edu | student123 |
-| 管理员 | admin@example.com | admin123 |
+| Student Alex | student@example.com | student123 |
+| Student Mia | mia@student.edu | student123 |
+| Administrator | admin@example.com | admin123 |
 
-登录现在由后端校验 SQLite 中的密码哈希，浏览器缓存不能自行授予登录权限。会话使用 HttpOnly Cookie；普通会话最长 8 小时，勾选 Remember me 最长 7 天。后端重启后需要重新登录。
+These accounts are seeded only in an empty, explicitly enabled non-production database. They are not public deployment credentials. Production administrators are created with the private setup command in [deployment](docs/DEPLOYMENT.md).
 
-这些是公开的本地演示账号，只有非生产环境且明确设置 `STUDY_SEED_DEMO=1` 时才会在空数据库中创建。公网部署不要设置此变量；旧数据库中的公开默认密码也会被拒绝。生产管理员通过私有配置命令创建。管理员工作区集中于真实工单的查看、回复和状态更新。邮件验证和密码重置需要配置 Resend 或 SMTP 发信信息、发件人及网站地址，见部署说明。
+## Learning workflow
 
-## 学生端流程
+1. Create or select a course and upload its materials.
+2. Open an AI function and select up to three materials from that course.
+3. Generate a summary, ask a question, take a quiz or generate flashcards.
+4. Revisit saved results in Study History and practise quizzes in Review Centre.
 
-1. 登录后，课程从 SQLite 加载；选择或创建课程并上传资料。
-2. 在 Study Workspace 选择最多 3 份资料。
-3. 点击 Generate Summary、发送问题、点击 Generate Quiz 或 Generate New Cards。
+Quiz supports 1–20 questions for single-answer or multiple-answer mode, and 2–20 for mixed mode. Multiple-answer questions require the exact correct selection, without partial credit. Previous is hidden on the first question and Next on the last. Submit remains disabled until every question has an answer. Cancel Quiz discards the unsubmitted attempt after confirmation and retains earlier saved work.
 
-Quiz 生成前可选择 Question type（单选题／多选题／混合题型）、题数和难度。单选和多选支持 1–20 道，混合支持 2–20 道且包含两种题型；多选题有 2–3 个正确选项，必须全部选对且无错选才得分。后端会拒绝不符合所选题型的 AI 结果，不会将其保存为成功测验。更改选择只影响下一次生成，不会改变当前测验、原成绩或重练记录。
-第一题不显示 Previous，最后一题不显示 Next；只有一道题时两个方向按钮都隐藏，仍可正常提交。
-全部题目作答前 Submit 保持禁用，并显示剩余题数。提交前可使用 Cancel Quiz，确认后放弃本次作答且不保存成绩，以前的学习记录会保留。
-4. 后端使用已经写好的提示词和所选资料调用 Gemini，校验结果后显示在页面。
+Flashcard mastery belongs to a specific saved set. The workspace restores the latest set for the same account and exact material selection; a new set starts unmastered. Progress changes wait for server confirmation. Regeneration compares current cards and the latest saved, undeleted set and rejects repeated front or back text. This does not guarantee that every paraphrase is semantically unique. Failed or cancelled generation retains the previous set.
 
-四种模式共用 `backend/src/services/studyContracts.js` 中的提示词和输出约束。总结返回概述和关键概念；问答带上当前资料范围内最近的对话，并支持回答风格选择；测验支持自选 1–20 题、难度、单选与多选，打乱选项时同步更新答案索引；复习卡片每次生成六张，点击可翻面查看解释和资料引用。选择不同用户、课程或资料组合时，会话分开保存，正在进行的旧请求会被取消或丢弃。
+Citations such as `[S1]`, `[S1, Slide 39]` and `[S1, Page 2]` open the relevant extracted source text. Available sections are highlighted; missing locations are reported without inventing a match. PDF original links include a page target only when the corresponding extracted page exists. Office originals are downloaded for viewing in a local application.
 
-Summary 和 Quiz 遇到不完整或无效结构时会尝试重新生成一次；Quiz 还会拒绝常见等价数字选项，例如 `√164` 与 `12.8 (3sf)`，并要求题干注明单位和精度。重试共用原有最多两次请求及 90 秒总等待时间，仍不合格时显示错误并保留已有结果。此类校验不能代替课程知识和数学语义的人工核对。
+The backend validates input, output structure and source labels. Summary and Quiz can retry an invalid structured result within a shared maximum of two provider calls and a 90-second deadline. Quiz also rejects common equivalent numerical options. Requests report configuration, quota, timeout and output errors instead of substituting demonstration answers. Switching accounts or source scope cancels or discards stale results.
 
-重新生成 Flashcards 会参考当前显示的卡片，以及服务器保存的该用户、同一资料组合最近一组卡片，要求换用不同知识点和问题。后端拦截重复的正面或解释文案，必要时再尝试一次；文本去重不能证明所有改写在语义上完全不同。生成失败或取消时保留原卡片，也不会把原卡片重复保存为新记录。资料内容有限时不会为了凑出新卡而编造知识。
+## Supported files and limits
 
-以上行为适用于正式部署和新注册用户，不依赖演示账号。新用户没有历史时可直接首次生成；部署时应同时更新前后端并重启后端，无需新增密钥或重置数据库。
+Limits are defined in [shared/studyLimits.json](shared/studyLimits.json) and enforced at the relevant browser and server boundaries.
 
-左下角 Settings 提供语言、阅读字号、新工作区默认回答风格和测验难度；Ask Me 可调整聊天框大小。Study History 支持单条或全部删除及撤销，Review Centre 支持只重练错题或全部重做。删除学习历史不会永久清除原记录，撤销后可以恢复。
-
-学习历史和复习中心分别显示新记录提示，打开对应记录并成功确认查看后清除；进入页面本身不会批量清除。侧栏显示尚未查看的记录数，复习中心的数量按默认可练习的错题测验计算。查看状态保存在账号中，重新登录后保留；升级前的旧记录默认视为已查看，避免把全部旧数据标为新记录。
-
-Flashcards 的掌握标记保存到账号，并与具体的一组已保存卡片关联。相同资料组合可恢复最近保存的一组，学习历史里也能查看和修改掌握状态；生成新一组后从未掌握开始。标记需等待服务器确认，保存失败会提示重试。此更新在启动时自动新增查看状态和卡片进度表，不需要重置数据库或增加环境变量。
-
-资料引用支持 `[S1]`、`[S1, Slide 39]`、`[S1, Page 2]`、多位置和合并来源。点击学习结果中的引用可以定位并高亮对应的提取文字；未找到位置时会说明并显示全文。只有 PDF 提取文字中存在相应页时，原件链接才会附带页码；PPT 原件仍通过下载查看。
-
-问答消息按纯文本显示，模型返回的 HTML 不会作为网页执行。模型被截断、返回无效测验结构、被拦截、超时或配置错误时，都显示错误，不再降级为演示答案。正常请求最长等待后端 90 秒；对限流和临时服务故障最多自动重试一次，也可以手动停止生成。
-
-## 文件及输入限制
-
-原代码的 **13,000 字符是自行设置的截断值，不是本版本采用的 Gemini 模型上限**。现在采用完整输入加明确限制，不再只截取每份资料开头。
-
-| 项目 | 限制 |
+| Item | Limit |
 | --- | --- |
-| 每批上传 | 最多 3 份 |
-| 每次 AI 选择 | 最多 3 份 |
-| 每门课程 | 最多 5 份 |
-| 每位学生账号（服务器统一校验） | 最多 10 份 |
-| 单个原始文件 | 最大 10 MiB |
-| 单文件完整提取文本 | 最大 100,000 字符，超出时拒绝导入 |
-| 单次 AI 所选资料文本合计 | 最大 100,000 字符，超出时需要少选或拆分 |
-| PDF | 最大 100 页；其中需要 OCR 的页面最多 20 页 |
-| Office 实际读取的文本 XML 解压后 | 合计最大 20 MiB；跳过未读取的嵌入媒体 |
-| 图片 OCR | 最大 2,000 万像素 |
-| 单文件读取等待 | 最长 3 分钟 |
-| 问答问题 | 最多 4,000 字符 |
+| Files per upload / AI selection | 3 |
+| Materials per course / student account | 5 / 10 |
+| Original file size | 10 MiB |
+| Extracted text per file | 100,000 characters |
+| Combined source text per AI request | 100,000 characters |
+| PDF | 100 pages; at most 20 pages requiring OCR |
+| Office text XML actually read after decompression | 20 MiB total; unread embedded media is skipped |
+| Image size for OCR | 20 million pixels |
+| File-reading timeout | 3 minutes per file |
+| Q&A question | 4,000 characters |
 
-共享限制集中在 `shared/studyLimits.json`。仅限制文件数量不能解决一个超长文件的问题，因此数量、文件大小和提取文本长度会同时检查。一次上传采用整批成功或整批失败；多文件保存中途失败时会删除本批已经写入的资料。重复点击、退出登录、取消上传或存储空间不足不会把文件写入另一个账号的页面状态。
+TXT and Markdown use their full text. PDF extraction runs page by page and uses optical character recognition (OCR) on pages with insufficient selectable text. DOCX and PPTX extraction reads document or slide text and retains slide markers. PNG, JPG/JPEG, WEBP and BMP use English and Simplified Chinese OCR in the browser. Legacy PPT and DOC formats are not supported.
 
-## 资料读取
+Oversized or unreadable files are rejected rather than silently truncated. Upload batches are rolled back if saving fails; interruption between metadata and original-file requests can leave a clearly labelled text-only record. Existing records without original bytes require re-upload for original preview or download.
 
-- TXT、Markdown：读取完整文本。
-- PDF：逐页读取文字；某页没有足够的可选中文字时，仅对该页做 OCR，避免一份混合 PDF 中的扫描页被跳过。文本保留 Page 标记。超过页数或 OCR 上限会拒绝整份文件，不会只读前几页。
-- DOCX、PPTX：提取正文或幻灯片中的文字，幻灯片保留 Slide 标记。不等同于理解嵌入图表、公式、图片或备注。
-- PNG、JPG/JPEG、WEBP、BMP：在浏览器中使用英语及简体中文 OCR。
+OCR may need an initial network download. Extraction does not guarantee interpretation of formulas, diagrams, tables, embedded images or speaker notes. Inspect extracted text and warnings, and compare important answers with the original. Warnings accompany source text sent to Gemini. Files marked as incomplete by older extraction versions need re-upload.
 
-首次 OCR 需要联网下载识别运行文件和语言模型。OCR 仍可能认错字、表格和公式；同一页中已经存在可选中文字的嵌入图片，也不保证被完整解读。上传列表提供文本预览和读取提示，读取提示也会传给 Gemini。空白扫描页不会使整份 PDF 导入失败；无法识别到文字的页会明确列出供核对。
+## Data and account boundaries
 
-如果旧缓存中的文件带有“只读前 8 页”或“截断保存”的警告，新版本会要求重新上传。旧问答记录会标记为历史答案，不作为新的 Gemini 对话上下文；旧的演示总结不会冒充新生成结果。
+Accounts, courses, extracted text, study records, review attempts, read states, flashcard progress and support records are stored in SQLite. Original bytes are stored privately on the backend. HttpOnly sessions establish identity, and server ownership checks separate student data. Browser identity headers cannot grant access. Sessions are held in memory, so restarting the backend requires sign-in again.
 
-## 数据与验证边界
+Human support is asynchronous. Students can leave after submitting a request and read saved replies later. Eligible staff replies queue an email notification; provider acceptance does not prove inbox delivery. Support AI receives recent support messages without automatically attaching private study files or learning conversations.
 
-- 登录账号、课程、资料、学习历史、重练记录和问题工单保存于 SQLite；后端通过 HttpOnly 会话确认身份并强制隔离用户。客户端身份 Header 不能授予访问权限。
-- 工作区选择和临时状态仍可保存在浏览器。Study History 提供旧浏览器记录导入；旧记录不会自动冒充已保存的服务器记录。
-- 原文件保存在后端目录；提取文字在浏览器完成后写入资料 API。云端须将数据库与原文件目录都放在持久化磁盘，并验证重启和重新部署。
-- 测验用于自测，评分在浏览器完成，答案会随题目返回；不适合用作有防作弊要求的正式考试。
-- 自动校验能发现格式错误、截断和越界索引，不能证明模型对知识内容的每一次解释都正确。部署前仍需要用真实课程资料检查准确率、引用、中文 OCR 和响应速度。
-- Vite 构建的大块体积提示和 react-test-renderer 的弃用提示不代表测试失败，后者只用于开发回归测试。
+Git synchronises code, not `backend/.env`, databases, uploaded originals or browser preferences. Each installation needs its own private configuration. Cloud deployments need persistent storage for both the database and originals, verified after restarting and redeploying. Deleting a course or material permanently removes tracked dependent learning records; history-only deletion can be undone.
 
-## 回归验证
+## Verification
 
 ```sh
 npm run check
 ```
 
-该命令依次运行 ESLint、学生端回归测试、后端接口和 SQLite 测试，以及生产构建。测试使用固定的模拟 Gemini 返回和 OCR 边界，不需要密钥，不会消耗 Gemini 额度。真实模型质量和真实浏览器端 OCR 精度不在自动测试结论内。
+This runs ESLint, frontend regression tests, backend/API/SQLite tests and a production build. Automated Gemini, mail, Google and OCR tests use controlled fixtures where appropriate and do not prove live service quality or delivery.
 
-生产构建预览仍需运行后端：
+The **5 November 2026** verification recorded **225 frontend and 98 backend tests passing**, a successful build and zero known vulnerabilities in both dependency audits. Separate small live Gemini checks covered Summary, Q&A, Quiz, Flashcards and website support using synthetic text. See [final verification](docs/FINAL_VERIFICATION_2026-11-05.md) for scope, fixes and remaining deployment checks.
+
+AI output validation does not establish factual correctness, universal citation accuracy or semantic uniqueness. Quizzes provide self-assessment; answers are available to the browser, so this is not an examination system with anti-cheating guarantees. The current large-bundle and test-renderer deprecation warnings do not indicate a failed build or test.
+
+### Preview a production build locally
+
+Keep the backend running, stop the development frontend, then run:
 
 ```sh
 npm run build
 npm run preview
 ```
 
-预览和开发使用同一个 `http://localhost:5173` 地址，二者只能启动一个。构建后也可以只启动后端，通过 `http://localhost:8000` 查看打包页面。后者便于本机检查，不代表已经完成公网部署。
+Open http://localhost:5173. Development and preview use the same port and cannot run together. The backend can also serve `dist` directly after a build; this is a local preview, not evidence of a public deployment.
 
-具体接口见 [backend/docs/API_DESIGN.md](backend/docs/API_DESIGN.md)，本轮修复与验证范围见 [docs/FOUNDATION_FIXES.md](docs/FOUNDATION_FIXES.md)。
+## Update and deploy
 
-## 分发
+Save your local changes before updating an existing clone. To use the latest merged version:
 
-组员首次使用可执行 `git clone https://github.com/strangeliang/COMP3851A.git`，进入 `COMP3851A` 后按上面的安装与配置步骤启动。已有克隆先保存自己的修改，再执行 `git pull --ff-only origin main`；更新后重新执行两条 `npm ci`，并重启前后端。
+```sh
+git switch main
+git pull --ff-only origin main
+npm ci
+npm --prefix backend ci
+npm run check
+```
 
-GitHub 同步的是代码，不包含各人的 `backend/.env`、数据库、上传原文件或浏览器偏好。每位组员需要自己的本机配置；本机演示数据与公网部署数据彼此独立，因此代码一致不代表账号和历史记录完全相同。
+An unmerged feature branch is not yet part of `main`. Restart local services after updating. Deploy the matching frontend and backend together, retain the existing private environment and persistent data, and back up the database and originals together. Additive migrations run at backend startup; do not reset the database to apply this release.
 
-压缩包包含代码、依赖锁文件和配置示例；不包含真实密钥、安装目录、运行数据库、生成的前端构建或过期的嵌套发布包。旧 `releases` 中的历史整合包没有重复附带，避免混用旧逻辑。
+For production, follow [deployment and recovery](docs/DEPLOYMENT.md), including the actual HTTPS origin, persistent paths, mail configuration, private administrator creation and post-deployment acceptance checks. A successful local test run or GitHub push does not establish live deployment status.
 
-相关官方说明：[Gemini 2.5 Flash](https://ai.google.dev/gemini-api/docs/models/gemini-2.5-flash)、[Gemini 结构化输出](https://ai.google.dev/gemini-api/docs/structured-output)、[Vite 环境变量](https://vite.dev/guide/env-and-mode)。
+## Documentation
+
+| Current reference | Purpose |
+| --- | --- |
+| [Final verification](docs/FINAL_VERIFICATION_2026-11-05.md) | Final audit, test evidence, release changes and acceptance boundaries. |
+| [Deployment](docs/DEPLOYMENT.md) | Build/start commands, persistent storage, environment, backup and recovery. |
+| [API reference](backend/docs/API_DESIGN.md) | Active authentication, learning, history, progress and support routes. |
+| [Original file storage](docs/ORIGINAL_FILE_STORAGE.md) | Private originals, access checks, cleanup and migration. |
+| [Q&A history](docs/QA_HISTORY.md) | Conversation grouping, ordering and retry behaviour. |
+| [Google sign-in](docs/GOOGLE_LOGIN.md) | Client setup, token verification and account-linking rules. |
+| [SMTP setup](docs/SMTP_SETUP.md) | SMTP configuration for registration, recovery and support mail. |
+| [Support workflow](docs/SUPPORT_TICKETS.md) | Student and administrator support flows and permissions. |
+| [Support follow-up](docs/SUPPORT_FOLLOWUP.md) | Waiting queue, replies and email notification retries. |
+
+The following are dated historical records, not current setup instructions: [original integration comparison](docs/FEATURE_COMPARISON.md), [September foundation fixes](docs/FOUNDATION_FIXES.md), [PR 9 merge notes](docs/PR9_MERGE_NOTES.md), [September meeting acceptance](docs/MEETING_23_SEP_ACCEPTANCE.md), [October 20 completion candidate](docs/COMPLETION_ACCEPTANCE_2026-10-20.md), and [October 30 release notes](docs/RELEASE_NOTES_2026-10-30.md). Their dates, test counts and release states describe those snapshots.
