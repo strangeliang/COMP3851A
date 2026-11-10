@@ -198,7 +198,9 @@ function checkedText(value, maximum = 20000) {
 
 function parseOutput(mode, data, { questionCount = 5, quizType = questionCount === 1 ? "single" : "mixed", materials, previousCards = [] } = {}) {
   const candidate = data?.candidates?.[0];
-  if (candidate?.finishReason === "MAX_TOKENS") throw new StudyError(502, "OUTPUT_TRUNCATED", "The AI response was cut short. Try fewer materials or a shorter question.");
+  if (candidate?.finishReason === "MAX_TOKENS") throw new StudyError(502, "OUTPUT_TRUNCATED", mode === "summary"
+    ? "The summary was cut short. Please try again, or split a long document into smaller files."
+    : "The AI response was cut short. Try fewer materials or a shorter question.");
   if (!candidate || candidate.finishReason !== "STOP") throw new StudyError(502, "INCOMPLETE_RESPONSE", "The AI did not return a complete answer. Please try again or rephrase the request.");
   const parts = candidate.content?.parts;
   const text = Array.isArray(parts) ? parts.filter((part) => part && !part.thought && typeof part.text === "string").map((part) => part.text).join(mode === "qa" ? "\n" : "").trim() : "";

@@ -520,9 +520,11 @@ export function AppDataProvider({ children }) {
     uploadRef.current = request;
     setUploadState({ pending: true, progress: "Reading files…" });
     const persisted = [];
+    let activeFileName = "";
     try {
       const prepared = [];
       for (const file of files) {
+        activeFileName = file.name;
         request.controller.signal.throwIfAborted();
         const extracted = await extractTextFromFile(file, { signal: request.controller.signal,
           onProgress: (progress) => { if (!request.controller.signal.aborted) setUploadState({ pending: true, progress: `${file.name}: ${progress}` }); },
@@ -534,15 +536,18 @@ export function AppDataProvider({ children }) {
           size: file.size, content: extracted.text, parseWarning: extracted.warning || "", incomplete: false,
           status: extracted.warning ? "Ready with warning" : "Ready", uploadedAt: "Just now", updatedAt: "Just now" });
       }
+      activeFileName = "";
       if (request.epoch !== sessionEpoch.current || !sameId(userRef.current?.id, user.id)) throw new DOMException("Upload cancelled", "AbortError");
       const finalError = uploadError(files, courseId, user);
       if (finalError) throw new Error(finalError);
       for (const material of prepared) {
+        activeFileName = material.name;
         request.controller.signal.throwIfAborted();
         setUploadState({ pending: true, progress: `Saving ${material.name}…` });
         const saved = await createMaterialRequest(courseId, material, user.id, { signal: request.controller.signal });
         persisted.push(saved);
       }
+      activeFileName = "";
       if (request.epoch !== sessionEpoch.current || !sameId(userRef.current?.id, user.id)
         || !sameId(dataRef.current.currentCourseId, courseId)) throw new DOMException("Upload cancelled", "AbortError");
       updateData((current) => {
@@ -559,8 +564,10 @@ export function AppDataProvider({ children }) {
       if (rollbackFailed && sameId(userRef.current?.id, user.id) && sameId(dataRef.current.currentCourseId, courseId)) {
         await loadMaterialsForCourse(courseId, user, sessionEpoch.current);
       }
-      const message = failure?.name === "AbortError" ? "Upload cancelled." : failure?.message
-        || (typeof failure === "string" ? failure : "The file could not be read. Try a different file or format.");
+      const reason = String(failure?.name === "AbortError" ? "Upload cancelled." : failure?.message
+        || (typeof failure === "string" ? failure : "The file could not be read. Try a different file or format."));
+      const message = failure?.name !== "AbortError" && activeFileName && !reason.includes(activeFileName)
+        ? `${activeFileName}: ${reason}` : reason;
       return { ok: false, message: rollbackFailed
         ? `${message} Some saved files could not be rolled back; the list was refreshed to show the server state.`
         : `${message} No files from this batch were uploaded.` };

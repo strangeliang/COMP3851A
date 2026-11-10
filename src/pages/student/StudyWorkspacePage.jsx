@@ -64,6 +64,8 @@ function CitedSources({ text, materials, onPreviewSource }) {
 }
 
 function SummaryPanel({ canUseAI, materialSourceLabel, onPreviewSource }) {
+  const { language } = useLanguage();
+  const t = (en, zh) => language === "zh" ? zh : en;
   const {
     selectedMaterials,
     recordSummaryUse,
@@ -129,7 +131,13 @@ function SummaryPanel({ canUseAI, materialSourceLabel, onPreviewSource }) {
 
       {request.error && (
         <div className="state-banner error" role="alert">
-          {request.error}
+          <div>
+            {request.error}
+            <p data-react-i18n>{t(
+              "Your uploaded materials have not been removed. Try generating again, or select one material at a time. If it still fails, include the error above in a support request.",
+              "已上传的资料没有被删除。请重试生成，或一次只选择一份资料。如果仍然失败，请在人工支持请求中附上上方的错误信息。",
+            )}</p>
+          </div>
         </div>
       )}
 

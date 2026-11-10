@@ -97,6 +97,8 @@ test('summary regeneration keeps the old summary through failure and cancellatio
   await act(async () => { failed.reject(new Error('Provider temporarily unavailable')); await generating; });
   assert.match(text(app.renderer.root), /Original summary/);
   assert.match(text(app.renderer.root), /Provider temporarily unavailable/);
+  assert.match(text(app.renderer.root), /Your uploaded materials have not been removed/);
+  assert.match(text(app.renderer.root), /select one material at a time/);
   assert.equal(app.saves.length, 1);
   await act(async () => { generating = button(app.renderer.root, 'Regenerate').props.onClick(); });
   await act(async () => button(app.renderer.root, 'Stop generating').props.onClick());
@@ -108,6 +110,25 @@ test('summary regeneration keeps the old summary through failure and cancellatio
   await act(async () => button(app.renderer.root, 'Regenerate').props.onClick());
   assert.match(text(app.renderer.root), /Fresh summary/);
   assert.equal(app.saves.length, 2);
+});
+
+test('a first Summary failure offers recovery steps without saving a false result or changing selected materials', async t => {
+  let failed = true;
+  const app = await setup(t, { summary: () => failed
+    ? Promise.reject(new Error('The AI request timed out.')) : Promise.resolve(summaryReply('Recovered')) });
+  const before = structuredClone(app.materials);
+  await act(async () => button(app.renderer.root, 'Generate Summary').props.onClick());
+  assert.match(text(app.renderer.root), /The AI request timed out/);
+  assert.match(text(app.renderer.root), /Your uploaded materials have not been removed/);
+  assert.match(text(app.renderer.root), /include the error above in a support request/);
+  assert.equal(app.saves.length, 0);
+  assert.deepEqual(app.materials, before);
+  assert.equal(button(app.renderer.root, 'Generate Summary').props.disabled, false);
+  failed = false;
+  await act(async () => button(app.renderer.root, 'Generate Summary').props.onClick());
+  assert.match(text(app.renderer.root), /Recovered summary/);
+  assert.doesNotMatch(text(app.renderer.root), /Your uploaded materials have not been removed/);
+  assert.equal(app.saves.length, 1);
 });
 
 test('Quiz requires replacement confirmation and retains its questions, answer and position until generation succeeds', async t => {
