@@ -41,6 +41,11 @@ function createGeminiService({ apiKey = process.env.GEMINI_API_KEY || "", model 
               // Content and transient HTTP failures share the same two attempts and timeout.
               if (attempt === 0 && ((mode === "flashcards" && error.code === "FLASHCARDS_NOT_FRESH") || repairable)) {
                 request = buildGeminiRequest(mode, validated);
+                // This model shares its output budget with thinking. Give a cut-short
+                // Summary more room on its only retry, without changing unknown models.
+                if (mode === "summary" && error.code === "OUTPUT_TRUNCATED" && model === "gemini-2.5-flash") {
+                  request.generationConfig.maxOutputTokens = 16384;
+                }
                 if (repairable) request.contents.at(-1).parts[0].text += mode === "summary"
                   ? "\n\nRESPONSE CHECK: The previous generation could not be used. Generate a new, concise, complete JSON object with exactly paragraph (string) and concepts (array of short strings), using only the supplied sources and valid source labels. Do not return prose outside JSON."
                   : "\n\nRESPONSE CHECK: The previous generation failed format or answer-quality validation. Generate a new complete Quiz, independently verify each solution, and ensure all four options have distinct meanings and numerical values. Do not include exact and rounded forms of the same answer. Return only valid JSON matching the requested count and question type.";

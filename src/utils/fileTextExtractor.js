@@ -60,7 +60,7 @@ function ensureRange(view, offset, length, label) {
 function findEndOfCentralDirectory(view) {
   const minimum = Math.max(0, view.byteLength - 0xffff - 22);
   for (let offset = view.byteLength - 22; offset >= minimum; offset -= 1) {
-    if (view.getUint32(offset, true) === 0x06054b50) return offset;
+    if (view.getUint32(offset, true) === 0x06054b50 && offset + 22 + view.getUint16(offset + 20, true) === view.byteLength) return offset;
   }
   throw new Error("This Office file could not be opened as a ZIP package.");
 }
@@ -94,22 +94,27 @@ async function readZipTextEntries(arrayBuffer, shouldRead, signal) {
   ensureRange(view, end, 22, "central directory footer");
   const count = view.getUint16(end + 10, true);
   if (count > 2000) throw new Error("This Office file contains too many package entries.");
-  let offset = view.getUint32(end + 16, true);
+  const directoryOffset = view.getUint32(end + 16, true);
+  const directorySize = view.getUint32(end + 12, true);
+  ensureRange(view, directoryOffset, directorySize, "central directory");
+  if (directoryOffset + directorySize > end) throw new Error("This Office file has an invalid central directory.");
+  const directory = new DataView(arrayBuffer, directoryOffset, directorySize);
+  let offset = 0;
   let expandedBytes = 0;
   const selected = [];
   for (let index = 0; index < count; index += 1) {
     checkAbort(signal);
-    ensureRange(view, offset, 46, "central directory entry");
-    if (view.getUint32(offset, true) !== 0x02014b50) throw new Error("This Office file central directory is not readable.");
-    const method = view.getUint16(offset + 10, true);
-    const compressedSize = view.getUint32(offset + 20, true);
-    const uncompressedSize = view.getUint32(offset + 24, true);
-    const nameLength = view.getUint16(offset + 28, true);
-    const extraLength = view.getUint16(offset + 30, true);
-    const commentLength = view.getUint16(offset + 32, true);
-    const localOffset = view.getUint32(offset + 42, true);
-    ensureRange(view, offset + 46, nameLength + extraLength + commentLength, "central directory metadata");
-    const name = decoder.decode(new Uint8Array(arrayBuffer, offset + 46, nameLength));
+    ensureRange(directory, offset, 46, "central directory entry");
+    if (directory.getUint32(offset, true) !== 0x02014b50) throw new Error("This Office file central directory is not readable.");
+    const method = directory.getUint16(offset + 10, true);
+    const compressedSize = directory.getUint32(offset + 20, true);
+    const uncompressedSize = directory.getUint32(offset + 24, true);
+    const nameLength = directory.getUint16(offset + 28, true);
+    const extraLength = directory.getUint16(offset + 30, true);
+    const commentLength = directory.getUint16(offset + 32, true);
+    const localOffset = directory.getUint32(offset + 42, true);
+    ensureRange(directory, offset + 46, nameLength + extraLength + commentLength, "central directory metadata");
+    const name = decoder.decode(new Uint8Array(arrayBuffer, directoryOffset + offset + 46, nameLength));
     if (shouldRead(name)) {
       // Media is not decompressed; bound only the XML that is actually read.
       expandedBytes += uncompressedSize;
@@ -118,6 +123,7 @@ async function readZipTextEntries(arrayBuffer, shouldRead, signal) {
     }
     offset += 46 + nameLength + extraLength + commentLength;
   }
+  if (offset !== directory.byteLength) throw new Error("This Office file has an invalid central directory length.");
   const result = [];
   for (const entry of selected) {
     checkAbort(signal);
@@ -127,6 +133,7 @@ async function readZipTextEntries(arrayBuffer, shouldRead, signal) {
     const extraLength = view.getUint16(entry.localOffset + 28, true);
     const dataOffset = entry.localOffset + 30 + nameLength + extraLength;
     ensureRange(view, dataOffset, entry.compressedSize, "compressed entry data");
+    if (dataOffset + entry.compressedSize > directoryOffset) throw new Error("This Office file has invalid compressed entry data.");
     const compressed = new Uint8Array(arrayBuffer, dataOffset, entry.compressedSize);
     let bytes;
     if (entry.method === 0) {
@@ -140,7 +147,14 @@ async function readZipTextEntries(arrayBuffer, shouldRead, signal) {
 }
 
 async function extractOfficeText(file, extension, signal) {
-  const buffer = await abortable(file.arrayBuffer(), signal);
+  const compressedLimit = studyLimits.maxFileBytes;
+  const sizeError = () => new Error(`The original Office file exceeds ${formatFileSize(compressedLimit)}. Choose a smaller file.`);
+  if (file.size > compressedLimit) throw sizeError();
+  // Bound the compressed read too, independently of the selected XML budget.
+  const source = typeof file.slice === "function" ? file.slice(0, compressedLimit + 1) : file;
+  const buffer = await abortable(source.arrayBuffer(), signal);
+  if (buffer.byteLength > compressedLimit) throw sizeError();
+  if (Number.isFinite(file.size) && buffer.byteLength !== file.size) throw new Error("This Office file could not be read completely. Try uploading it again.");
   const pattern = OFFICE_TEXT_ENTRY_PATTERN[extension];
   const entries = await readZipTextEntries(buffer, (name) => pattern.test(name), signal);
   if (!entries.length) throw new Error(`${file.name} does not contain readable ${extension.toUpperCase()} text.`);

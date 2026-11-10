@@ -31,6 +31,12 @@ function officeFile(name, entries, reportedSize) {
   return { name, size: bytes.length, arrayBuffer: async () => bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.length) };
 }
 
+async function mutateOfficeFile(file, mutate) {
+  const buffer = await file.arrayBuffer();
+  mutate(new DataView(buffer));
+  return { ...file, arrayBuffer: async () => buffer };
+}
+
 test("TXT parsing keeps the entire text rather than clipping at the former 13,000-character boundary", async () => {
   const { extractTextFromFile } = await loadSource("src/utils/fileTextExtractor.js");
   const content = "First fact. " + "a".repeat(20000) + " FINAL FACT.";
@@ -61,9 +67,10 @@ test("Office decompression rejects oversized selected XML and inflated data exce
   const entries = [["word/document.xml", "a".repeat(10000)]];
   await assert.rejects(extractTextFromFile(officeFile("oversized.docx", entries, 21 * 1024 * 1024)), /text inside.*exceeds 20 MB after decompression.*separate from the original file size/);
   await assert.rejects(extractTextFromFile(officeFile("wrong-size.docx", entries, 10)), /safe reading limit/);
+  await assert.rejects(extractTextFromFile(officeFile("truncated.docx", entries, 10001)), /invalid compressed entry/);
 });
 
-test("a media-heavy six MB presentation reads its slides without expanding unused embedded media", async () => {
+test("six MB DOCX and PPTX packages read text without expanding their 24 MB embedded bitmap", async () => {
   let inflated = 0;
   const NativeDecompressionStream = globalThis.DecompressionStream;
   const { extractTextFromFile } = await loadSource("src/utils/fileTextExtractor.js", {}, {
@@ -72,13 +79,23 @@ test("a media-heavy six MB presentation reads its slides without expanding unuse
     },
   });
   const xml = '<a:root xmlns:a="urn:test"><a:p><a:t>Course concepts remain readable.</a:t></a:p></a:root>';
-  const media = Buffer.concat([randomBytes(6 * 1024 * 1024), Buffer.alloc(18 * 1024 * 1024)]);
-  const file = officeFile("media-deck.pptx", [["ppt/slides/slide1.xml", xml], ["ppt/media/image1.bin", media]]);
-  assert.ok(file.size > 5 * 1024 * 1024 && file.size < 10 * 1024 * 1024);
-  const result = await extractTextFromFile(file);
-  assert.match(result.text, /Course concepts remain readable/);
-  assert.equal(inflated, 1, "Only the slide XML is decompressed");
-  assert.match(result.warning, /vector notation, and equations may lose their layout/);
+  // A real 2048 x 4096, 24-bit BMP: a detailed region and a large blank region.
+  const media = Buffer.alloc(54 + 24 * 1024 * 1024);
+  media.write("BM"); media.writeUInt32LE(media.length, 2); media.writeUInt32LE(54, 10); media.writeUInt32LE(40, 14);
+  media.writeInt32LE(2048, 18); media.writeInt32LE(4096, 22); media.writeUInt16LE(1, 26); media.writeUInt16LE(24, 28);
+  randomBytes(6 * 1024 * 1024).copy(media, 54);
+  for (const [extension, textPath, mediaPath] of [
+    ["pptx", "ppt/slides/slide1.xml", "ppt/media/image1.bmp"],
+    ["docx", "word/document.xml", "word/media/image1.bmp"],
+  ]) {
+    const file = officeFile(`media-heavy.${extension}`, [[textPath, xml], [mediaPath, media]]);
+    assert.ok(file.size > 5 * 1024 * 1024 && file.size < 10 * 1024 * 1024);
+    const before = inflated;
+    const result = await extractTextFromFile(file);
+    assert.match(result.text, /Course concepts remain readable/);
+    assert.equal(inflated - before, 1, "Only document or slide XML is decompressed");
+    if (extension === "pptx") assert.match(result.warning, /vector notation, and equations may lose their layout/);
+  }
 });
 
 test("the Office text limit applies across selected slides and malformed ZIP metadata is rejected", async () => {
@@ -89,7 +106,55 @@ test("the Office text limit applies across selected slides and malformed ZIP met
   const file = officeFile("broken-directory.docx", [["word/document.xml", "hello"]]);
   const bytes = new Uint8Array(await file.arrayBuffer());
   new DataView(bytes.buffer).setUint32(bytes.length - 6, bytes.length + 100, true);
-  await assert.rejects(extractTextFromFile({ name: file.name, arrayBuffer: async () => bytes.buffer }), /invalid central directory entry/);
+  await assert.rejects(extractTextFromFile({ name: file.name, arrayBuffer: async () => bytes.buffer }), /invalid central directory/);
+});
+
+test("Office compressed reads stay within the original file limit and reject incomplete reads", async () => {
+  const { extractTextFromFile } = await loadSource("src/utils/fileTextExtractor.js");
+  const limit = 10 * 1024 * 1024;
+  let reads = 0;
+  await assert.rejects(extractTextFromFile({ name: "oversized.docx", size: limit + 1,
+    arrayBuffer: async () => { reads++; throw Error("Must not read an oversized file"); },
+  }), /original Office file exceeds 10 MB/);
+  assert.equal(reads, 0);
+
+  const file = officeFile("bounded.docx", [["word/document.xml", "A readable document."]]);
+  let range;
+  const result = await extractTextFromFile({ ...file, slice: (start, end) => { range = [start, end]; return file; } });
+  assert.match(result.text, /A readable document/);
+  assert.deepEqual(range, [0, limit + 1]);
+  await assert.rejects(extractTextFromFile({ ...file, size: 1, arrayBuffer: async () => new ArrayBuffer(limit + 1) }), /original Office file exceeds 10 MB/);
+  await assert.rejects(extractTextFromFile({ ...file, size: file.size + 1 }), /could not be read completely/);
+});
+
+test("Office ZIP directory counts, lengths, and selected compressed ranges cannot hide truncated content", async () => {
+  const { extractTextFromFile } = await loadSource("src/utils/fileTextExtractor.js");
+  const file = officeFile("malformed.docx", [["word/document.xml", "Readable document."]]);
+  const cases = [
+    [(view) => { view.setUint16(view.byteLength - 12, 2001, true); }, /too many package entries/],
+    [(view) => { view.setUint32(view.byteLength - 10, 45, true); }, /invalid central directory entry/],
+    [(view) => { view.setUint16(view.byteLength - 2, 1, true); }, /could not be opened as a ZIP/],
+    [(view) => {
+      const directory = view.getUint32(view.byteLength - 6, true);
+      view.setUint32(directory + 20, directory, true);
+    }, /invalid compressed entry data/],
+  ];
+  for (const [mutate, message] of cases) await assert.rejects(extractTextFromFile(await mutateOfficeFile(file, mutate)), message);
+});
+
+test("Office decompression stops reading and cancels as soon as actual output exceeds its declaration", async () => {
+  let reads = 0, cancelled = 0;
+  const { extractTextFromFile } = await loadSource("src/utils/fileTextExtractor.js", {}, {
+    DecompressionStream: class {},
+    Blob: class { stream() { return { pipeThrough: () => ({ getReader: () => ({
+      read: async () => { reads++; return { done: false, value: new Uint8Array(reads === 1 ? 10000 : 1) }; },
+      cancel: async () => { cancelled++; },
+    }) }) }; } },
+  });
+  const file = officeFile("undeclared-expansion.docx", [["word/document.xml", "hello"]], 10000);
+  await assert.rejects(extractTextFromFile(file), /safe reading limit/);
+  assert.equal(reads, 2);
+  assert.equal(cancelled, 1);
 });
 
 async function pdfFixture(pages) {

@@ -1128,6 +1128,24 @@ test(
   }
 );
 
+test('a file-reading failure names the failed file and does not upload the other queued files', async t => {
+  const app = await harness(t);
+  const before = app.data.courseMaterials.length;
+  let result;
+  await act(async () => {
+    result = await app.data.addMaterials([
+      { name: 'first.txt', size: 20, text: async () => 'Readable source material' },
+      { name: 'lecture-notes.txt', size: 30, text: async () => { throw new Error('File reading took longer than 3 minutes.'); } },
+    ], 'inft3050');
+  });
+  assert.equal(result.ok, false);
+  assert.match(result.message, /^lecture-notes\.txt: File reading took longer/);
+  assert.match(result.message, /No files from this batch were uploaded\./);
+  assert.doesNotMatch(result.message, /were added/);
+  assert.equal(app.data.courseMaterials.length, before);
+  assert.equal(app.requests.filter(request => request.url === '/api/materials' && request.options.method === 'POST').length, 0);
+});
+
 test(
   "student scores and study records stay isolated after switching accounts",
   async (t) => {

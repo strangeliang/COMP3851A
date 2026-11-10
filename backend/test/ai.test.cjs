@@ -414,6 +414,89 @@ test("Summary repairs invalid or truncated structured output once with the same 
   }
 });
 
+test("Summary truncation repair gives the supported thinking model more output room without losing long sources", async () => {
+  const ending = '\nSlide 100\nFINAL SOURCE FACT';
+  const content = 'Course content. '.repeat(Math.ceil(limits.maxAIContextCharacters / 16))
+    .slice(0, limits.maxAIContextCharacters - ending.length) + ending;
+  const longMaterials = [{ id: 'deck', name: 'long-course.pptx', content }];
+  const summary = { paragraph: 'The final source fact is covered. [S1, Slide 100]', concepts: ['Course content'] };
+  const requests = [];
+  const service = createGeminiService({ apiKey: 'test-key', model: 'gemini-2.5-flash', fetchImpl: async (_url, options) => {
+    const request = JSON.parse(options.body);
+    requests.push(request);
+    // A thinking response can exhaust the total budget before its JSON is complete.
+    return reply(request.generationConfig.maxOutputTokens <= 8192
+      ? { candidates: [{ finishReason: 'MAX_TOKENS', content: { parts: [{ text: '{"paragraph":"partial' }] } }], usageMetadata: { thoughtsTokenCount: 8000, candidatesTokenCount: 192 } }
+      : complete(JSON.stringify(summary)));
+  } });
+  assert.equal((await service.generate('summary', { materials: longMaterials })).paragraph, summary.paragraph);
+  assert.equal(content.length, limits.maxAIContextCharacters);
+  assert.deepEqual(requests.map(request => request.generationConfig.maxOutputTokens), [8192, 16384]);
+  assert.ok(requests.every(request => request.contents.at(-1).parts[0].text.includes(content)));
+  assert.deepEqual(requests[1].generationConfig.responseSchema, requests[0].generationConfig.responseSchema);
+  assert.equal(requests[1].generationConfig.thinkingConfig, undefined);
+});
+
+test("Summary output-budget recovery does not change unknown models or malformed-JSON repairs", async () => {
+  const summary = { paragraph: 'Photosynthesis converts light energy. [S1]', concepts: ['Chemical energy'] };
+  for (const [model, first] of [
+    ['gemini-2.0-flash', { candidates: [{ finishReason: 'MAX_TOKENS' }] }],
+    ['custom-model', { candidates: [{ finishReason: 'MAX_TOKENS' }] }],
+    ['gemini-2.5-flash', complete('not JSON')],
+  ]) {
+    const budgets = [];
+    const service = createGeminiService({ apiKey: 'test-key', model, fetchImpl: async (_url, options) => {
+      budgets.push(JSON.parse(options.body).generationConfig.maxOutputTokens);
+      return reply(budgets.length === 1 ? first : complete(JSON.stringify(summary)));
+    } });
+    assert.equal((await service.generate('summary', { materials })).paragraph, summary.paragraph);
+    assert.deepEqual(budgets, [8192, 8192]);
+  }
+});
+
+test("Summary truncation remains a bounded failure even when partial text happens to be valid JSON", async () => {
+  const budgets = [];
+  const partial = { paragraph: 'Only part of the deck was covered. [S1]', concepts: ['Incomplete coverage'] };
+  const service = createGeminiService({ apiKey: 'test-key', model: 'gemini-2.5-flash', fetchImpl: async (_url, options) => {
+    budgets.push(JSON.parse(options.body).generationConfig.maxOutputTokens);
+    const response = complete(JSON.stringify(partial));
+    response.candidates[0].finishReason = 'MAX_TOKENS';
+    return reply(response);
+  } });
+  await assert.rejects(service.generate('summary', { materials }), error => error.code === 'OUTPUT_TRUNCATED'
+    && error.status === 502 && /summary was cut short/.test(error.message) && /split a long document/.test(error.message));
+  assert.deepEqual(budgets, [8192, 16384]);
+});
+
+test("Summary truncation recovery retains the total timeout and explicit cancellation", async () => {
+  for (const cancel of [false, true]) {
+    const controller = new AbortController();
+    const budgets = [];
+    const service = createGeminiService({ apiKey: 'test-key', model: 'gemini-2.5-flash', timeoutMs: 25, fetchImpl: async (url, options) => {
+      budgets.push(JSON.parse(options.body).generationConfig.maxOutputTokens);
+      if (budgets.length === 1) return reply({ candidates: [{ finishReason: 'MAX_TOKENS' }] });
+      if (cancel) controller.abort();
+      return hangingFetch(url, options);
+    } });
+    await assert.rejects(service.generate('summary', { materials }, { signal: controller.signal }),
+      error => cancel ? error.name === 'AbortError' : error.code === 'AI_TIMEOUT');
+    assert.deepEqual(budgets, [8192, 16384]);
+  }
+});
+
+test("Summary truncation recovery does not raise other study modes' output budgets or add calls after an HTTP retry", async () => {
+  for (const mode of ['qa', 'quiz', 'flashcards', 'summary']) {
+    const budgets = [];
+    const service = createGeminiService({ apiKey: 'test-key', model: 'gemini-2.5-flash', delay: async () => {}, fetchImpl: async (_url, options) => {
+      budgets.push(JSON.parse(options.body).generationConfig.maxOutputTokens);
+      if (mode === 'summary' && budgets.length === 1) return reply('Busy', 503);
+      return reply({ candidates: [{ finishReason: 'MAX_TOKENS' }] });
+    } });
+    await assert.rejects(service.generate(mode, input), codeIs('OUTPUT_TRUNCATED'));
+    assert.deepEqual(budgets, mode === 'quiz' ? [16384, 16384] : mode === 'summary' ? [8192, 8192] : [8192]);
+  }
+});
+
 test("Summary repair is bounded, does not repair safety blocks, and shares HTTP retry and cancellation budgets", async () => {
   for (const transientFirst of [false, true]) {
     let calls = 0;
