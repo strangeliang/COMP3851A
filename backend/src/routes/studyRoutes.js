@@ -310,7 +310,10 @@ function createStudyRoutes({ database, gemini, mailer, sessions = createSessionS
     if (typeof readingNotes !== "string" || readingNotes.length > 2000) {
       throw new StudyError(400, "INVALID_READING_NOTES", "Reading notes must be text of at most 2,000 characters.");
     }
-    if (!Number.isInteger(sizeBytes) || sizeBytes < 0 || sizeBytes > 10 * 1024 * 1024 || (content !== null && typeof content !== "string")) {
+    if (Number.isInteger(sizeBytes) && sizeBytes > limits.maxFileBytes) {
+      throw new StudyError(400, "INVALID_MATERIAL", `Each original file must be no larger than ${limits.maxFileBytes / 1024 ** 2} MB.`);
+    }
+    if (!Number.isInteger(sizeBytes) || sizeBytes < 0 || (content !== null && typeof content !== "string")) {
       throw new StudyError(400, "INVALID_MATERIAL", "Material size or content is invalid.");
     }
     if (typeof content === "string" && content.length > limits.maxStoredTextCharacters) {
@@ -333,7 +336,7 @@ function createStudyRoutes({ database, gemini, mailer, sessions = createSessionS
     next();
   }
   router.put("/materials/:materialId/original", authenticate, ownedMaterial,
-    express.raw({ type: "application/octet-stream", limit: "10mb" }), async (req, res) => {
+    express.raw({ type: "application/octet-stream", limit: limits.maxFileBytes }), async (req, res) => {
       if (req.material.storage_key) throw new StudyError(409, "ORIGINAL_EXISTS", "This original is already saved.");
       validateOriginal(req.body, req.material);
       const file = await originals.write(req.body);

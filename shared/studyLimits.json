@@ -3,7 +3,7 @@
   "maxTotalFilesPerUser": 10,
   "maxFilesPerUpload": 3,
   "maxFilesPerAIRequest": 3,
-  "maxFileBytes": 10485760,
+  "maxFileBytes": 41943040,
   "maxStoredTextCharacters": 100000,
   "maxAIContextCharacters": 100000,
   "maxQuestionCharacters": 4000,

@@ -27,6 +27,9 @@ Startup applies the application's schema upgrades to the selected SQLite databas
 there is no separate migration command. Back up before upgrading. Schema upgrades
 do not transfer data when storage paths change: stop the backend and copy the
 database and originals together, retaining the old data and a backup.
+The upload size upgrade migrates the existing `materials` table in place; no reset
+or manual copy is needed if the storage paths stay the same. Check that the host
+and any reverse proxy accept 40 MiB request bodies for original uploads.
 
 Sessions are in memory; restarting requires login again. Production startup rejects
 missing or relative storage paths and an invalid `FRONTEND_URL`. These checks

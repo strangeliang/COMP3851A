@@ -5,6 +5,7 @@ const os = require("node:os");
 const path = require("node:path");
 const { spawn } = require("node:child_process");
 const { once } = require("node:events");
+const { maxFileBytes } = require("../../shared/studyLimits.json");
 
 test("original bytes survive a real backend restart; sessions, ownership and deletion are enforced", { timeout: 45000 }, async () => {
   const directory = await fs.mkdtemp(path.join(os.tmpdir(), "study-originals-"));
@@ -114,9 +115,28 @@ test("original bytes survive a real backend restart; sessions, ownership and del
     assert.ok(afterDeletion.sourceMaterials.every(material => material.id !== id), "Deleted material metadata must not remain searchable");
     assert.equal((await request(url, { cookie })).status, 404);
     assert.deepEqual(await fs.readdir(path.join(directory, "originals")), []);
+    // Original-file bytes have their own limit, independent of extracted text.
+    const oversizedBytes = Buffer.alloc(maxFileBytes + 1);
+    oversizedBytes.write("%PDF-1.7\n");
+    const boundaryBytes = oversizedBytes.subarray(0, maxFileBytes);
+    const boundaryMaterial = { name: "boundary.pdf", type: "PDF", sizeBytes: boundaryBytes.length, content: "Short extracted text." };
+    const materialEndpoint = `/courses/${course}/materials`;
+    const oversizedMetadata = await request(materialEndpoint, { cookie, method: "POST", data: { ...boundaryMaterial, sizeBytes: oversizedBytes.length } });
+    assert.equal(oversizedMetadata.status, 400);
+    assert.match((await oversizedMetadata.json()).message, /40 MB/);
+    const boundaryMetadata = await request(materialEndpoint, { cookie, method: "POST", data: boundaryMaterial });
+    assert.equal(boundaryMetadata.status, 201);
+    const boundaryId = (await boundaryMetadata.json()).material.id;
+    const boundaryUrl = `/materials/${boundaryId}/original`;
+    const oversizedUpload = await request(boundaryUrl, { cookie, method: "PUT", bytes: oversizedBytes });
+    assert.equal(oversizedUpload.status, 413);
+    assert.equal((await oversizedUpload.json()).code, "REQUEST_TOO_LARGE");
+    assert.equal((await request(boundaryUrl, { cookie })).status, 404);
+    assert.equal((await request(boundaryUrl, { cookie, method: "PUT", bytes: boundaryBytes })).status, 201);
+    const boundaryDownload = await request(boundaryUrl, { cookie });
+    assert.equal(boundaryDownload.status, 200);
+    assert.ok(Buffer.from(await boundaryDownload.arrayBuffer()).equals(boundaryBytes));
     // Deleting a course also deletes its originals, not only extracted records.
-    const second = await (await request(`/courses/${course}/materials`, { cookie, method: "POST", data: { name: "second.pdf", type: "PDF", sizeBytes: bytes.length, content: "text" } })).json();
-    assert.equal((await request(`/materials/${second.material.id}/original`, { cookie, method: "PUT", bytes })).status, 201);
     assert.equal((await request(`/courses/${course}`, { cookie, method: "DELETE" })).status, 200);
     assert.deepEqual(await fs.readdir(path.join(directory, "originals")), []);
     await stop();

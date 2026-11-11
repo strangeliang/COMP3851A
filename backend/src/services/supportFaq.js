@@ -1,4 +1,7 @@
 // Preset website help only. Never claims to be AI or a human administrator.
+const { maxFileBytes } = require('../../../shared/studyLimits.json');
+const maxFileMB = maxFileBytes / 1024 ** 2;
+
 function supportFaq(text, language) {
   const zh = language === 'zh';
   const rules = [
@@ -9,8 +12,8 @@ function supportFaq(text, language) {
       'Registration requires a six-digit email verification code. For a forgotten password, use /reset-password to request a one-time email link, valid for 15 minutes. Email delivery requires the server email service to be configured. If it is unavailable, contact support through /forgot-password; that creates a recovery request, not a password change or email. Google sign-in requires configuration and Google passwords are managed by Google. Never share credentials in chat.',
       '注册需要通过邮箱中的六位验证码验证。忘记密码时，打开 /reset-password 申请一次性邮件链接，15 分钟内有效。邮件发送需要服务器完成邮箱服务配置；若服务不可用，可通过 /forgot-password 申请管理员协助，该申请本身不会修改密码或发送邮件。Google 登录需要完成配置，Google 密码由 Google 管理。请勿在聊天中发送登录凭据。'],
     [/upload|file|pdf|ppt|上传|文件/i,
-      'Open Upload, select a course and files, then Upload All. Each file must be at most 10 MB. Use PPTX rather than PPT. Check the error shown if uploading fails.',
-      '打开 Upload，选择课程和文件，然后点击 Upload All。每个文件最大 10 MB，请使用 PPTX 而不是 PPT。上传失败时请描述页面显示的错误。'],
+      `Open Upload, select a course and files, then Upload All. Each original file must be at most ${maxFileMB} MB. Separate reading limits still apply. Use PPTX rather than PPT. Check the error shown if uploading fails.`,
+      `打开 Upload，选择课程和文件，然后点击 Upload All。每个原文件最大 ${maxFileMB} MB，另有读取限制。请使用 PPTX 而不是 PPT。上传失败时请描述页面显示的错误。`],
     [/history|历史|record|记录/i,
       'Open Study History, select your course or All, and refresh records. Summaries, Q&A, submitted quizzes and flashcards are saved to your account. Report any missing recent record here.',
       '打开 Study History，选择课程或 All 并刷新记录。摘要、问答、已提交测验和闪卡会保存到你的账号。如近期记录缺失，可在这里描述。'],
