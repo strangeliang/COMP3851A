@@ -1,4 +1,7 @@
 import { containsSupportSecret } from '../../shared/supportSecrets.mjs';
+import studyLimits from '../../shared/studyLimits.json';
+
+const maxUploadSize = `${studyLimits.maxFileBytes / (1024 * 1024)} MB`;
 export function containsSecret(text) {
   return containsSupportSecret(text);
 }
@@ -6,7 +9,7 @@ export function helpReply(text, language = "en") {
   const zh = language === "zh";
   if (/login|log in|sign in|登录|session|过期/i.test(text)) return { category: "other", answer: zh ? "请先检查登录页中的邮箱和密码。若会话已过期，请重新登录；若登录后立即退出，请把页面和错误文字报告给管理员。请勿在这里发送密码或验证码。" : "Check your email and password on the login page. For an expired session, log in again. If immediately signed out, report the error text and page to the administrator. Never share passwords or codes here." };
   if (/register|account|password|注册|账号|密码/i.test(text)) return { category: "other", answer: zh ? "在登录页点击 Register 创建学生账号。忘记密码时请联系课程管理员；目前尚未启用邮件找回。Google 登录需要先完成配置。请勿发送任何登录凭据。" : "Use Register on the login page to create a student account. Forgot your password? Contact your course administrator; email recovery is not enabled yet. Google sign-in needs configuration. Do not send credentials here." };
-  if (/upload|file|pdf|ppt|上传|文件/i.test(text)) return { category: "upload", answer: zh ? "打开 Upload，选择课程和文件，然后点击 Upload All。每个文件最大 10 MB；请使用 PPTX，而不是旧版 PPT。上传后的原文件可以下载，PDF 和图片也可以预览。" : "Open Upload, choose a course, select files and click Upload All. Each file must be at most 10 MB; use PPTX instead of legacy PPT. Check the displayed extraction limits. New originals have Download original; PDF/images also have Preview original." };
+  if (/upload|file|pdf|ppt|上传|文件/i.test(text)) return { category: "upload", answer: zh ? `打开 Upload，选择课程和文件，然后点击 Upload All。每个文件最大 ${maxUploadSize}；请使用 PPTX，而不是旧版 PPT。上传后的原文件可以下载，PDF 和图片也可以预览。` : `Open Upload, choose a course, select files and click Upload All. Each file must be at most ${maxUploadSize}; use PPTX instead of legacy PPT. Check the displayed extraction limits. New originals have Download original; PDF/images also have Preview original.` };
   if (/history|历史|record|记录/i.test(text)) return { category: "review", answer: zh ? "打开 Study History，选择对应课程或 All，再点击 Refresh records。新的 Summary、Q&A、Quiz 和 Flashcards 会保存到你的账号。如近期记录缺失，请记下保存时出现的错误。" : "Open Study History, choose the matching course or All and Refresh records. New summaries, Q&A, submitted quizzes and flashcards are saved to your account. Old browser-only records may need manual import. Note any save error if a recent record is missing." };
   if (/quiz|review|错题|测验|练习/i.test(text)) return { category: "quiz", answer: zh ? "进入 AI Functions → Quiz，选择材料、生成题目、作答并提交。Review Centre 会显示已保存测验中的错题。重练结果不会覆盖原始分数。" : "Open AI Functions → Quiz, choose materials, generate questions, answer and submit. Review Centre shows saved quizzes with wrong answers. Select All courses and Refresh records. Retry results do not replace the original score." };
   if (/profile|avatar|头像|昵称/i.test(text)) return { category: "other", answer: zh ? "打开 My Profile，或点击头像，即可编辑照片和姓名，然后保存。" : "Open My Profile or click your avatar, edit your photo and name, then save." };

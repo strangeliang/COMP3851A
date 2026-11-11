@@ -12,7 +12,7 @@ import {
   getCourseMaterials,
   getCourses,
 } from "../services/courseMaterialService";
-import { extractTextFromFile, getFileExtension, SUPPORTED_MATERIAL_EXTENSIONS } from "../utils/fileTextExtractor";
+import { extractTextFromFile, formatFileSize, getFileExtension, SUPPORTED_MATERIAL_EXTENSIONS } from "../utils/fileTextExtractor";
 import { getRecordMaterialIds, getScopeKey, limits, recordScopeKey, sameId } from "../utils/studyScope";
 import { mergeServerHistory } from "../utils/historySync";
 
@@ -504,7 +504,8 @@ export function AppDataProvider({ children }) {
     if (current.materials.filter((item) => ownedBy(item, user)).length + files.length > limits.maxTotalFilesPerUser) return `Each student can store at most ${limits.maxTotalFilesPerUser} files in this browser.`;
     for (const file of files) {
       if (!SUPPORTED_MATERIAL_EXTENSIONS.includes(getFileExtension(file.name))) return `Unsupported file type: ${file.name}`;
-      if (file.size > limits.maxFileBytes) return `Each file must be no larger than 10 MB: ${file.name}`;
+      if (file.size <= 0) return `${file.name} is empty. Choose a non-empty file.`;
+      if (file.size > limits.maxFileBytes) return `${file.name} exceeds the ${formatFileSize(limits.maxFileBytes)} per-file upload limit.`;
       if (file.name.length > 255) return "File names must be no longer than 255 characters.";
     }
     return "";

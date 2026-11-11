@@ -3,7 +3,7 @@ const path = require("path");
 const sqlite3 = require("sqlite3").verbose();
 const limits = require("../../../shared/studyLimits.json");
 
-const { createSchema, REQUIRED_TABLES } = require("./schema");
+const { createSchema, migrateMaterialSizeLimit, REQUIRED_TABLES } = require("./schema");
 const { seedDatabase } = require("./seed");
 
 const databasePath = process.env.STUDY_DATABASE_PATH || path.join(__dirname, "../../data/study_companion.db");
@@ -70,6 +70,7 @@ async function initializeDatabase() {
   }
 
   await createSchema({ exec });
+  await migrateMaterialSizeLimit({ exec, get, all });
   await seedDatabase({ exec, get, run });
 
   console.log("SQLite database initialized successfully.");

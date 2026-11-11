@@ -69,8 +69,12 @@ export default function UploadPage() {
       setStatus({ ok: false, message: t(`${unsupported.name}: unsupported format. Use PDF, PPTX, DOCX, TXT, MD or supported images. Save old PPT/DOC files as PPTX/DOCX first.`, `${unsupported.name}：不支持此格式。请使用 PDF、PPTX、DOCX、TXT、MD 或支持的图片格式。旧版 PPT/DOC 请先另存为 PPTX/DOCX。`) });
       return;
     }
-    if (files.some(file => file.size <= 0 || file.size > limits.maxFileBytes)) {
-      setStatus({ ok: false, message: t(`Each file must be non-empty and at most ${formatFileSize(limits.maxFileBytes)}.`, `文件不能为空，且每个文件不能超过 ${formatFileSize(limits.maxFileBytes)}。`) });
+    const invalidSize = files.find(file => file.size <= 0 || file.size > limits.maxFileBytes);
+    if (invalidSize) {
+      const maxSize = formatFileSize(limits.maxFileBytes);
+      setStatus({ ok: false, message: invalidSize.size <= 0
+        ? t(`${invalidSize.name} is empty. Choose a non-empty file.`, `${invalidSize.name} 是空文件，请选择非空文件。`)
+        : t(`${invalidSize.name} exceeds the ${maxSize} per-file upload limit.`, `${invalidSize.name} 超过单个文件的上传上限 ${maxSize}。`) });
       return;
     }
     const unique = new Map(selectedFiles.map(file => [JSON.stringify([file.name,file.size,file.lastModified]), file]));

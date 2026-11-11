@@ -15,11 +15,12 @@ test("small nonempty files display bytes and retain the KB and MB boundaries", a
 
 function officeFile(name, entries, reportedSize) {
   const locals = []; const directory = []; let offset = 0;
-  for (const [entryName, text] of entries) {
-    const fileName = Buffer.from(entryName); const plain = Buffer.from(text); const compressed = deflateRawSync(plain);
-    const local = Buffer.alloc(30); local.writeUInt32LE(0x04034b50); local.writeUInt16LE(8, 8);
+  for (const [entryName, text, method = 8] of entries) {
+    const fileName = Buffer.from(entryName); const plain = Buffer.isBuffer(text) ? text : Buffer.from(text);
+    const compressed = method === 0 ? plain : deflateRawSync(plain);
+    const local = Buffer.alloc(30); local.writeUInt32LE(0x04034b50); local.writeUInt16LE(method, 8);
     local.writeUInt32LE(compressed.length, 18); local.writeUInt32LE(reportedSize ?? plain.length, 22); local.writeUInt16LE(fileName.length, 26);
-    const central = Buffer.alloc(46); central.writeUInt32LE(0x02014b50); central.writeUInt16LE(8, 10);
+    const central = Buffer.alloc(46); central.writeUInt32LE(0x02014b50); central.writeUInt16LE(method, 10);
     central.writeUInt32LE(compressed.length, 20); central.writeUInt32LE(reportedSize ?? plain.length, 24);
     central.writeUInt16LE(fileName.length, 28); central.writeUInt32LE(offset, 42);
     locals.push(local, fileName, compressed); directory.push(central, fileName); offset += local.length + fileName.length + compressed.length;
@@ -111,11 +112,11 @@ test("the Office text limit applies across selected slides and malformed ZIP met
 
 test("Office compressed reads stay within the original file limit and reject incomplete reads", async () => {
   const { extractTextFromFile } = await loadSource("src/utils/fileTextExtractor.js");
-  const limit = 10 * 1024 * 1024;
+  const limit = 40 * 1024 * 1024;
   let reads = 0;
   await assert.rejects(extractTextFromFile({ name: "oversized.docx", size: limit + 1,
     arrayBuffer: async () => { reads++; throw Error("Must not read an oversized file"); },
-  }), /original Office file exceeds 10 MB/);
+  }), /original Office file exceeds 40 MB/);
   assert.equal(reads, 0);
 
   const file = officeFile("bounded.docx", [["word/document.xml", "A readable document."]]);
@@ -123,8 +124,20 @@ test("Office compressed reads stay within the original file limit and reject inc
   const result = await extractTextFromFile({ ...file, slice: (start, end) => { range = [start, end]; return file; } });
   assert.match(result.text, /A readable document/);
   assert.deepEqual(range, [0, limit + 1]);
-  await assert.rejects(extractTextFromFile({ ...file, size: 1, arrayBuffer: async () => new ArrayBuffer(limit + 1) }), /original Office file exceeds 10 MB/);
+  await assert.rejects(extractTextFromFile({ ...file, size: 1, arrayBuffer: async () => new ArrayBuffer(limit + 1) }), /original Office file exceeds 40 MB/);
   await assert.rejects(extractTextFromFile({ ...file, size: file.size + 1 }), /could not be read completely/);
+});
+
+test("a PPTX at the 40 MB original-file limit reads slides without counting media against the 20 MB text limit", async () => {
+  const { extractTextFromFile } = await loadSource("src/utils/fileTextExtractor.js");
+  const name = "large-slides.pptx";
+  const slide = ["ppt/slides/slide1.xml", "<root><p><t>Readable lecture material.</t></p></root>"];
+  const mediaPath = "ppt/media/image1.bin";
+  const limit = 40 * 1024 * 1024;
+  const overhead = officeFile(name, [slide, [mediaPath, Buffer.alloc(0), 0]]).size;
+  const file = officeFile(name, [slide, [mediaPath, Buffer.alloc(limit - overhead), 0]]);
+  assert.equal(file.size, limit);
+  assert.match((await extractTextFromFile(file)).text, /Readable lecture material/);
 });
 
 test("Office ZIP directory counts, lengths, and selected compressed ranges cannot hide truncated content", async () => {

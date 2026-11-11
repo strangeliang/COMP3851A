@@ -97,7 +97,7 @@ Limits are defined in [shared/studyLimits.json](shared/studyLimits.json) and enf
 | --- | --- |
 | Files per upload / AI selection | 3 |
 | Materials per course / student account | 5 / 10 |
-| Original file size | 10 MiB |
+| Original file size | 40 MiB per file |
 | Extracted text per file | 100,000 characters |
 | Combined source text per AI request | 100,000 characters |
 | PDF | 100 pages; at most 20 pages requiring OCR |
@@ -155,7 +155,7 @@ npm --prefix backend ci
 npm run check
 ```
 
-An unmerged feature branch is not yet part of `main`. Restart local services after updating. Deploy the matching frontend and backend together, retain the existing private environment and persistent data, and back up the database and originals together. Additive migrations run at backend startup; do not reset the database to apply this release.
+An unmerged feature branch is not yet part of `main`. Restart local services after updating. Deploy the matching frontend and backend together, retain the existing private environment and persistent data, and back up the database and originals together. Schema migrations run at backend startup; do not reset the database to apply this release.
 
 For production, follow [deployment and recovery](docs/DEPLOYMENT.md), including the actual HTTPS origin, persistent paths, mail configuration, private administrator creation and post-deployment acceptance checks. A successful local test run or GitHub push does not establish live deployment status.
 

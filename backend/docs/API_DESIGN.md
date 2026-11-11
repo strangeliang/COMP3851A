@@ -60,7 +60,7 @@ Every route below requires a session and enforces ownership.
 | PATCH | `/courses/:courseId` | Update `{code, name}`, preserving materials and study records. |
 | DELETE | `/courses/:courseId` | Delete the course and dependent records; clean up originals. |
 | GET / POST | `/courses/:courseId/materials` | List materials / create with `{name, type, sizeBytes, content, readingNotes?}`. |
-| PUT | `/materials/:materialId/original` | Save `application/octet-stream` bytes, up to 10 MiB; refuses replacement. |
+| PUT | `/materials/:materialId/original` | Save `application/octet-stream` bytes, up to 40 MiB; refuses replacement. |
 | GET | `/materials/:materialId/original` | Download original; `?preview=1` enables inline PDF/image preview. |
 | DELETE | `/materials/:materialId` | Delete material, tracked dependent records and original. |
 

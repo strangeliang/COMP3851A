@@ -1,4 +1,9 @@
+const { maxFileBytes } = require("../../../shared/studyLimits.json");
+
 const REQUIRED_TABLES = ["users", "courses", "materials"];
+
+const MATERIALS_SIZE_CHECK = /(\bCHECK\s*\(\s*size_bytes\s*>=\s*0\s+AND\s+size_bytes\s*<=\s*)(\d+)(?=\s*\))/i;
+const MATERIALS_TABLE_HEADER = /^CREATE TABLE (?:IF NOT EXISTS )?(?:"materials"|materials)(?=\s*\()/i;
 
 const SCHEMA_SQL = `
   CREATE TABLE IF NOT EXISTS registration_codes (
@@ -265,7 +270,7 @@ const SCHEMA_SQL = `
     type TEXT NOT NULL
       CHECK (type IN ('TXT', 'MD', 'PDF', 'DOCX', 'PPTX', 'PNG', 'JPG', 'JPEG', 'WEBP', 'BMP')),
     size_bytes INTEGER NOT NULL
-      CHECK (size_bytes >= 0 AND size_bytes <= 10485760),
+      CHECK (size_bytes >= 0 AND size_bytes <= ${maxFileBytes}),
     status TEXT NOT NULL DEFAULT 'Ready'
       CHECK (status IN ('Pending', 'Processing', 'Ready', 'Failed')),
     content TEXT,
@@ -278,7 +283,7 @@ const SCHEMA_SQL = `
     FOREIGN KEY (owner_id) REFERENCES users(id) ON DELETE CASCADE
   );
 
-  -- Keep source identities stable without rebuilding existing materials tables.
+  -- Keep source identities stable, even when a material is deleted.
   -- Explicit seed/import IDs also advance the sequence through the trigger.
   CREATE TABLE IF NOT EXISTS material_id_sequence (
     singleton INTEGER PRIMARY KEY CHECK (singleton=1),
@@ -352,7 +357,60 @@ async function createSchema({ exec }) {
     RELEASE history_view_upgrade;`);
 }
 
+async function migrateMaterialSizeLimit({ exec, get, all }) {
+  const readMaterialsSchema = async () => (await get("SELECT sql FROM sqlite_schema WHERE type='table' AND name='materials';"))?.sql;
+  const previousSizeLimit = sql => Number(sql?.match(MATERIALS_SIZE_CHECK)?.[2]);
+  if (!(previousSizeLimit(await readMaterialsSchema()) < maxFileBytes)) return;
+
+  // SQLite cannot alter an existing CHECK. Disable foreign keys only on this
+  // startup connection and outside the transaction, so replacing the parent
+  // table does not cascade deletes to original-file records.
+  let foreignKeysRestored = false;
+  try {
+    await exec("PRAGMA foreign_keys = OFF;");
+    if ((await get("PRAGMA foreign_keys;"))?.foreign_keys !== 0) {
+      throw new Error("Could not suspend SQLite foreign keys for the material size migration.");
+    }
+    await exec("BEGIN IMMEDIATE;");
+    try {
+      // Re-read under the write lock in case another startup already migrated.
+      const oldSql = await readMaterialsSchema();
+      if (previousSizeLimit(oldSql) < maxFileBytes) {
+        if (!MATERIALS_TABLE_HEADER.test(oldSql)) {
+          throw new Error("Could not recognize the SQLite materials table for the size migration.");
+        }
+        // Reuse the existing table definition and attached indexes/triggers;
+        // nothing except the upper size bound changes, including column order.
+        const replacementSql = oldSql
+          .replace(MATERIALS_TABLE_HEADER, "CREATE TABLE materials_size_upgrade")
+          .replace(MATERIALS_SIZE_CHECK, (_, prefix) => `${prefix}${maxFileBytes}`);
+        const objects = await all(`SELECT sql FROM sqlite_schema
+          WHERE tbl_name='materials' AND type IN ('index','trigger') AND sql IS NOT NULL ORDER BY type,name;`);
+        await exec(`${replacementSql};
+          INSERT INTO materials_size_upgrade SELECT * FROM materials;
+          DROP TABLE materials;
+          ALTER TABLE materials_size_upgrade RENAME TO materials;`);
+        for (const { sql } of objects) await exec(sql);
+        if (await get("PRAGMA foreign_key_check;")) {
+          throw new Error("Foreign key check failed during the material size migration.");
+        }
+      }
+      await exec("COMMIT;");
+    } catch (error) {
+      await exec("ROLLBACK;");
+      throw error;
+    }
+  } finally {
+    await exec("PRAGMA foreign_keys = ON;");
+    foreignKeysRestored = (await get("PRAGMA foreign_keys;"))?.foreign_keys === 1;
+  }
+  if (!foreignKeysRestored) {
+    throw new Error("Could not restore SQLite foreign key enforcement after the material size migration.");
+  }
+}
+
 module.exports = {
   createSchema,
+  migrateMaterialSizeLimit,
   REQUIRED_TABLES,
 };
