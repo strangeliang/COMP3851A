@@ -1,7 +1,7 @@
 const number = '[+-]?(?:\\d+(?:\\.\\d*)?|\\.\\d+)(?:e[+-]?\\d+)?';
 const literalPattern = new RegExp(`^(${number})(.*)$`, 'i');
 const fractionPattern = new RegExp(`^(${number})\\s*\\/\\s*(${number})(.*)$`, 'i');
-const rootPattern = new RegExp(`^([+-]?)(?:sqrt|√)\\s*(?:\\(\\s*(${number})\\s*\\)|(${number}))(.*)$`, 'i');
+const rootPattern = new RegExp(`^(?:(${number})\\s*(?:[*×]\\s*)?|([+-]?)\\s*)(?:sqrt|√)\\s*(?:\\(\\s*(${number})\\s*\\)|(${number}))(.*)$`, 'i');
 
 function safeScalarLiteral(text) {
   const numeric = Number(text);
@@ -28,10 +28,13 @@ function scalarOption(text) {
   value = value.replace(/^(?:≈|~|approximately\s+|about\s+)/i, '').trim();
   let match = value.match(rootPattern), numeric, suffix, expression = false;
   if (match) {
-    const operand = safeScalarLiteral(match[2] ?? match[3]);
-    if (operand === null) return null;
-    numeric = (match[1] === '-' ? -1 : 1) * Math.sqrt(operand);
-    suffix = match[4]; expression = true;
+    // Parse only a numeric coefficient and one literal square root, never evaluate formulas.
+    const coefficient = match[1] === undefined ? (match[2] === '-' ? -1 : 1) : safeScalarLiteral(match[1]);
+    const operand = safeScalarLiteral(match[3] ?? match[4]);
+    if (coefficient === null || operand === null) return null;
+    numeric = coefficient * Math.sqrt(operand);
+    if (coefficient !== 0 && operand !== 0 && numeric === 0) return null;
+    suffix = match[5]; expression = true;
   } else if ((match = value.match(fractionPattern))) {
     const numerator = safeScalarLiteral(match[1]), denominator = safeScalarLiteral(match[2]);
     if (numerator === null || denominator === null || (numerator !== 0 && numerator / denominator === 0)) return null;

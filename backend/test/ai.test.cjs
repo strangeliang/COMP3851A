@@ -546,6 +546,51 @@ test("Quiz rejects equivalent exact and rounded scalar options while preserving 
   assert.throws(() => parseOutput('quiz', complete(JSON.stringify({ questions: [question] })), { materials, questionCount: 1 }), codeIs('AMBIGUOUS_QUIZ'));
 });
 
+test("Quiz detects equivalent radicals with finite numeric coefficients", () => {
+  const { hasEquivalentOptions } = require('../src/services/quizQuality');
+  for (const pair of [
+    ['sqrt(164)', '2sqrt(41)'], ['√164 units', '2 * √41 units'],
+    ['-\\sqrt{164} m', '-2\\sqrt{41} m'], ['sqrt(41)', '0.5*sqrt(164)'],
+    ['sqrt(164)', '2e0 × sqrt(41)'], ['-√4', '-2sqrt(1)'], ['2sqrt(0)', '0'],
+  ]) assert.equal(hasEquivalentOptions([...pair, 'Other answer', 'Unrelated answer']), true, pair.join(' / '));
+});
+
+test("Quiz coefficient radicals preserve distinct values and reject malformed or unsafe expressions", () => {
+  const { hasEquivalentOptions } = require('../src/services/quizQuality');
+  for (const pair of [
+    ['2sqrt(41)', '3sqrt(41)'], ['2sqrt(41)', '2sqrt(42)'],
+    ['2sqrt(41) m', '2sqrt(41) cm'], ['2sqrt(1)', '-2sqrt(1)'],
+    ['2sqrt(41)', '12.9 units (3sf)'], ['2sqrt(-1)', '0'],
+    ['2**sqrt(41)', 'sqrt(164)'], ['*sqrt(164)', 'sqrt(164)'],
+    ['2sqrt(41)+1', 'sqrt(164)'], ['2sqrt(x)', 'sqrt(164)'],
+    ['1e-300sqrt(1e-300)', '0'], ['9007199254740993sqrt(1)', '9007199254740992'],
+    ['1.0000000000000001sqrt(1)', '1'],
+  ]) assert.equal(hasEquivalentOptions([...pair, 'Other answer', 'Unrelated answer']), false, pair.join(' / '));
+  globalThis.quizQualityExecuted = false;
+  try {
+    assert.equal(hasEquivalentOptions(['2sqrt(41); globalThis.quizQualityExecuted = true', 'sqrt(164)']), false);
+    assert.equal(globalThis.quizQualityExecuted, false);
+  } finally { delete globalThis.quizQualityExecuted; }
+});
+
+test("a coefficient radical ambiguity triggers only one Quiz repair and retains canonical marking", async () => {
+  const question = { question: 'Find the exact distance between A(6,-3,2) and B(-2,5,-4).',
+    options: ['sqrt(164)', '2sqrt(41)', '10', '8'], answerIndices: [0], explanation: 'The squared distance is 164. [S1]' };
+  assert.throws(() => parseOutput('quiz', complete(JSON.stringify({ questions: [question] })), { materials, questionCount: 1, quizType: 'single' }), codeIs('AMBIGUOUS_QUIZ'));
+  const corrected = { ...question, options: ['2sqrt(41)', '10', '8', 'sqrt(144)'] };
+  let calls = 0;
+  const service = createGeminiService({ apiKey: 'test-key', fetchImpl: async () => reply(complete(JSON.stringify({ questions: [++calls === 1 ? question : corrected] }))) });
+  const result = await service.generate('quiz', { materials, questionCount: 1, quizType: 'single' });
+  assert.equal(calls, 2);
+  assert.equal(result.questions[0].options[result.questions[0].answerIndices[0]], '2sqrt(41)');
+  let invalidCalls = 0;
+  const invalid = createGeminiService({ apiKey: 'test-key', fetchImpl: async () => {
+    invalidCalls++; return reply(complete(JSON.stringify({ questions: [question] })));
+  } });
+  await assert.rejects(invalid.generate('quiz', { materials, questionCount: 1, quizType: 'single' }), codeIs('AMBIGUOUS_QUIZ'));
+  assert.equal(invalidCalls, 2);
+});
+
 test("ambiguous Quiz options trigger one regenerated, validated Quiz with correct answer mappings", async () => {
   const question = { question: 'Given A(6,-3,2) and B(-2,5,-4), find the distance to 3 significant figures.',
     options: ['√164 units', '12.8 units (3sf)', '10 units', '8 units'], answerIndices: [1], explanation: 'The squared distance is 164. [S1]' };
